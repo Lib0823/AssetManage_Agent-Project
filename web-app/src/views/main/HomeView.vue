@@ -1,8 +1,7 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
-import { Pie, Bar } from 'vue-chartjs'
 import { mockMarketIndices, mockExchangeRates, mockTopNews, mockAiRecommendations } from '@/services/mockData'
 
 const router = useRouter()
@@ -12,18 +11,68 @@ const exchangeRates = ref(mockExchangeRates)
 const topNews = ref(mockTopNews)
 const aiRecommendations = ref(mockAiRecommendations)
 
-const activeTab = ref('domestic')
 const currentIndexSlide = ref(0)
 const indexCategories = ['domestic', 'overseas', 'coin']
+const scrollContainerRef = ref(null)
 
-const onIndexSlideChange = (index) => {
-  currentIndexSlide.value = index
+const onScroll = () => {
+  if (!scrollContainerRef.value) return
+  const container = scrollContainerRef.value
+  const scrollLeft = container.scrollLeft
+  const itemWidth = container.offsetWidth * 0.85
+  const newIndex = Math.round(scrollLeft / itemWidth)
+  if (newIndex !== currentIndexSlide.value && newIndex >= 0 && newIndex < indexCategories.length) {
+    currentIndexSlide.value = newIndex
+  }
+}
+
+const goToSlide = (index) => {
+  if (!scrollContainerRef.value) return
+  const container = scrollContainerRef.value
+  const itemWidth = container.offsetWidth * 0.85
+  container.scrollTo({ left: index * itemWidth, behavior: 'smooth' })
+}
+
+// 환율 스크롤
+const currentExchangeSlide = ref(0)
+const exchangeScrollRef = ref(null)
+
+const onExchangeScroll = () => {
+  if (!exchangeScrollRef.value) return
+  const container = exchangeScrollRef.value
+  const scrollLeft = container.scrollLeft
+  const itemWidth = container.offsetWidth * 0.85
+  const newIndex = Math.round(scrollLeft / itemWidth)
+  if (newIndex !== currentExchangeSlide.value && newIndex >= 0 && newIndex < exchangeRates.value.length) {
+    currentExchangeSlide.value = newIndex
+  }
+}
+
+const goToExchangeSlide = (index) => {
+  if (!exchangeScrollRef.value) return
+  const container = exchangeScrollRef.value
+  const itemWidth = container.offsetWidth * 0.85
+  container.scrollTo({ left: index * itemWidth, behavior: 'smooth' })
+}
+
+// 미니 차트 포인트 계산
+const getChartPoints = (history) => {
+  if (!history || history.length === 0) return ''
+  const min = Math.min(...history)
+  const max = Math.max(...history)
+  const range = max - min || 1
+  const points = history.map((value, index) => {
+    const x = (index / (history.length - 1)) * 100
+    const y = 40 - ((value - min) / range) * 36 - 2
+    return `${x},${y}`
+  })
+  return points.join(' ')
 }
 
 // 알림 모달
 const showNotificationModal = ref(false)
 const notifications = ref([
-  { id: 1, type: 'trade', title: '테슬라 1주 매도 체결', desc: '체결가 $248.50', time: '방금 전', read: false },
+  { id: 1, type: 'trade', title: '테슬라 3주 예약 매도 체결', desc: '체결가 $248.50', time: '방금 전', read: false },
   { id: 2, type: 'trade', title: '삼성전자 10주 매수 체결', desc: '체결가 71,500원', time: '5분 전', read: false },
   { id: 3, type: 'ai', title: 'AI 매매 신호', desc: 'NVIDIA 매수 추천', time: '30분 전', read: true },
   { id: 4, type: 'price', title: '목표가 도달', desc: '애플 $180 도달', time: '1시간 전', read: true },
@@ -43,6 +92,17 @@ const getNotificationIcon = (type) => {
   return icons[type] || 'bell'
 }
 
+const getNotificationTypeName = (type) => {
+  const names = {
+    trade: '매매',
+    ai: 'AI',
+    price: '주가',
+    news: '뉴스'
+  }
+  const name = names[type] || 'none'
+  return `[${name}]`
+}
+
 const formatNumber = (num) => {
   return new Intl.NumberFormat('ko-KR').format(num)
 }
@@ -56,9 +116,9 @@ const goToNews = (news) => {
   router.push(`/news/${news.id}`)
 }
 
-onMounted(() => {
-  // Fetch data from API
-})
+const goToCompany = (symbol) => {
+  router.push(`/company/${symbol}`)
+}
 </script>
 
 <template>
@@ -74,8 +134,9 @@ onMounted(() => {
             <path d="M13.73 21C13.5542 21.3031 13.3019 21.5547 12.9982 21.7295C12.6946 21.9044 12.3504 21.9965 12 21.9965C11.6496 21.9965 11.3054 21.9044 11.0018 21.7295C10.6982 21.5547 10.4458 21.3031 10.27 21" stroke="#F59E0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </span>
-        <span class="notification-text">알림 내용...</span>
+        <span class="notification-text"><b>{{ getNotificationTypeName(notifications[0]?.type) }}</b></span>
         <span class="notification-highlight">{{ notifications[0]?.title }}</span>
+        <span>  </span>
         <van-icon name="arrow" class="notification-arrow" />
       </div>
 
@@ -114,70 +175,73 @@ onMounted(() => {
       <section class="section">
         <h2 class="section-title">주요 지수</h2>
         <div class="indices-swipe-container">
-          <van-swipe
-            class="indices-swipe"
-            :show-indicators="false"
-            @change="onIndexSlideChange"
-            :loop="false"
-            :touchable="true"
+          <div class="swipe-fade left" :class="{ visible: currentIndexSlide > 0 }"></div>
+          <div class="swipe-fade right" :class="{ visible: currentIndexSlide < indexCategories.length - 1 }"></div>
+          <div
+            ref="scrollContainerRef"
+            class="indices-scroll"
+            @scroll="onScroll"
           >
-            <van-swipe-item v-for="category in indexCategories" :key="category">
-              <div class="indices-card">
-                <!-- 상단 2개 지수 -->
-                <div class="indices-row">
-                  <div class="index-item">
-                    <span class="index-label">{{ indices[category].items[0].label }}</span>
-                    <span class="index-value">{{ formatNumber(indices[category].items[0].value) }}</span>
-                    <span :class="['index-change', indices[category].items[0].change >= 0 ? 'positive' : 'negative']">
-                      {{ formatChange(indices[category].items[0].change, indices[category].items[0].changePercent) }}
-                    </span>
-                  </div>
-                  <div class="vertical-divider"></div>
-                  <div class="index-item">
-                    <span class="index-label">{{ indices[category].items[1].label }}</span>
-                    <span class="index-value">{{ formatNumber(indices[category].items[1].value) }}</span>
-                    <span :class="['index-change', indices[category].items[1].change >= 0 ? 'positive' : 'negative']">
-                      {{ formatChange(indices[category].items[1].change, indices[category].items[1].changePercent) }}
-                    </span>
-                  </div>
+            <div
+              v-for="category in indexCategories"
+              :key="category"
+              class="indices-card"
+            >
+              <!-- 상단 2개 지수 -->
+              <div class="indices-row">
+                <div class="index-item">
+                  <span class="index-label">{{ indices[category].items[0].label }}</span>
+                  <span class="index-value">{{ formatNumber(indices[category].items[0].value) }}</span>
+                  <span :class="['index-change', indices[category].items[0].change >= 0 ? 'positive' : 'negative']">
+                    {{ formatChange(indices[category].items[0].change, indices[category].items[0].changePercent) }}
+                  </span>
                 </div>
-
-                <!-- Center divider with tab -->
-                <div class="index-divider">
-                  <div class="divider-line"></div>
-                  <div class="index-tab">
-                    <span class="tab-text">{{ indices[category].label }}</span>
-                  </div>
-                  <div class="divider-line"></div>
-                </div>
-
-                <!-- 하단 2개 지수 -->
-                <div class="indices-row">
-                  <div class="index-item">
-                    <span class="index-label">{{ indices[category].items[2].label }}</span>
-                    <span class="index-value">{{ formatNumber(indices[category].items[2].value) }}</span>
-                    <span :class="['index-change', indices[category].items[2].change >= 0 ? 'positive' : 'negative']">
-                      {{ formatChange(indices[category].items[2].change, indices[category].items[2].changePercent) }}
-                    </span>
-                  </div>
-                  <div class="vertical-divider"></div>
-                  <div class="index-item">
-                    <span class="index-label">{{ indices[category].items[3].label }}</span>
-                    <span class="index-value">{{ formatNumber(indices[category].items[3].value) }}</span>
-                    <span :class="['index-change', indices[category].items[3].change >= 0 ? 'positive' : 'negative']">
-                      {{ formatChange(indices[category].items[3].change, indices[category].items[3].changePercent) }}
-                    </span>
-                  </div>
+                <div class="vertical-divider"></div>
+                <div class="index-item">
+                  <span class="index-label">{{ indices[category].items[1].label }}</span>
+                  <span class="index-value">{{ formatNumber(indices[category].items[1].value) }}</span>
+                  <span :class="['index-change', indices[category].items[1].change >= 0 ? 'positive' : 'negative']">
+                    {{ formatChange(indices[category].items[1].change, indices[category].items[1].changePercent) }}
+                  </span>
                 </div>
               </div>
-            </van-swipe-item>
-          </van-swipe>
+
+              <!-- Center divider with tab -->
+              <div class="index-divider">
+                <div class="divider-line"></div>
+                <div class="index-tab">
+                  <span class="tab-text">{{ indices[category].label }}</span>
+                </div>
+                <div class="divider-line"></div>
+              </div>
+
+              <!-- 하단 2개 지수 -->
+              <div class="indices-row">
+                <div class="index-item">
+                  <span class="index-label">{{ indices[category].items[2].label }}</span>
+                  <span class="index-value">{{ formatNumber(indices[category].items[2].value) }}</span>
+                  <span :class="['index-change', indices[category].items[2].change >= 0 ? 'positive' : 'negative']">
+                    {{ formatChange(indices[category].items[2].change, indices[category].items[2].changePercent) }}
+                  </span>
+                </div>
+                <div class="vertical-divider"></div>
+                <div class="index-item">
+                  <span class="index-label">{{ indices[category].items[3].label }}</span>
+                  <span class="index-value">{{ formatNumber(indices[category].items[3].value) }}</span>
+                  <span :class="['index-change', indices[category].items[3].change >= 0 ? 'positive' : 'negative']">
+                    {{ formatChange(indices[category].items[3].change, indices[category].items[3].changePercent) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
           <!-- Slide indicators -->
           <div class="slide-indicators">
             <span
               v-for="(category, idx) in indexCategories"
               :key="idx"
               :class="['indicator', { active: currentIndexSlide === idx }]"
+              @click="goToSlide(idx)"
             ></span>
           </div>
         </div>
@@ -188,7 +252,7 @@ onMounted(() => {
         <h2 class="section-title">속보 TOP5</h2>
         <div class="news-list">
           <div
-            v-for="news in topNews"
+            v-for="news in topNews.slice(0, 5)"
             :key="news.id"
             class="news-item"
             @click="goToNews(news)"
@@ -211,44 +275,82 @@ onMounted(() => {
       <!-- Exchange Rates -->
       <section class="section">
         <h2 class="section-title">환율</h2>
-        <div class="exchange-grid">
-          <div v-for="rate in exchangeRates" :key="rate.currency" class="exchange-card">
-            <div class="exchange-header">
-              <span class="country">{{ rate.country }}</span>
-              <span class="currency">{{ rate.currency }}</span>
-              <span class="rate">{{ formatNumber(rate.rate) }}</span>
-              <span :class="['change', rate.change >= 0 ? 'positive' : 'negative']">
-                {{ rate.change >= 0 ? '+' : '' }}{{ rate.change }}
-              </span>
+        <div class="exchange-swipe-container">
+          <div class="swipe-fade left" :class="{ visible: currentExchangeSlide > 0 }"></div>
+          <div class="swipe-fade right" :class="{ visible: currentExchangeSlide < exchangeRates.length - 1 }"></div>
+          <div
+            ref="exchangeScrollRef"
+            class="exchange-scroll"
+            @scroll="onExchangeScroll"
+          >
+            <div
+              v-for="rate in exchangeRates"
+              :key="rate.currency"
+              class="exchange-card"
+            >
+              <div class="exchange-info">
+                <div class="exchange-left">
+                  <span class="currency-badge">{{ rate.currency }}</span>
+                  <span class="country-name">{{ rate.country }}</span>
+                </div>
+                <div class="exchange-right">
+                  <span class="rate-value">{{ formatNumber(rate.rate) }}원</span>
+                  <span :class="['rate-change', rate.change >= 0 ? 'positive' : 'negative']">
+                    {{ rate.change >= 0 ? '+' : '' }}{{ rate.change.toFixed(2) }} ({{ rate.change >= 0 ? '+' : '' }}{{ rate.changePercent.toFixed(2) }}%)
+                  </span>
+                </div>
+              </div>
+              <div class="exchange-chart">
+                <svg class="mini-chart" viewBox="0 0 100 40" preserveAspectRatio="none">
+                  <polyline
+                    :points="getChartPoints(rate.history)"
+                    fill="none"
+                    :stroke="rate.change >= 0 ? '#10B981' : '#EF4444'"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </div>
             </div>
-            <div class="exchange-chart">
-              <!-- Simple chart placeholder -->
-              <div class="chart-placeholder"></div>
-            </div>
+          </div>
+          <div class="slide-indicators">
+            <span
+              v-for="(rate, idx) in exchangeRates"
+              :key="idx"
+              :class="['indicator', { active: currentExchangeSlide === idx }]"
+              @click="goToExchangeSlide(idx)"
+            ></span>
           </div>
         </div>
       </section>
 
       <!-- AI Recommendations -->
       <section class="section">
-        <h2 class="section-title">AI 추천 종목</h2>
+        <h2 class="section-title">AI 추천</h2>
         <div class="ai-grid">
-          <div v-for="(item, index) in aiRecommendations" :key="index" class="ai-card">
-            <div class="ai-thumb">
-              <img v-if="item.image" :src="item.image" :alt="item.title" />
+          <div
+            v-for="(item, index) in aiRecommendations"
+            :key="index"
+            class="ai-card"
+            @click="goToCompany(item.symbol)"
+          >
+            <div class="ai-header">
+              <div class="ai-logo">
+                <img v-if="item.logo" :src="item.logo" :alt="item.title" />
+                <span v-else class="ai-logo-placeholder">{{ item.title.charAt(0) }}</span>
+              </div>
+              <div class="ai-title-wrap">
+                <span class="ai-title">{{ item.title }}</span>
+                <span class="ai-tag">{{ item.tag }}</span>
+              </div>
             </div>
-            <div class="ai-content">
-              <span class="ai-title">{{ item.title }}</span>
-              <span class="ai-desc">{{ item.description }}</span>
-            </div>
-            <span class="ai-time">{{ item.time }}</span>
+            <p class="ai-desc">{{ item.description }}</p>
           </div>
         </div>
       </section>
     </div>
 
-    <!-- Spacer for bottom nav -->
-    <div class="bottom-spacer"></div>
   </div>
 </template>
 
@@ -286,6 +388,7 @@ onMounted(() => {
 .notification-text {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
+  --vc-font-bold: initial;
 }
 
 .notification-highlight {
@@ -405,7 +508,7 @@ onMounted(() => {
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-xs);
   text-align: center;
 }
 
@@ -414,19 +517,52 @@ onMounted(() => {
   overflow: hidden;
 }
 
-.indices-swipe {
-  width: 100%;
+.swipe-fade {
+  position: absolute;
+  top: 0;
+  bottom: 10px;
+  width: 20px;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
 }
 
-.indices-swipe :deep(.van-swipe-item) {
-  width: 100%;
+.swipe-fade.visible {
+  opacity: 1;
+}
+
+.swipe-fade.left {
+  left: 0;
+  background: linear-gradient(to right, rgba(17, 24, 39, 0.6) 0%, transparent 100%);
+}
+
+.swipe-fade.right {
+  right: 0;
+  background: linear-gradient(to left, rgba(17, 24, 39, 0.6) 0%, transparent 100%);
+}
+
+.indices-scroll {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 0 8%;
+  gap: 12px;
+}
+
+.indices-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .indices-card {
   background: var(--color-bg-highlight);
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-md);
-  margin: 0 var(--spacing-xs);
+  border-radius: var(--radius-lg);
+  padding: 6px var(--spacing-sm);
+  flex: 0 0 84%;
+  scroll-snap-align: center;
 }
 
 .indices-row {
@@ -440,29 +576,34 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: var(--spacing-sm) 0;
+  justify-content: center;
+  gap: 0;
+  padding: 4px 0;
+  min-height: 48px;
 }
 
 .vertical-divider {
   width: 1px;
-  height: 50px;
+  height: 36px;
   background: var(--color-border);
 }
 
 .index-label {
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   color: var(--color-text-secondary);
+  line-height: 1.2;
 }
 
 .index-value {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-base);
   font-weight: var(--font-weight-bold);
   color: var(--color-text-primary);
+  line-height: 1.3;
 }
 
 .index-change {
-  font-size: var(--font-size-xs);
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .index-change.positive {
@@ -477,7 +618,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: var(--spacing-xs) 0;
+  margin: 2px 0;
   gap: var(--spacing-sm);
 }
 
@@ -488,23 +629,33 @@ onMounted(() => {
 }
 
 .index-tab {
-  background: var(--color-bg-primary);
-  padding: var(--spacing-xs) var(--spacing-md);
-  border-radius: var(--radius-full);
+  /* 수평/수직 가운데 정렬 */
+  display: flex;
+  align-items: center;     /* 수직 정렬 */
+  justify-content: center; /* 수평 정렬 */
+
+  /* 크기 설정 */
+  width: 60px;             /* 고정 너비 */
+  height: 20px;            /* 줄어든 높이 */
+
+  /* 스타일 */
   border: 1px solid #F59E0B;
+  border-radius: 12px;     /* 알약 형태 디자인 */
+  margin: 0 10px;          /* 선과 탭 사이 간격 */
 }
 
 .tab-text {
   font-size: var(--font-size-xs);
   color: #F59E0B;
   white-space: nowrap;
+  line-height: 1;          /* 텍스트 자체의 높이 간섭 제거 */
 }
 
 .slide-indicators {
   display: flex;
   justify-content: center;
   gap: var(--spacing-xs);
-  margin-top: var(--spacing-md);
+  margin-top: var(--spacing-xs);
 }
 
 .indicator {
@@ -513,6 +664,11 @@ onMounted(() => {
   border-radius: 50%;
   background: var(--color-border);
   transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.indicator:hover {
+  background: var(--color-text-tertiary);
 }
 
 .indicator.active {
@@ -524,23 +680,22 @@ onMounted(() => {
 .news-list {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
 }
 
 .news-item {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md);
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
   background: var(--color-bg-card);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   cursor: pointer;
 }
 
 .news-thumb {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -586,58 +741,94 @@ onMounted(() => {
   color: var(--color-text-tertiary);
 }
 
-.exchange-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--spacing-md);
+.exchange-swipe-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.exchange-scroll {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 0 8%;
+  gap: 12px;
+}
+
+.exchange-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .exchange-card {
   background: var(--color-bg-highlight);
   border-radius: var(--radius-lg);
   padding: var(--spacing-md);
+  flex: 0 0 84%;
+  scroll-snap-align: center;
 }
 
-.exchange-header {
+.exchange-info {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-xs);
+  justify-content: space-between;
+  align-items: flex-start;
   margin-bottom: var(--spacing-sm);
 }
 
-.country {
-  font-size: var(--font-size-xs);
+.exchange-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.currency-badge {
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.country-name {
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
 }
 
-.currency {
-  font-size: var(--font-size-xs);
-  color: var(--color-primary);
-  font-weight: var(--font-weight-medium);
+.exchange-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
 }
 
-.rate {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
+.rate-value {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
   color: var(--color-text-primary);
 }
 
-.change {
+.rate-change {
   font-size: var(--font-size-xs);
 }
 
-.change.positive {
+.rate-change.positive {
   color: var(--color-stock-up);
 }
 
-.change.negative {
+.rate-change.negative {
   color: var(--color-stock-down);
 }
 
-.chart-placeholder {
-  height: 40px;
-  background: linear-gradient(90deg, transparent, rgba(var(--color-primary), 0.1), transparent);
-  border-radius: var(--radius-sm);
+.exchange-chart {
+  height: 50px;
+  margin-top: var(--spacing-xs);
+}
+
+.mini-chart {
+  width: 100%;
+  height: 100%;
 }
 
 .ai-grid {
@@ -652,43 +843,73 @@ onMounted(() => {
   padding: var(--spacing-md);
   display: flex;
   flex-direction: column;
+  gap: var(--spacing-xxs);
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.ai-card:active {
+  transform: scale(0.98);
+}
+
+.ai-header {
+  display: flex;
+  align-items: center;
   gap: var(--spacing-sm);
 }
 
-.ai-thumb {
-  width: 100%;
-  height: 60px;
-  background: var(--color-bg-highlight);
-  border-radius: var(--radius-md);
+.ai-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
+  flex-shrink: 0;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.ai-thumb img {
+.ai-logo img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
-.ai-content {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.ai-logo-placeholder {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-primary);
+}
+
+.ai-title-wrap {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.2;
 }
 
 .ai-title {
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-inverse);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  display: block;
+  margin-bottom: 1px;
+}
+
+.ai-tag {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
 }
 
 .ai-desc {
   font-size: var(--font-size-xs);
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.ai-time {
-  font-size: var(--font-size-xs);
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1.3;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .bottom-spacer {

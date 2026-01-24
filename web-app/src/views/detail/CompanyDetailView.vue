@@ -9,6 +9,11 @@ const router = useRouter()
 
 const activeTab = ref('basic')
 const company = ref(mockCompanyInfo)
+const isFavorite = ref(false)
+
+const toggleFavorite = () => {
+  isFavorite.value = !isFavorite.value
+}
 
 const tabs = [
   { key: 'basic', label: '기본정보' },
@@ -57,6 +62,13 @@ onMounted(() => {
           <img :src="`https://logo.clearbit.com/${company.symbol.toLowerCase()}.com`" :alt="company.name" />
         </div>
         <span class="company-name">{{ company.name }} ({{ company.symbol }})</span>
+        <button class="favorite-btn" @click="toggleFavorite">
+          <van-icon
+            :name="isFavorite ? 'star' : 'star-o'"
+            :color="isFavorite ? '#F59E0B' : '#9CA3AF'"
+            size="24"
+          />
+        </button>
       </div>
 
       <!-- Basic Info Tab -->
@@ -200,9 +212,20 @@ onMounted(() => {
 }
 
 .company-name {
+  flex: 1;
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
   color: var(--color-text-primary);
+}
+
+.favorite-btn {
+  background: none;
+  border: none;
+  padding: var(--spacing-xs);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .info-badge {
