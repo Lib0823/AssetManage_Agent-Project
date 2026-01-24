@@ -22,7 +22,7 @@ const goToFaceId = () => {
     <div class="content-card">
       <!-- Logo -->
       <div class="logo">
-        <span class="logo-text">F</span>
+        <span class="logo-text">F.</span>
         <span class="logo-dot">.</span>
       </div>
 

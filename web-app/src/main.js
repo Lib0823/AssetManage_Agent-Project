@@ -25,9 +25,17 @@ import {
   Skeleton,
   Empty,
   PullRefresh,
-  List
+  List,
+  DatePicker,
+  Picker,
+  Locale,
+  Swipe,
+  SwipeItem
 } from 'vant'
+import koKR from 'vant/es/locale/lang/ko-KR'
 import 'vant/lib/index.css'
+
+Locale.use('ko-KR', koKR)
 
 // v-calendar
 import VCalendar from 'v-calendar'
@@ -81,6 +89,10 @@ app.use(Skeleton)
 app.use(Empty)
 app.use(PullRefresh)
 app.use(List)
+app.use(DatePicker)
+app.use(Picker)
+app.use(Swipe)
+app.use(SwipeItem)
 
 // Use v-calendar
 app.use(VCalendar, {})

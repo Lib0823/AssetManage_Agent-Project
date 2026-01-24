@@ -15,4 +15,8 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  server: {
+    host: true,  // 네트워크에서 접근 허용
+    port: 5173
+  }
 })

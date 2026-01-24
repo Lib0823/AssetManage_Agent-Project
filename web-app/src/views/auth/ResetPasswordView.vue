@@ -48,10 +48,9 @@ const handleReset = () => {
 
       <!-- Form -->
       <div class="form">
+        <h3 class="card-title">내 정보</h3>
         <!-- Existing Info -->
         <div class="info-card">
-          <h3 class="card-title">기존 정보</h3>
-
           <div class="info-row">
             <span class="info-label">아이디</span>
             <span class="info-value">{{ existingInfo.id }}</span>
@@ -69,16 +68,15 @@ const handleReset = () => {
         </div>
 
         <!-- New Info -->
+        <h3 class="card-title">변경 정보</h3>
         <div class="info-card">
-          <h3 class="card-title">변경 정보</h3>
-
           <div class="form-group">
-            <label class="label">새 비밀번호</label>
+            <label class="label">변경 비밀번호</label>
             <input
               v-model="newInfo.password"
               type="password"
               class="input"
-              placeholder="Password"
+              placeholder="New Password"
             />
           </div>
 
@@ -138,12 +136,12 @@ const handleReset = () => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   padding: var(--spacing-3xl) var(--spacing-xl);
   background: var(--color-bg-primary);
 }
 
 .content {
-  flex: 1;
   display: flex;
   flex-direction: column;
   max-width: 340px;
@@ -190,21 +188,21 @@ const handleReset = () => {
 .form {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xl);
+  gap: var(--spacing-sm);
 }
 
 .info-card {
   background: var(--color-bg-highlight);
   border-radius: var(--radius-xl);
   padding: var(--spacing-lg);
+  margin-bottom: var(--spacing-sm);
 }
 
 .card-title {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
-  text-align: center;
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-xs);
 }
 
 .info-row {
@@ -224,15 +222,14 @@ const handleReset = () => {
 }
 
 .verification-section {
-  margin-top: var(--spacing-md);
+  margin-top: var(--spacing-sm);
 }
 
 .section-title {
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
-  text-align: center;
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-xs);
 }
 
 .form-group {

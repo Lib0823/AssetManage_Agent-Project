@@ -29,35 +29,32 @@ const handleSendEmail = () => {
         <h1 class="title">이용 약관</h1>
       </div>
 
-      <!-- Email Button -->
-      <button class="email-btn" @click="handleSendEmail">
-        이메일로 보내기
-      </button>
-
       <!-- Terms Content -->
       <div class="terms-content">
         <section class="section">
           <h2 class="section-title">중요사항</h2>
           <p class="section-text">
-            귀하의 iOS 기기를 사용하기 전에 다음의 약관을 읽으시기 바랍니다. 귀하는 iOS 기기를 사용함으로써, 귀하는 iOS 약관을 전적으로 따를 것에 동의하는 것입니다.
-          </p>
+            본 서비스를 이용하기 전에 다음의 약관을 반드시 읽어 주시기 바랍니다. 서비스 이용 시 본 약관에 동의한 것으로 간주됩니다.
+          </p><br>
         </section>
 
         <section class="section">
-          <h2 class="section-title highlight">A. iOS 이용 약관</h2>
-          <div class="expandable">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </div>
+          <h2 class="section-title highlight">A. 서비스 이용 약관</h2>
+
         </section>
 
         <div class="terms-body">
           <p>
-            귀하의 <strong>iOS</strong> 기기를 사용하기 전에 또는 본 사용권에 수반되는 소프트웨어 업데이트를 다운로드하기 전에 반드시 본 소프트웨어 사용권 약관(이하 '사용권')을 유의하여 읽어 주십시오. 귀하는 <strong>iOS</strong> 기기를 사용하거나 또는 소프트웨어 업데이트를 다운로드 함으로써 본 사용권 약관을 준수할 의무가 있음에 동의하는 것입니다.
+            <strong>F.</strong>는 AI 기반 주식 자동 투자 및 포트폴리오 관리 서비스입니다. 본 서비스는 한국투자증권 API를 통해 국내/미국 주식 시세 조회, 매수/매도 주문, AI 자동매매 기능을 제공합니다.
           </p>
           <p>
-            만일 귀하가 본 사용권 약관에 동의하지 않으면 <strong>iOS</strong> 기기를 사용하거나 소프트웨어 업데이트를 다운로드하지 마십시오. 귀하가 최근에 <strong>iOS</strong> 기기를 구입하였고 본 사용권 약관에 동의하지 않는 경우, 귀하는 <strong>http://www.apple.com/legal/sales_policies/</strong>에 명시된 <strong>Apple</strong>의 환불 정책에 따라 반환 기간 내에 <strong>iOS</strong> 기기를 구입한 <strong>Apple Store</strong>나 허가받은 유통업자에게 반환하면 환불받을 수 있습니다.
+            <strong>투자 위험 고지:</strong> 주식 투자는 원금 손실의 위험이 있으며, 과거 수익률이 미래 수익을 보장하지 않습니다. AI 추천 및 자동매매 기능은 참고용이며, 최종 투자 결정과 책임은 회원 본인에게 있습니다.
+          </p>
+          <p>
+            <strong>개인정보 보호:</strong> 회원의 증권사 API 키, 계좌 정보 등 민감 정보는 암호화하여 안전하게 보관되며, 서비스 제공 목적 외에는 사용되지 않습니다.
+          </p>
+          <p>
+            <strong>서비스 제한:</strong> 시스템 점검, 증권사 API 장애, 시장 휴장일 등의 사유로 서비스가 일시 중단될 수 있으며, 이로 인한 손해에 대해 회사는 책임지지 않습니다.
           </p>
         </div>
       </div>
@@ -80,12 +77,12 @@ const handleSendEmail = () => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   padding: var(--spacing-3xl) var(--spacing-xl);
   background: var(--color-bg-primary);
 }
 
 .content {
-  flex: 1;
   display: flex;
   flex-direction: column;
   max-width: 340px;

@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -11,8 +11,20 @@ const form = ref({
   name: '',
   phone: '',
   authCode: '',
-  birth: '2024, 10, 26'
+  birth: ['1990', '01', '01']
 })
+
+const showDatePicker = ref(false)
+
+const formattedBirth = computed(() => {
+  const [year, month, day] = form.value.birth
+  return `${year}년 ${month}월 ${day}일`
+})
+
+const onConfirmDate = ({ selectedValues }) => {
+  form.value.birth = selectedValues
+  showDatePicker.value = false
+}
 
 const handleCheckDuplicate = () => {
   // Check duplicate ID
@@ -129,10 +141,23 @@ const handleNext = () => {
         <!-- Birth Date -->
         <div class="form-group">
           <label class="label">생년월일</label>
-          <div class="date-display">
-            <span class="date-value">{{ form.birth }}</span>
+          <div class="date-display" @click="showDatePicker = true">
+            <span class="date-value">{{ formattedBirth }}</span>
+            <van-icon name="arrow-down" class="date-icon" />
           </div>
         </div>
+
+        <!-- Date Picker Popup -->
+        <van-popup v-model:show="showDatePicker" position="bottom" round>
+          <van-date-picker
+            v-model="form.birth"
+            title="생년월일 선택"
+            :min-date="new Date(1900, 0, 1)"
+            :max-date="new Date()"
+            @confirm="onConfirmDate"
+            @cancel="showDatePicker = false"
+          />
+        </van-popup>
 
         <!-- Next Button -->
         <button class="btn btn-next" @click="handleNext">
@@ -148,12 +173,12 @@ const handleNext = () => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   padding: var(--spacing-3xl) var(--spacing-xl);
   background: var(--color-bg-primary);
 }
 
 .content {
-  flex: 1;
   display: flex;
   flex-direction: column;
   max-width: 340px;
@@ -274,13 +299,25 @@ const handleNext = () => {
   padding: var(--spacing-md);
   background: var(--color-bg-highlight);
   border-radius: var(--radius-md);
-  display: inline-flex;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.date-display:active {
+  opacity: 0.8;
 }
 
 .date-value {
   font-size: var(--font-size-base);
   color: var(--color-primary);
   font-weight: var(--font-weight-medium);
+}
+
+.date-icon {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-md);
 }
 
 .btn-next {

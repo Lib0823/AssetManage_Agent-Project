@@ -108,12 +108,12 @@ const handleRegister = () => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   padding: var(--spacing-3xl) var(--spacing-xl);
   background: var(--color-bg-primary);
 }
 
 .content {
-  flex: 1;
   display: flex;
   flex-direction: column;
   max-width: 340px;

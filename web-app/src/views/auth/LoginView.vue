@@ -81,12 +81,12 @@ const goToResetPassword = () => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   padding: var(--spacing-3xl) var(--spacing-xl);
   background: var(--color-bg-primary);
 }
 
 .content {
-  flex: 1;
   display: flex;
   flex-direction: column;
   max-width: 340px;
@@ -99,7 +99,6 @@ const goToResetPassword = () => {
   align-items: center;
   gap: var(--spacing-lg);
   margin-bottom: var(--spacing-3xl);
-  margin-top: var(--spacing-3xl);
 }
 
 .logo {
