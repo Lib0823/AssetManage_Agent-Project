@@ -65,7 +65,8 @@ class TradingServiceTest {
                 "MOCK_APP_KEY",
                 "MOCK_APP_SECRET",
                 "12345678-01",
-                "01"
+                "01",
+                "https://openapivts.koreainvestment.com:29443"
         );
 
         mockUser = User.builder()
@@ -93,6 +94,7 @@ class TradingServiceTest {
         when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
         when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
         when(kisApiClient.post(
+                anyString(),
                 eq("/uapi/domestic-stock/v1/trading/order-cash"),
                 eq("VTTC0802U"),
                 eq(mockKisToken),
@@ -112,7 +114,7 @@ class TradingServiceTest {
         Map<String, Object> output = (Map<String, Object>) result.get("output");
         assertThat(output.get("ODNO")).isEqualTo("ORDER123456");
         verify(kisApiClient, times(1)).post(
-                anyString(), eq("VTTC0802U"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
+                anyString(), anyString(), eq("VTTC0802U"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
     }
 
     @Test
@@ -131,6 +133,7 @@ class TradingServiceTest {
         when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
         when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
         when(kisApiClient.post(
+                anyString(),
                 eq("/uapi/domestic-stock/v1/trading/order-cash"),
                 eq("VTTC0801U"),
                 anyString(),
@@ -150,7 +153,7 @@ class TradingServiceTest {
         Map<String, Object> output = (Map<String, Object>) result.get("output");
         assertThat(output.get("ODNO")).isEqualTo("ORDER789012");
         verify(kisApiClient, times(1)).post(
-                anyString(), eq("VTTC0801U"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
+                anyString(), anyString(), eq("VTTC0801U"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
     }
 
     @Test
@@ -196,7 +199,7 @@ class TradingServiceTest {
         when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
         when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
         when(kisApiClient.get(
-                anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
                 anyMap(), eq(KisDailyCcldResponse.class)
         )).thenReturn(new ResponseEntity<>(kisResponse, HttpStatus.OK));
 
@@ -212,7 +215,7 @@ class TradingServiceTest {
         assertThat(result.get(1).getOrderType()).isEqualTo("SELL");
 
         verify(kisApiClient, times(1)).get(
-                anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
                 anyMap(), eq(KisDailyCcldResponse.class));
     }
 
@@ -226,7 +229,7 @@ class TradingServiceTest {
 
         when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
         when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
-        when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+        when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(new ResponseEntity<>(kisResponse, HttpStatus.OK));
 
         // When

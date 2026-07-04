@@ -33,43 +33,39 @@ public class KisApiClient {
     private String kisBaseUrl;
 
     /**
-     * Check if current KIS API is real trading mode
-     * - Virtual trading: openapivts.koreainvestment.com
-     * - Real trading: openapi.koreainvestment.com
+     * 주어진 base URL 이 실전(real) 도메인인지 판정.
+     * - 실전: openapi.koreainvestment.com  · 모의: openapivts.koreainvestment.com
+     * (모의 도메인은 "openapivts." 라서 "openapi.koreainvestment.com" 을 포함하지 않는다.)
      */
-    private boolean isRealTrading() {
-        return kisBaseUrl != null && kisBaseUrl.contains("openapi.koreainvestment.com");
+    private boolean isRealDomain(String baseUrl) {
+        return baseUrl != null && baseUrl.contains("openapi.koreainvestment.com");
+    }
+
+    /** 하위호환: 전역 base-url(모의 기본) 기준 변환. */
+    public String convertTrId(String baseTrId) {
+        return convertTrId(baseTrId, kisBaseUrl);
     }
 
     /**
-     * Convert TR_ID based on KIS base URL
-     * - Virtual trading (openapivts): VTTC* (모의투자)
-     * - Real trading (openapi): TTTC* (실전투자)
+     * Convert TR_ID based on the call's base URL (사용자별 모의/실전 도메인).
+     * - Virtual (openapivts): VTTC*  · Real (openapi): TTTC*
      *
-     * IMPORTANT: Conversion ONLY applies to trading TR_IDs that start with
-     * "VTTC" or "TTTC" (the 실전/모의 distinguishable prefixes). Quotation and
-     * finance TR_IDs (e.g. "FHKST01010100", "FHKST66430200") are identical on
-     * both domains and MUST be returned unchanged — otherwise their prefix gets
-     * corrupted to VTTC/TTTC and the call fails.
+     * IMPORTANT: VTTC/TTTC 국내 매매 TR 만 도메인 종속이라 변환한다. FHKST(시세/재무)
+     * 및 해외 TR(VTTS/VTTT/HHDFS)은 변환하지 않고 그대로 반환한다(해외는 호출부가 V/T 확정).
      *
-     * @param baseTrId Base TR_ID (e.g., "VTTC8434R", "FHKST01010100")
-     * @return Converted TR_ID for trading prefixes, unchanged otherwise
+     * @param baseTrId Base TR_ID (e.g., "VTTC8434R")
+     * @param baseUrl  이 호출의 도메인 (계정 모드로 결정)
      */
-    public String convertTrId(String baseTrId) {
+    public String convertTrId(String baseTrId, String baseUrl) {
         if (baseTrId == null || baseTrId.length() < 4) {
             return baseTrId;
         }
-
-        // Only VTTC*/TTTC* trading TR_IDs are domain-dependent. Leave all other
-        // TR_IDs (FHKST*, CTPF*, etc.) untouched.
         String head = baseTrId.substring(0, 4);
         if (!head.equals("VTTC") && !head.equals("TTTC")) {
             return baseTrId;
         }
-
         String suffix = baseTrId.substring(4); // "8434R" 부분
-        String prefix = isRealTrading() ? "TTTC" : "VTTC";
-
+        String prefix = isRealDomain(baseUrl) ? "TTTC" : "VTTC";
         return prefix + suffix;
     }
 
@@ -111,8 +107,8 @@ public class KisApiClient {
         String resolvedBaseUrl = (baseUrl != null && !baseUrl.isBlank()) ? baseUrl : kisBaseUrl;
         String url = resolvedBaseUrl + endpoint;
 
-        // TR_ID 자동 변환 (Virtual → VTTC*, Real → TTTC*). FHKST* 등은 변환되지 않음.
-        String convertedTrId = convertTrId(trId);
+        // TR_ID 자동 변환: 이 호출의 도메인(resolvedBaseUrl) 기준 Virtual→VTTC* / Real→TTTC*. FHKST*/해외 TR 등은 변환되지 않음.
+        String convertedTrId = convertTrId(trId, resolvedBaseUrl);
         log.debug("KIS call: baseUrl={}, trId: {} → {}", resolvedBaseUrl, trId, convertedTrId);
 
         HttpHeaders headers = new HttpHeaders();
@@ -189,5 +185,21 @@ public class KisApiClient {
             Class<T> responseType
     ) {
         return callKisApi(endpoint, HttpMethod.POST, trId, kisToken, appKey, appSecret, requestBody, responseType);
+    }
+
+    /**
+     * POST request with an explicit base URL (사용자별 모의/실전 매매 도메인).
+     */
+    public <T> ResponseEntity<T> post(
+            String baseUrl,
+            String endpoint,
+            String trId,
+            String kisToken,
+            String appKey,
+            String appSecret,
+            Object requestBody,
+            Class<T> responseType
+    ) {
+        return callKisApi(baseUrl, endpoint, HttpMethod.POST, trId, kisToken, appKey, appSecret, requestBody, responseType);
     }
 }

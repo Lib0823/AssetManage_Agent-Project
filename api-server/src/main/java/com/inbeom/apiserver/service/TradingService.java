@@ -90,6 +90,7 @@ public class TradingService {
 
         // 3. Call KIS API
         ResponseEntity<Map> response = kisApiClient.post(
+                credentials.baseUrl(),
                 "/uapi/domestic-stock/v1/trading/order-cash",
                 "VTTC0802U",
                 kisToken,
@@ -123,6 +124,7 @@ public class TradingService {
         requestBody.put("ORD_UNPR", "0");
 
         ResponseEntity<Map> response = kisApiClient.post(
+                credentials.baseUrl(),
                 "/uapi/domestic-stock/v1/trading/order-cash",
                 "VTTC0801U",
                 kisToken,
@@ -176,6 +178,7 @@ public class TradingService {
 
         // 4. Call KIS API
         ResponseEntity<KisDailyCcldResponse> response = kisApiClient.get(
+                credentials.baseUrl(),
                 "/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
                 "VTTC0081R",  // 주식일별주문체결조회 (모의투자)
                 kisToken,
@@ -255,6 +258,7 @@ public class TradingService {
 
             // 4. Call KIS API
             ResponseEntity<KisDailyCcldResponse> response = kisApiClient.get(
+                    credentials.baseUrl(),
                     "/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
                     "VTTC0081R",  // 주식일별주문체결조회 (모의투자)
                     kisToken,
@@ -442,6 +446,7 @@ public class TradingService {
 
             // 4. Call KIS API
             ResponseEntity<Map> response = kisApiClient.get(
+                    credentials.baseUrl(),
                     "/uapi/domestic-stock/v1/trading/inquire-psbl-order",
                     "VTTC8908R",  // 매수가능조회 (모의투자, convertTrId 가 VTTC↔TTTC 처리)
                     kisToken,
@@ -590,6 +595,7 @@ public class TradingService {
 
         // 4. Call KIS API
         ResponseEntity<KisBalanceResponse> response = kisApiClient.get(
+                credentials.baseUrl(),
                 "/uapi/domestic-stock/v1/trading/inquire-balance",
                 "VTTC8434R",  // 주식잔고조회 (모의투자)
                 kisToken,

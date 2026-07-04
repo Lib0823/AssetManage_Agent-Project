@@ -19,6 +19,8 @@ public class KisAccountResponse {
     private String appKey;
     private String appSecret;
     private String htsId;
+    /** KIS 모드: MOCK(모의) / REAL(실전). */
+    private String accountMode;
     private Boolean isVerified;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

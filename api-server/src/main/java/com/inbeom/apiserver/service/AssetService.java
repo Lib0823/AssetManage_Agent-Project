@@ -44,6 +44,7 @@ public class AssetService {
 
         // 4. Call KIS API
         ResponseEntity<Map> response = kisApiClient.get(
+                credentials.baseUrl(),
                 "/uapi/domestic-stock/v1/trading/inquire-balance",
                 "VTTC8434R",
                 kisToken,

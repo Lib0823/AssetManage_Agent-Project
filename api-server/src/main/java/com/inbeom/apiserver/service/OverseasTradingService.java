@@ -53,6 +53,20 @@ public class OverseasTradingService {
     private static final String TR_PENDING = "VTTS3018R";   // 해외 미체결 (모의) — MUST-VERIFY
     private static final String TR_ORDERABLE = "VTTS3007R"; // 해외 매수가능 (모의) — MUST-VERIFY
 
+    /** 계정 도메인이 실전(openapi)인지 판정. (모의 openapivts 는 포함 안 됨) */
+    private boolean isReal(KisCredentials credentials) {
+        return credentials.baseUrl() != null
+                && credentials.baseUrl().contains("openapi.koreainvestment.com");
+    }
+
+    /**
+     * 해외 TR 모드 변환: 실전이면 접두 V→T (VTTS→TTTS, VTTT→TTTT), 모의면 그대로.
+     * convertTrId 는 국내(VTTC/TTTC)만 처리하므로 해외는 여기서 확정한다.
+     */
+    private String overseasTr(String mockTr, KisCredentials credentials) {
+        return isReal(credentials) ? "T" + mockTr.substring(1) : mockTr;
+    }
+
     private static final String BALANCE_ENDPOINT = "/uapi/overseas-stock/v1/trading/inquire-balance";
     private static final String ORDER_ENDPOINT = "/uapi/overseas-stock/v1/trading/order";
     private static final String HISTORY_ENDPOINT = "/uapi/overseas-stock/v1/trading/inquire-ccnl";
@@ -105,8 +119,9 @@ public class OverseasTradingService {
                 Map<String, Object> body;
                 try {
                     ResponseEntity<Map> response = kisApiClient.get(
+                            credentials.baseUrl(),
                             BALANCE_ENDPOINT,
-                            TR_BALANCE,
+                            overseasTr(TR_BALANCE, credentials),
                             kisToken,
                             credentials.appKey(),
                             credentials.appSecret(),
@@ -216,8 +231,9 @@ public class OverseasTradingService {
             Map<String, Object> body;
             try {
                 ResponseEntity<Map> response = kisApiClient.get(
+                        credentials.baseUrl(),
                         HISTORY_ENDPOINT,
-                        TR_HISTORY,
+                        overseasTr(TR_HISTORY, credentials),
                         kisToken,
                         credentials.appKey(),
                         credentials.appSecret(),
@@ -292,8 +308,9 @@ public class OverseasTradingService {
             Map<String, Object> body;
             try {
                 ResponseEntity<Map> response = kisApiClient.get(
+                        credentials.baseUrl(),
                         PENDING_ENDPOINT,
-                        TR_PENDING,
+                        overseasTr(TR_PENDING, credentials),
                         kisToken,
                         credentials.appKey(),
                         credentials.appSecret(),
@@ -369,8 +386,9 @@ public class OverseasTradingService {
             Map<String, Object> body;
             try {
                 ResponseEntity<Map> response = kisApiClient.get(
+                        credentials.baseUrl(),
                         ORDERABLE_ENDPOINT,
-                        TR_ORDERABLE,
+                        overseasTr(TR_ORDERABLE, credentials),
                         kisToken,
                         credentials.appKey(),
                         credentials.appSecret(),
@@ -464,11 +482,12 @@ public class OverseasTradingService {
             requestBody.put("ORD_SVR_DVSN_CD", "0");
             requestBody.put("ORD_DVSN", "00");  // 지정가 전용
 
-            String trId = isBuy ? TR_BUY : TR_SELL;
+            String trId = overseasTr(isBuy ? TR_BUY : TR_SELL, credentials);
 
             Map<String, Object> body;
             try {
                 ResponseEntity<Map> response = kisApiClient.post(
+                        credentials.baseUrl(),
                         ORDER_ENDPOINT,
                         trId,
                         kisToken,

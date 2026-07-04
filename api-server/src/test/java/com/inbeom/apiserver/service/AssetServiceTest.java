@@ -44,7 +44,8 @@ class AssetServiceTest {
                 "MOCK_APP_KEY",
                 "MOCK_APP_SECRET",
                 "12345678-01",
-                "01"
+                "01",
+                "https://openapivts.koreainvestment.com:29443"
         );
     }
 
@@ -64,6 +65,7 @@ class AssetServiceTest {
         when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
         when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
         when(kisApiClient.get(
+                anyString(),
                 eq("/uapi/domestic-stock/v1/trading/inquire-balance"),
                 eq("VTTC8434R"),
                 eq(mockKisToken),
@@ -83,7 +85,7 @@ class AssetServiceTest {
 
         verify(kisAuthService, times(1)).getKisAccessToken(kisAccountId);
         verify(kisAuthService, times(1)).getKisCredentials(kisAccountId);
-        verify(kisApiClient, times(1)).get(anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
+        verify(kisApiClient, times(1)).get(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
     }
 
     @Test
@@ -98,7 +100,7 @@ class AssetServiceTest {
 
         when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
         when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
-        when(kisApiClient.get(anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+        when(kisApiClient.get(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(new ResponseEntity<>(mockHoldings, HttpStatus.OK));
 
         // When
@@ -117,7 +119,7 @@ class AssetServiceTest {
         Map<String, Object> mockResponse = new HashMap<>();
         when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
         when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
-        when(kisApiClient.get(anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+        when(kisApiClient.get(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(new ResponseEntity<>(mockResponse, HttpStatus.OK));
 
         // When

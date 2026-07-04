@@ -23,4 +23,7 @@ public class UpdateKisAccountRequest {
 
     // KIS HTS ID — 체결통보 tr_key (선택). 미설정 시 체결통보 비활성.
     private String htsId;
+
+    /** KIS 모드: MOCK(모의) 또는 REAL(실전). 미지정 시 기존 모드 유지. */
+    private String mode;
 }

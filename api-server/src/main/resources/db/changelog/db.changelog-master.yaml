@@ -80,6 +80,11 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.14-webauthn-credentials.yaml
       context: mvp
 
+  # Phase 16: Per-user KIS mode (MOCK/REAL) — runtime domain/TR routing
+  - include:
+      file: classpath:db/changelog/mvp/v1.15-kis-account-mode.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================

@@ -126,7 +126,8 @@ class AuthServiceTest {
             RegisterRequest.KisAccountInfo kisAccountInfo = new RegisterRequest.KisAccountInfo(
                     "12345678-01",
                     "test-app-key",
-                    "test-app-secret"
+                    "test-app-secret",
+                    "MOCK"
             );
             registerRequest.setKisAccount(kisAccountInfo);
 

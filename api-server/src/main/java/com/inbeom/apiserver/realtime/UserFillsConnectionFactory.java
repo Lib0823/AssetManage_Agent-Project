@@ -51,8 +51,9 @@ public class UserFillsConnectionFactory {
     private final KisFillFrameDecryptor decryptor;
     private final FillFrameParser fillFrameParser;
     private final tools.jackson.databind.ObjectMapper objectMapper;
-    private final String approvalBaseUrl;   // kis.base-url (모의 trade 도메인)
+    private final String approvalBaseUrl;   // kis.base-url (모의 trade 도메인, fallback)
     private final String fillsWsUrl;        // kis.realtime.fills.ws-url (모의 :31000)
+    private final String realFillsWsUrl;    // kis.realtime.fills.real-ws-url (실전 :21000)
 
     private final RestTemplate restTemplate = buildRestTemplate();
 
@@ -63,7 +64,8 @@ public class UserFillsConnectionFactory {
             FillFrameParser fillFrameParser,
             tools.jackson.databind.ObjectMapper objectMapper,
             @Value("${kis.base-url}") String approvalBaseUrl,
-            @Value("${kis.realtime.fills.ws-url:ws://ops.koreainvestment.com:31000}") String fillsWsUrl) {
+            @Value("${kis.realtime.fills.ws-url:ws://ops.koreainvestment.com:31000}") String fillsWsUrl,
+            @Value("${kis.realtime.fills.real-ws-url:ws://ops.koreainvestment.com:21000}") String realFillsWsUrl) {
         this.kisAccountRepository = kisAccountRepository;
         this.kisAuthService = kisAuthService;
         this.decryptor = decryptor;
@@ -71,6 +73,7 @@ public class UserFillsConnectionFactory {
         this.objectMapper = objectMapper;
         this.approvalBaseUrl = approvalBaseUrl;
         this.fillsWsUrl = fillsWsUrl;
+        this.realFillsWsUrl = realFillsWsUrl;
     }
 
     private static RestTemplate buildRestTemplate() {
@@ -128,22 +131,28 @@ public class UserFillsConnectionFactory {
             return Result.error("KIS 계좌 자격증명을 불러오지 못했습니다 (체결통보)");
         }
 
+        // 계정 모드(creds.baseUrl 도메인)로 approval 도메인 / 체결통보 ws-url / TR 을 결정.
+        boolean real = creds.baseUrl() != null && creds.baseUrl().contains("openapi.koreainvestment.com");
+        String accountApprovalBaseUrl = (creds.baseUrl() != null && !creds.baseUrl().isBlank())
+                ? creds.baseUrl() : approvalBaseUrl;
+        String accountWsUrl = real ? realFillsWsUrl : fillsWsUrl;
+
         ConnectionCredentials connCreds = new ConnectionCredentials(
-                creds.appKey(), creds.appSecret(), approvalBaseUrl);
+                creds.appKey(), creds.appSecret(), accountApprovalBaseUrl);
         if (!connCreds.isUsable()) {
             log.warn("[fills] userId={} credentials not usable; fills unavailable", userId);
             return Result.error("KIS 계좌 자격증명이 유효하지 않습니다 (체결통보)");
         }
 
-        // KR 전용 MVP: 모의=H0STCNI9, 실전=H0STCNI0. ws-url 이 모의 도메인(:31000)이면 모의 TR 사용.
-        String trId = resolveFillTrId();
+        // KR 전용 MVP: 모의=H0STCNI9, 실전=H0STCNI0. 계정 모드로 결정.
+        String trId = real ? RealtimeTr.KR_FILL.trId() : RealtimeTr.KR_FILL.mockTrId();
 
         UserFillsUpstreamConnection connection = new UserFillsUpstreamConnection(
                 userId,
                 connCreds,
                 trId,
                 htsId,
-                fillsWsUrl,
+                accountWsUrl,
                 decryptor,
                 fillFrameParser,
                 objectMapper,
@@ -151,17 +160,6 @@ public class UserFillsConnectionFactory {
                 fanOut,
                 onStatus);
         return Result.ok(connection);
-    }
-
-    /**
-     * ws-url 도메인으로 모의/실전 TR 선택. 모의 도메인(:31000 또는 openapivts/ops mock)이면
-     * V-mock TR(H0STCNI9), 그 외 실전(H0STCNI0).
-     * (MUST-VERIFY: 모의 환경 체결통보 스트리밍 지원 여부 — 리스크 #1. 미지원 시 플래그 off 보존.)
-     */
-    private String resolveFillTrId() {
-        String url = fillsWsUrl == null ? "" : fillsWsUrl.toLowerCase();
-        boolean mock = url.contains(":31000") || url.contains("openapivts");
-        return mock ? RealtimeTr.KR_FILL.mockTrId() : RealtimeTr.KR_FILL.trId();
     }
 
     /**
