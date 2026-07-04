@@ -23,6 +23,16 @@ const brokerForm = ref({
   appSecret: ''
 })
 
+// KIS 모드: MOCK(모의) / REAL(실전). 이 도메인으로 키를 인증하고 이후 매매가 라우팅됨.
+const kisMode = ref('MOCK')
+
+// 모드 변경 시 기존 인증 결과 무효화 (도메인이 달라 재인증 필요)
+const selectKisMode = (mode) => {
+  if (kisMode.value === mode) return
+  kisMode.value = mode
+  validationResult.value = null
+}
+
 // Step 1 데이터 확인
 onMounted(() => {
   if (!authStore.hasStep1Data()) {
@@ -76,7 +86,8 @@ const handleValidateKis = async () => {
 
     const response = await authApi.validateKisAccount({
       appKey: brokerForm.value.appKey,
-      appSecret: brokerForm.value.appSecret
+      appSecret: brokerForm.value.appSecret,
+      mode: kisMode.value
     })
 
     validationResult.value = response.data
@@ -180,7 +191,8 @@ const handleRegister = async () => {
       kisAccount: stockInvestment.value ? {
         accountNumber: brokerForm.value.accountNumber,
         appKey: brokerForm.value.appKey,
-        appSecret: brokerForm.value.appSecret
+        appSecret: brokerForm.value.appSecret,
+        mode: kisMode.value
       } : null
     }
 
@@ -271,6 +283,34 @@ const handleRegister = async () => {
 
           <div v-if="stockInvestment" class="broker-card">
             <h3 class="broker-title">한국 투자 증권</h3>
+
+            <!-- 모의/실전 모드 선택 -->
+            <div class="form-group">
+              <label class="label">투자 모드</label>
+              <div class="mode-toggle">
+                <button
+                  type="button"
+                  class="mode-btn"
+                  :class="{ 'mode-btn-active': kisMode === 'MOCK' }"
+                  @click="selectKisMode('MOCK')"
+                >
+                  모의투자
+                </button>
+                <button
+                  type="button"
+                  class="mode-btn"
+                  :class="{ 'mode-btn-active': kisMode === 'REAL' }"
+                  @click="selectKisMode('REAL')"
+                >
+                  실전투자
+                </button>
+              </div>
+              <p class="mode-hint">
+                {{ kisMode === 'REAL'
+                  ? '실전투자 KIS 앱키로 인증합니다 (실제 주문 체결)'
+                  : '모의투자 KIS 앱키로 인증합니다' }}
+              </p>
+            </div>
 
             <div class="form-group">
               <label class="label">계좌번호</label>
@@ -550,6 +590,38 @@ const handleRegister = async () => {
   cursor: pointer;
   text-align: center;
   width: 100%;
+}
+
+.mode-toggle {
+  display: flex;
+  gap: var(--spacing-xs);
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-md);
+  padding: 3px;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-btn-active {
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+}
+
+.mode-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-top: var(--spacing-xs);
 }
 
 .kis-info-message {

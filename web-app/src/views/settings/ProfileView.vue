@@ -19,8 +19,16 @@ const user = ref({
 const kisAccount = ref({
   accountNumber: '',
   appKey: '',
-  appSecret: ''
+  appSecret: '',
+  mode: 'MOCK'
 })
+
+// 모드 변경 시 기존 인증 결과 무효화 (도메인이 달라 재인증 필요)
+const selectKisMode = (mode) => {
+  if (kisAccount.value.mode === mode) return
+  kisAccount.value.mode = mode
+  validationResult.value = null
+}
 
 const showBirthCalendar = ref(false)
 const loading = ref(false)
@@ -62,7 +70,8 @@ const loadKisAccount = async () => {
       kisAccount.value = {
         accountNumber: response.data.accountNumber || '',
         appKey: response.data.appKey || '',
-        appSecret: response.data.appSecret || ''
+        appSecret: response.data.appSecret || '',
+        mode: response.data.accountMode || 'MOCK'
       }
       validationResult.value = response.data.isVerified ? { valid: true } : null
     }
@@ -102,7 +111,8 @@ const handleValidateKis = async () => {
     const response = await authApi.validateKisAccount({
       accountNumber: kisAccount.value.accountNumber,
       appKey: kisAccount.value.appKey,
-      appSecret: kisAccount.value.appSecret
+      appSecret: kisAccount.value.appSecret,
+      mode: kisAccount.value.mode
     })
 
     validationResult.value = response.data
@@ -174,7 +184,8 @@ const handleSave = async () => {
       await userApi.updateKisAccount({
         accountNumber: kisAccount.value.accountNumber,
         appKey: kisAccount.value.appKey,
-        appSecret: kisAccount.value.appSecret
+        appSecret: kisAccount.value.appSecret,
+        mode: kisAccount.value.mode
       })
     }
 
@@ -322,6 +333,30 @@ onMounted(async () => {
       <!-- KIS Account Card -->
       <section class="info-card">
         <h3 class="card-title">KIS 계좌 정보</h3>
+
+        <div class="info-row">
+          <span class="info-label">투자 모드</span>
+          <div class="mode-toggle">
+            <button
+              type="button"
+              class="mode-btn"
+              :class="{ 'mode-btn-active': kisAccount.mode === 'MOCK' }"
+              :disabled="loading"
+              @click="selectKisMode('MOCK')"
+            >
+              모의투자
+            </button>
+            <button
+              type="button"
+              class="mode-btn"
+              :class="{ 'mode-btn-active': kisAccount.mode === 'REAL' }"
+              :disabled="loading"
+              @click="selectKisMode('REAL')"
+            >
+              실전투자
+            </button>
+          </div>
+        </div>
 
         <div class="info-row">
           <span class="info-label">계좌번호</span>
@@ -717,6 +752,39 @@ onMounted(async () => {
 :deep(.van-calendar__bottom-info) {
   color: var(--color-primary);
   font-size: var(--font-size-xs);
+}
+
+/* KIS 모의/실전 모드 토글 */
+.mode-toggle {
+  display: flex;
+  gap: var(--spacing-xs);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  flex: 1;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-btn-active {
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+}
+
+.mode-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 /* KIS Account Validation Button */
