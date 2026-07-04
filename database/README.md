@@ -50,7 +50,7 @@ database/
 |---------|------|-----------|
 | `users` | 사용자 기본 정보 | username, email, password(BCrypt), name, phone, birth_date |
 | `refresh_tokens` | JWT 리프레시 토큰 | user_id, token, expires_at, revoked_at |
-| `user_kis_accounts` | 사용자별 KIS API 키 (1:1) | user_id, account_number, app_key, app_secret (Jasypt 암호화), is_verified, **hts_id**(v1.11, 평문 — 실시간 체결통보 tr_key) |
+| `user_kis_accounts` | 사용자별 KIS API 키 (1:1) | user_id, account_number, app_key, app_secret (Jasypt 암호화), is_verified, **hts_id**(v1.11, 평문 — 실시간 체결통보 tr_key), **account_mode**(v1.15, MOCK/REAL — 도메인·TR 라우팅 기준, 기본 MOCK) |
 | `user_trade_config` | 자동매매 설정 (1:1) | user_id, order_amount, max_holdings, order_type, **is_active** |
 | `user_settings` | UI 설정 (1:1) | user_id, asset_order(JSONB), dark_mode, auto_login, notifications(JSONB) |
 | `webauthn_credentials` | WebAuthn 생체/패스키 자격증명 (v1.14) | credential_id(Base64URL, unique), user_id FK→users(id), public_key_cose, signature_count, transports, created_at |

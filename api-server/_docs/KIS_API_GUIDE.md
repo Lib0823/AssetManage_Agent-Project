@@ -32,8 +32,8 @@ KIS 연동에는 목적이 다른 두 경로가 있으며, 자격증명 소스/�
 | 구분 | (A) 사용자별 거래/잔고 | (B) 앱 레벨 시세/재무 |
 |------|------------------------|------------------------|
 | 관리 서비스 | `KisAuthService` | `KisQuoteService` |
-| base URL 설정 | `kis.base-url` | `kis.quote-base-url` |
-| 기본 도메인 | mock `https://openapivts.koreainvestment.com:29443` | real `https://openapi.koreainvestment.com:9443` |
+| base URL 설정 | `kis.base-url`(모의) / `kis.real-base-url`(실전) | `kis.quote-base-url` |
+| 기본 도메인 | **계정 모드(`account_mode`)로 per-user 결정** — MOCK `openapivts…:29443` / REAL `openapi…:9443` | real `https://openapi.koreainvestment.com:9443` |
 | 자격증명 소스 | `user_kis_accounts` (Jasypt 암호화 appKey/appSecret) | env `KIS_QUOTE_APP_KEY` / `KIS_QUOTE_APP_SECRET` |
 | 캐시 구조 | per-user `Map<Long kisAccountId, KisTokenCache>` (`ConcurrentHashMap`) | 단일 app-level `AtomicReference<QuoteTokenCache>` |
 | 캐시 TTL | `kis.token-cache-ttl` 기본 `86400000ms` (24h) | 24h |
@@ -51,13 +51,21 @@ quote 키가 비어 있으면 `isQuoteEnabled()=false`가 되어 시세/재무 �
 
 > **분리 이유:** 시세/재무 API는 mock 도메인에서 제공되지 않습니다. 따라서 (B)는 real 도메인을 사용하며 `CompanyInfoService`와 `MarketDataService` indices에서만 쓰입니다.
 
+**(A) 사용자별 모의/실전 라우팅 (`account_mode`):**
+
+- 사용자는 회원가입/내정보에서 **모의(MOCK)/실전(REAL)** 모드를 선택하고, 해당 모드의 KIS 앱키를 그 도메인으로 인증(`validate-kis-account`의 `mode`)한다.
+- 저장된 `user_kis_accounts.account_mode`(v1.15, 기본 MOCK)를 기준으로 이후 그 사용자의 **모든 매매/잔고/체결통보 호출 도메인·TR이 결정**된다.
+- `KisAuthService.baseUrlFor(mode)`가 도메인을, `getKisCredentials(...).baseUrl()`이 호출부(TradingService/AssetService/OverseasTradingService/fills)에 도메인을 전달한다. OAuth 토큰도 계정 도메인으로 발급되며 캐시는 `kisAccountId`별이라 도메인별로 자연 분리된다.
+- 국내 TR은 `KisApiClient.convertTrId(trId, baseUrl)`가 도메인 보고 `VTTC↔TTTC` 자동 변환, 해외 TR은 `OverseasTradingService`가 `V↔T`를 모드로 분기, 체결통보는 모드로 ws-url(:31000/:21000)·TR(H0STCNI9/0)을 선택한다.
+- 기존 계정은 `account_mode` 기본값 MOCK로 하위호환. (시세/재무 (B) 경로는 사용자 모드와 무관하게 공유 quote 키를 그대로 사용.)
+
 ---
 
 ## 3. KisApiClient (공통 호출)
 
 `KisApiClient`는 KIS 호출의 공통 헤더와 도메인 처리를 담당합니다.
 
-**`convertTrId`:** real/virtual 도메인에 따라 `VTTC` ↔ `TTTC` 접두사를 교체합니다. `FHKST*` / `FHKUP*` 시세 TR_ID는 변경하지 않습니다.
+**`convertTrId(trId, baseUrl)`:** 호출의 도메인(baseUrl, 계정 모드로 결정)에 따라 `VTTC` ↔ `TTTC` 접두사를 교체합니다. `FHKST*` / `FHKUP*` 시세 TR_ID 및 해외 TR은 변경하지 않습니다. 매매/조회 호출은 `get`/`post`의 8-arg 오버로드로 `credentials.baseUrl()`을 첫 인자로 넘겨 사용자별 도메인 라우팅을 수행합니다.
 
 **공통 헤더:**
 
