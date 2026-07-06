@@ -31,10 +31,12 @@ import java.util.Map;
 public class StockService {
 
     private final StockMasterRepository stockMasterRepository;
+    private final StockMasterCatalog stockMasterCatalog;
     private final KisQuoteClient kisQuoteClient;
 
     /** 검색 상위 건수 제한 (코드 prefix / 종목명 부분일치). */
-    private static final Pageable TOP_30 = PageRequest.of(0, 30);
+    private static final int TOP_30_LIMIT = 30;
+    private static final Pageable TOP_30 = PageRequest.of(0, TOP_30_LIMIT);
 
     /** 통화 코드 상수. */
     private static final String CURRENCY_KRW = "KRW";
@@ -65,9 +67,16 @@ public class StockService {
             return Collections.emptyList();
         }
         String term = q.trim();
-        String currency = MARKET_US.equalsIgnoreCase(market != null ? market.trim() : null)
-                ? CURRENCY_USD
-                : CURRENCY_KRW;
+        boolean us = MARKET_US.equalsIgnoreCase(market != null ? market.trim() : null);
+
+        // 국내(KRW): KIS 종목마스터 인메모리 카탈로그를 우선 사용(코드/이름 전 종목).
+        // 카탈로그 로드 전이거나 다운로드 실패면 DB stock_master 시드로 폴백한다.
+        if (!us && stockMasterCatalog.isLoaded()) {
+            return stockMasterCatalog.search(term, TOP_30_LIMIT);
+        }
+
+        // 해외(US)는 아직 DB 카탈로그(v1.9 시드) 사용. 국내 폴백도 여기로 온다.
+        String currency = us ? CURRENCY_USD : CURRENCY_KRW;
         List<StockMaster> matches =
                 stockMasterRepository.searchByKeywordAndCurrency(term, currency, TOP_30);
         return matches.stream()
@@ -88,9 +97,7 @@ public class StockService {
         if (price == null) {
             return StockPriceResponse.builder()
                     .stockCode(stockCode)
-                    .notice(kisQuoteClient.getNotice() != null
-                            ? kisQuoteClient.getNotice()
-                            : KisQuoteClient.NOTICE_KIS_QUOTE)
+                    .notice(kisQuoteClient.unavailableNotice())
                     .build();
         }
         return StockPriceResponse.builder()
@@ -114,9 +121,7 @@ public class StockService {
                     .currentPrice(null)
                     .asks(Collections.emptyList())
                     .bids(Collections.emptyList())
-                    .notice(kisQuoteClient.getNotice() != null
-                            ? kisQuoteClient.getNotice()
-                            : KisQuoteClient.NOTICE_KIS_QUOTE)
+                    .notice(kisQuoteClient.unavailableNotice())
                     .build();
         }
 
