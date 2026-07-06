@@ -94,9 +94,7 @@ public class FavoriteService {
             return FavoriteResponse.builder()
                     .stockCode(favorite.getStockCode())
                     .stockName(favorite.getStockName())
-                    .notice(kisQuoteClient.getNotice() != null
-                            ? kisQuoteClient.getNotice()
-                            : KisQuoteClient.NOTICE_KIS_QUOTE)
+                    .notice(kisQuoteClient.unavailableNotice())
                     .build();
         }
         return FavoriteResponse.builder()

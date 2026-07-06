@@ -2,6 +2,14 @@ spring:
   application:
     name: api-server
 
+  # 로컬 실행(IntelliJ/gradlew)에서 공용 시세·DART 키(.env)를 프로퍼티로 로드.
+  # 작업 디렉터리가 api-server/ 든 프로젝트 루트든 잡히도록 두 경로 모두 시도(optional).
+  # docker 등 파일이 없으면 무시되고 env_file 로 주입된다.
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:api-server/.env[.properties]
+
   # Jackson Configuration (LocalDate/LocalDateTime을 한국시간(KST) 기준으로 직렬화)
   jackson:
     time-zone: Asia/Seoul

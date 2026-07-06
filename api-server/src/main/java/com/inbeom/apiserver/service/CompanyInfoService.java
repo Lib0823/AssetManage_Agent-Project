@@ -43,8 +43,6 @@ public class CompanyInfoService {
     private static final String MARKET_DIV = "J";
     private static final DateTimeFormatter DART_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
 
-    private static final String NOTICE_KIS_QUOTE =
-            "실시간 시세·재무가 연동되지 않았습니다 (실전 KIS 키 필요)";
     private static final String NOTICE_DART =
             "공시 데이터가 연동되지 않았습니다 (DART_API_KEY 필요)";
     private static final String NOTICE_DART_PROFILE =
@@ -115,7 +113,7 @@ public class CompanyInfoService {
         // notice: KIS 시세 미연동 / DART 회사개황 미연동 사유를 한 문장으로 결합 (모두 정상이면 null)
         List<String> notices = new ArrayList<>();
         if (!kisQuoteAvailable) {
-            notices.add(NOTICE_KIS_QUOTE);
+            notices.add(kisQuoteClient.unavailableNotice());
         }
         if (!dartEnabled) {
             notices.add(NOTICE_DART_PROFILE);
@@ -207,7 +205,7 @@ public class CompanyInfoService {
         String financialsNotice = null;
         boolean anyData = !annual.isEmpty() || hasAnyRatio(builtRatios);
         if (!kisQuoteService.isQuoteEnabled() || !anyData) {
-            financialsNotice = NOTICE_KIS_QUOTE;
+            financialsNotice = kisQuoteClient.unavailableNotice();
         }
 
         return FinancialsResponse.builder()

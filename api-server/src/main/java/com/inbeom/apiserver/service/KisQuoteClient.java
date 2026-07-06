@@ -39,6 +39,13 @@ public class KisQuoteClient {
             "실시간 시세가 연동되지 않았습니다 (실전 KIS 키 필요)";
 
     /**
+     * 키는 설정됐으나 KIS 점검/일시 오류로 조회에 실패한 경우의 안내.
+     * (키 미설정과 구분 — 키가 있는데 "키 필요"라고 잘못 안내하지 않도록.)
+     */
+    public static final String NOTICE_KIS_UNAVAILABLE =
+            "KIS 점검 또는 일시적 연동 오류로 시세를 불러올 수 없습니다";
+
+    /**
      * 시세 연동 가능 여부 = quote app key/secret 둘 다 설정됨.
      */
     public boolean isEnabled() {
@@ -50,6 +57,14 @@ public class KisQuoteClient {
      */
     public String getNotice() {
         return isEnabled() ? null : NOTICE_KIS_QUOTE;
+    }
+
+    /**
+     * 시세 데이터가 null 일 때 호출부가 노출할 안내 메시지.
+     * 키 미설정이면 "키 필요", 키는 있으나 조회 실패(점검/일시 오류)면 "점검" 문구를 반환한다.
+     */
+    public String unavailableNotice() {
+        return isEnabled() ? NOTICE_KIS_UNAVAILABLE : NOTICE_KIS_QUOTE;
     }
 
     /**
