@@ -3,9 +3,13 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import { userApi, authApi } from '@/services/api'
+import { useRealtimeStore } from '@/stores/realtime'
+import { useAuthStore } from '@/stores/auth'
 import toast from '@/utils/toast'
 
 const router = useRouter()
+const realtimeStore = useRealtimeStore()
+const authStore = useAuthStore()
 
 const user = ref({
   id: null,
@@ -73,6 +77,8 @@ const loadKisAccount = async () => {
         appSecret: response.data.appSecret || '',
         mode: response.data.accountMode || 'MOCK'
       }
+      // 헤더 배지가 최신 모드를 반영하도록 동기화
+      authStore.setAccountMode(kisAccount.value.mode)
       validationResult.value = response.data.isVerified ? { valid: true } : null
     }
   } catch (error) {
@@ -187,6 +193,10 @@ const handleSave = async () => {
         appSecret: kisAccount.value.appSecret,
         mode: kisAccount.value.mode
       })
+
+      // 저장한 계좌 모드를 반영: 헤더 배지 갱신 + 실시간 소켓 즉시 켜거나(REAL) 끄기(MOCK).
+      authStore.setAccountMode(kisAccount.value.mode)
+      realtimeStore.setEnabled(kisAccount.value.mode === 'REAL')
     }
 
     toast.success('정보가 저장되었습니다')

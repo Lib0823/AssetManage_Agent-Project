@@ -2,6 +2,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
+import { isKisOutageError } from '@/utils/kisStatus'
 import { Doughnut } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -10,12 +12,14 @@ import {
   Legend
 } from 'chart.js'
 import { assetApi } from '@/services/api'
+import { logger } from '@/utils/logger'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
 const router = useRouter()
 
 const loading = ref(false)
+const kisUnavailable = ref(false)
 
 // 자산 요약 (실데이터로 채움). 채권/코인은 추후 지원 → 0.
 const assetSummary = ref({
@@ -50,6 +54,7 @@ const pick = (obj, keys) => {
 
 const loadAssets = async () => {
   loading.value = true
+  kisUnavailable.value = false
   try {
     const [balanceRes, holdingsRes] = await Promise.all([
       assetApi.getBalance(),
@@ -97,7 +102,10 @@ const loadAssets = async () => {
       }
     }
   } catch (error) {
-    console.error('Failed to load assets:', error)
+    logger.debug('Failed to load assets:', error)
+    if (isKisOutageError(error)) {
+      kisUnavailable.value = true
+    }
   } finally {
     loading.value = false
   }
@@ -192,7 +200,7 @@ const handleRefresh = () => {
 
 <template>
   <div class="assets-screen">
-    <AppHeader title="자산 정보" showIcon icon="assets" />
+    <AppHeader title="자산 정보" showIcon icon="assets" show-kis-mode />
 
     <div class="header-actions">
       <span class="update-time">기준 일시: {{ assetSummary.updatedAt }}</span>
@@ -204,8 +212,11 @@ const handleRefresh = () => {
     </div>
 
     <div class="content">
+      <!-- KIS 점검중 안내 (잔고/보유 조회 실패 시) -->
+      <KisMaintenanceNotice v-if="kisUnavailable" variant="card" />
+
       <!-- Total Asset Summary -->
-      <section class="total-section">
+      <section v-if="!kisUnavailable" class="total-section">
         <div class="total-header">
           <h2 class="total-label">총 자산</h2>
           <div class="total-badge">
@@ -245,7 +256,7 @@ const handleRefresh = () => {
       </section>
 
       <!-- Asset Cards -->
-      <div class="asset-cards">
+      <div v-if="!kisUnavailable" class="asset-cards">
         <!-- Cash -->
         <section class="asset-card cash" @click="goToDetail('cash')">
           <div class="card-header">

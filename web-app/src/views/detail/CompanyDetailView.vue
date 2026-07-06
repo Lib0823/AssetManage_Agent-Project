@@ -2,7 +2,9 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { marketAnalysisApi, companyApi } from '@/services/api'
+import { logger } from '@/utils/logger'
 
 const route = useRoute()
 const router = useRouter()
@@ -484,6 +486,11 @@ const basicView = computed(() => {
   }
 })
 
+// 현재가는 KIS 시세 출처. current_price 가 null 이고 미연동 사유(notice)가 있으면 KIS 점검중으로 간주
+const basicPriceKisDown = computed(
+  () => basicInfo.value != null && basicInfo.value.current_price == null && !!basicNotice.value
+)
+
 // ===== 재무제표 (computed) =====
 const financialView = computed(() => {
   const f = financials.value
@@ -528,7 +535,7 @@ const loadBasicInfo = async () => {
       basicError.value = true
     }
   } catch (error) {
-    console.error('기업 기본정보 조회 실패:', error)
+    logger.debug('기업 기본정보 조회 실패:', error)
     basicError.value = true
   } finally {
     basicLoading.value = false
@@ -549,7 +556,7 @@ const loadFinancials = async () => {
       financialError.value = true
     }
   } catch (error) {
-    console.error('재무제표 조회 실패:', error)
+    logger.debug('재무제표 조회 실패:', error)
     financialError.value = true
   } finally {
     financialLoading.value = false
@@ -570,7 +577,7 @@ const loadDisclosures = async () => {
       disclosureError.value = true
     }
   } catch (error) {
-    console.error('공시정보 조회 실패:', error)
+    logger.debug('공시정보 조회 실패:', error)
     disclosureError.value = true
   } finally {
     disclosureLoading.value = false
@@ -628,7 +635,7 @@ const loadStockDetail = async () => {
       aiError.value = true
     }
   } catch (error) {
-    console.error('종목 상세 분석 조회 실패:', error)
+    logger.debug('종목 상세 분석 조회 실패:', error)
     aiError.value = true
   } finally {
     aiLoading.value = false
@@ -746,12 +753,15 @@ watch(
           <div class="info-row">
             <span class="info-label">현재가</span>
             <span class="info-value">
-              {{ basicView.currentPrice }}
-              <span
-                v-if="basicView.changeRateText"
-                class="change-rate"
-                :class="basicView.changeRateClass"
-              >({{ basicView.changeRateText }})</span>
+              <KisMaintenanceNotice v-if="basicPriceKisDown" variant="inline" />
+              <template v-else>
+                {{ basicView.currentPrice }}
+                <span
+                  v-if="basicView.changeRateText"
+                  class="change-rate"
+                  :class="basicView.changeRateClass"
+                >({{ basicView.changeRateText }})</span>
+              </template>
             </span>
           </div>
           <div class="info-row">

@@ -3,13 +3,19 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import InvestmentTabs from '@/components/common/InvestmentTabs.vue'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { tradingApi, overseasApi } from '@/services/api'
+import { isKisOutageError } from '@/utils/kisStatus'
+import { logger } from '@/utils/logger'
 
 const router = useRouter()
 
 const tabs = ref({ main: 'stocks', sub: 'domestic' })
 const loading = ref(false)
 const errorMessage = ref('')
+
+// 해외(KIS 연동) 탭 점검중 여부 — 국내(DB 기반) 탭에는 영향 없음
+const overseasKisDown = ref(false)
 
 // 거래 내역 데이터 (API에서 가져옴)
 const history = ref([])
@@ -34,6 +40,7 @@ const loadHistory = async () => {
   try {
     loading.value = true
     errorMessage.value = ''
+    overseasKisDown.value = false
 
     // 해외(US): 체결내역 + 미체결을 overseasApi 로 조회 (USD)
     if (isOverseas.value) {
@@ -104,7 +111,13 @@ const loadHistory = async () => {
       // computed(summary)에서 자동 재계산된다.
     }
   } catch (error) {
-    console.error('Failed to load trade history:', error)
+    logger.debug('Failed to load trade history:', error)
+
+    // 해외(KIS 연동) 탭에서 KIS 장애면 점검중 안내 표시 (국내 탭은 영향 없음)
+    if (isOverseas.value && isKisOutageError(error)) {
+      overseasKisDown.value = true
+      return
+    }
 
     // API 키 에러 처리
     if (error.response?.status === 401 || error.response?.status === 403) {
@@ -225,6 +238,12 @@ const getTypeLabel = (type) => {
         <div class="spinner"></div>
         <p class="state-message">거래 내역을 불러오는 중...</p>
       </div>
+
+      <!-- KIS Maintenance (해외 탭 전용) -->
+      <KisMaintenanceNotice
+        v-else-if="isOverseas && overseasKisDown"
+        variant="card"
+      />
 
       <!-- Error State -->
       <div v-else-if="errorMessage" class="state-container error-state">

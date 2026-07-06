@@ -3,8 +3,11 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import AssetTabs from '@/components/common/AssetTabs.vue'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { assetApi, overseasApi, marketApi } from '@/services/api'
+import { isKisOutageError } from '@/utils/kisStatus'
 import { useRealtimeStore } from '@/stores/realtime'
+import { logger } from '@/utils/logger'
 
 const router = useRouter()
 const route = useRoute()
@@ -31,6 +34,10 @@ const overseasStocks = ref([])
 
 // 해외 안내 메시지 (quote 비활성 / 모의 해외매매 미지원 등 graceful degrade)
 const overseasNotice = ref('')
+
+// 국내 KIS 연동 불가(점검/네트워크/서버 오류) 여부.
+// 하드 엔드포인트(보유/잔고) 실패 시 true → 오해를 부르는 0원 대신 점검 안내 표시.
+const domesticKisDown = ref(false)
 
 // USD → KRW 환율 (marketApi.getExchangeRates() 의 USD rate, 없으면 null → 병기 생략)
 const usdRate = ref(null)
@@ -78,6 +85,7 @@ const cashDetail = ref({
 const loadHoldings = async () => {
   try {
     loading.value = true
+    domesticKisDown.value = false
     const response = await assetApi.getHoldings()
 
     // KIS API 응답 구조에 맞춰 파싱
@@ -96,8 +104,11 @@ const loadHoldings = async () => {
       }))
     }
   } catch (error) {
-    console.error('Failed to load holdings:', error)
+    logger.debug('Failed to load holdings:', error)
     errorMessage.value = '보유 주식 정보를 불러오는데 실패했습니다'
+    if (isKisOutageError(error)) {
+      domesticKisDown.value = true
+    }
   } finally {
     loading.value = false
   }
@@ -124,7 +135,10 @@ const loadBalance = async () => {
       }
     }
   } catch (error) {
-    console.error('Failed to load balance:', error)
+    logger.debug('Failed to load balance:', error)
+    if (isKisOutageError(error)) {
+      domesticKisDown.value = true
+    }
   }
 }
 
@@ -141,7 +155,7 @@ const loadExchangeRate = async () => {
     const usd = list.find((r) => r && (r.currency === 'USD' || r.currency === 'USD/KRW'))
     usdRate.value = usd && Number.isFinite(Number(usd.rate)) ? Number(usd.rate) : null
   } catch (error) {
-    console.error('Failed to load exchange rate:', error)
+    logger.debug('Failed to load exchange rate:', error)
     usdRate.value = null
   }
 }
@@ -188,7 +202,7 @@ const loadOverseasBalance = async () => {
       d2Deposit: 0
     }
   } catch (error) {
-    console.error('Failed to load overseas balance:', error)
+    logger.debug('Failed to load overseas balance:', error)
     overseasStocks.value = []
     overseasSummary.value = { totalValuation: 0, totalProfit: 0, profitPercent: 0, totalPurchase: 0, d2Deposit: 0 }
     overseasNotice.value = '해외 잔고 연동 중 오류가 발생했습니다'
@@ -206,7 +220,7 @@ const clearTickSubscriptions = () => {
     try {
       unsub()
     } catch (e) {
-      console.error('[asset] tick unsubscribe error:', e)
+      logger.debug('[asset] tick unsubscribe error:', e)
     }
   }
   tickUnsubs = []
@@ -319,7 +333,7 @@ const goToInfo = (stock) => {
 
 <template>
   <div class="asset-detail-screen">
-    <AppHeader title="자산 상세 정보" showBack />
+    <AppHeader title="자산 상세 정보" showBack show-kis-mode />
 
     <div class="content">
       <!-- Tabs -->
@@ -331,9 +345,10 @@ const goToInfo = (stock) => {
         <div class="cash-card">
           <div class="cash-header">
             <h3 class="cash-title">KRW</h3>
-            <span class="cash-total">{{ formatNumber(cashDetail.krw.availableForOrder) }}원</span>
+            <span class="cash-total">{{ domesticKisDown ? '—' : formatNumber(cashDetail.krw.availableForOrder) + '원' }}</span>
           </div>
-          <div class="cash-details">
+          <KisMaintenanceNotice v-if="domesticKisDown" variant="banner" />
+          <div v-else class="cash-details">
             <div class="cash-detail-item">
               <span class="detail-label">주문가능금</span>
               <span class="detail-value">{{ formatNumber(cashDetail.krw.availableForOrder) }}원</span>
@@ -371,6 +386,9 @@ const goToInfo = (stock) => {
 
       <!-- 주식 화면 -->
       <div v-if="tabs.main === 'stocks'">
+        <!-- 국내 KIS 점검 중: 오해를 부르는 0원 요약/빈 목록 대신 안내 카드 표시 -->
+        <KisMaintenanceNotice v-if="!isOverseas && domesticKisDown" variant="card" />
+        <template v-else>
         <!-- Summary Card -->
         <div class="summary-card">
           <div class="summary-header">
@@ -495,6 +513,7 @@ const goToInfo = (stock) => {
             </div>
           </div>
         </div>
+        </template>
       </div>
     </div>
   </div>

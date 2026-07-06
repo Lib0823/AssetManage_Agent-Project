@@ -2,8 +2,11 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { stockApi, tradingApi, overseasApi, marketApi } from '@/services/api'
 import { useRealtimeStore } from '@/stores/realtime'
+import { isKisOutageError } from '@/utils/kisStatus'
+import { logger } from '@/utils/logger'
 
 const route = useRoute()
 const router = useRouter()
@@ -49,6 +52,8 @@ const priceNotice = ref(null)
 const orderbookAsks = ref([]) // 매도호가 (높은 가격), 위쪽
 const orderbookBids = ref([]) // 매수호가, 아래쪽
 const orderbookNotice = ref(null)
+// KIS 점검/연동 불가로 호가를 못 불러온 상태 (true면 가짜 사다리 대신 점검 안내 표시)
+const orderbookKisDown = ref(false)
 
 // 주문 가능 정보 — 국내 전용
 const orderableNotice = ref(null)
@@ -135,38 +140,6 @@ const selectPrice = (price) => {
   orderForm.value.price = price
 }
 
-// 호가 데이터 없을 때 currentPrice 기준 ±5틱 사다리 생성 (fallback)
-const buildFallbackLadder = (base) => {
-  const center = Number(base)
-  if (!center) {
-    orderbookAsks.value = []
-    orderbookBids.value = []
-    return
-  }
-  const tick = estimateTick(center)
-  const asks = []
-  const bids = []
-  for (let i = 5; i >= 1; i--) {
-    asks.push({ price: center + tick * i, quantity: null })
-  }
-  for (let i = 1; i <= 5; i++) {
-    bids.push({ price: Math.max(center - tick * i, tick), quantity: null })
-  }
-  orderbookAsks.value = asks
-  orderbookBids.value = bids
-}
-
-// KRX 호가 단위 근사
-const estimateTick = (price) => {
-  if (price < 2000) return 1
-  if (price < 5000) return 5
-  if (price < 20000) return 10
-  if (price < 50000) return 50
-  if (price < 200000) return 100
-  if (price < 500000) return 500
-  return 1000
-}
-
 const loadPrice = async () => {
   if (isOverseas.value) {
     await loadOverseasPrice()
@@ -188,7 +161,7 @@ const loadPrice = async () => {
       orderForm.value.price = Number(data.currentPrice)
     }
   } catch (error) {
-    console.error('Failed to load price:', error)
+    logger.debug('Failed to load price:', error)
     priceNotice.value = '시세 미연동'
   }
 }
@@ -216,7 +189,7 @@ const loadOverseasPrice = async () => {
       if (!priceNotice.value) priceNotice.value = '해외 시세 미연동'
     }
   } catch (error) {
-    console.error('Failed to load overseas price:', error)
+    logger.debug('Failed to load overseas price:', error)
     currentPrice.value = null
     changeAmount.value = null
     changeRate.value = null
@@ -233,12 +206,13 @@ const loadExchangeRate = async () => {
     const usd = list.find((r) => String(r?.currency || '').toUpperCase().includes('USD'))
     usdRate.value = usd && usd.rate != null ? Number(usd.rate) : null
   } catch (error) {
-    console.error('Failed to load exchange rate:', error)
+    logger.debug('Failed to load exchange rate:', error)
     usdRate.value = null
   }
 }
 
 const loadOrderbook = async () => {
+  orderbookKisDown.value = false
   try {
     // 국내는 10호가(stockApi), 해외(US)는 1호가(overseasApi). 응답 shape 동일(asks/bids={price,quantity}).
     const response = isOverseas.value
@@ -249,8 +223,11 @@ const loadOrderbook = async () => {
     const bids = Array.isArray(data.bids) ? data.bids.filter((r) => r && r.price) : []
 
     if (data.notice || (asks.length === 0 && bids.length === 0)) {
+      // KIS 점검/미연동: 가짜 사다리를 만들지 않는다. (실제로 없는 호가에 주문하는 사고 방지)
       orderbookNotice.value = data.notice || '호가 미연동'
-      buildFallbackLadder(currentPrice.value)
+      orderbookAsks.value = []
+      orderbookBids.value = []
+      orderbookKisDown.value = true
       return
     }
 
@@ -260,9 +237,12 @@ const loadOrderbook = async () => {
     // bids: 매수호가 높은가격 순 (내림차순) → 아래쪽 상단부터
     orderbookBids.value = [...bids].sort((a, b) => Number(b.price) - Number(a.price))
   } catch (error) {
-    console.error('Failed to load orderbook:', error)
-    orderbookNotice.value = '호가 미연동'
-    buildFallbackLadder(currentPrice.value)
+    logger.debug('Failed to load orderbook:', error)
+    // KIS 점검/연동 불가: 가짜 사다리 대신 점검 안내를 표시한다.
+    orderbookNotice.value = isKisOutageError(error) ? 'KIS 점검중' : '호가 미연동'
+    orderbookAsks.value = []
+    orderbookBids.value = []
+    orderbookKisDown.value = true
   }
 }
 
@@ -287,7 +267,7 @@ const loadOrderable = async () => {
       orderForm.value.maxPrice = Number(data.orderableCash)
     }
   } catch (error) {
-    console.error('Failed to load orderable:', error)
+    logger.debug('Failed to load orderable:', error)
     orderableNotice.value = '주문가능 미연동'
   }
 }
@@ -341,6 +321,7 @@ const onOrderbook = (msg) => {
   const bids = Array.isArray(msg.bids) ? msg.bids.filter((r) => r && r.price) : []
   if (asks.length === 0 && bids.length === 0) return // 빈 프레임은 마지막 스냅샷 유지
   orderbookNotice.value = null
+  orderbookKisDown.value = false // 실시간 실제 호가 수신 → 점검 안내 해제
   // asks: 매도호가 높은가격 순(내림차순) → 위쪽
   orderbookAsks.value = [...asks].sort((a, b) => Number(b.price) - Number(a.price))
   // bids: 매수호가 높은가격 순(내림차순) → 아래쪽 상단부터
@@ -368,7 +349,7 @@ const stopRealtime = () => {
     try {
       if (typeof unsub === 'function') unsub()
     } catch (e) {
-      console.error('Failed to unsubscribe realtime:', e)
+      logger.debug('Failed to unsubscribe realtime:', e)
     }
   }
   realtimeUnsubs = []
@@ -405,7 +386,7 @@ const placeOrder = async () => {
     // Redirect to transactions page
     router.push('/transactions')
   } catch (error) {
-    console.error('Order failed:', error)
+    logger.debug('Order failed:', error)
     errorMessage.value = error.response?.data?.message || '주문 실행에 실패했습니다'
     alert(errorMessage.value)
   } finally {
@@ -483,7 +464,7 @@ const loadPendingOrders = async () => {
       currency: '원'
     }))
   } catch (error) {
-    console.error('Failed to load pending orders:', error)
+    logger.debug('Failed to load pending orders:', error)
     pendingOrders.value = []
   }
 }
@@ -540,7 +521,7 @@ const realtimeNotice = computed(() => {
 
 <template>
   <div class="trading-screen">
-    <AppHeader title="실시간 매매" showBack />
+    <AppHeader title="실시간 매매" showBack show-kis-mode />
 
     <div class="content">
       <!-- Stock Header -->
@@ -567,11 +548,12 @@ const realtimeNotice = computed(() => {
         <p v-if="isOverseas && currentPriceKrw != null" class="krw-equivalent">
           ≈ {{ formatNumber(currentPriceKrw) }}원
         </p>
-        <!-- 해외 모드인데 시세 없음: '—' 표기 -->
-        <div v-if="isOverseas && currentPrice == null" class="stock-price-row">
+        <!-- 시세 없음: '—' 표기 (국내·해외 공통) -->
+        <div v-if="currentPrice == null" class="stock-price-row">
           <span class="stock-current-price">—</span>
         </div>
-        <p v-if="priceNotice" class="notice-text">{{ priceNotice }}</p>
+        <!-- KIS 시세 미연동/점검(현재가): 다른 화면과 동일한 통일 안내 배너 -->
+        <KisMaintenanceNotice v-if="priceNotice" variant="banner" class="header-notice" />
         <p v-if="realtimeNotice" class="notice-text realtime-notice">{{ realtimeNotice }}</p>
         <div class="stock-tags">
           <template v-if="isOverseas">
@@ -614,21 +596,25 @@ const realtimeNotice = computed(() => {
       <div class="trading-form">
         <!-- Price List (Order Book) — 국내 전용 -->
         <div v-if="!isOverseas" class="price-list">
-          <div
-            v-for="(row, idx) in orderbookRows"
-            :key="`${row.side}-${row.price}-${idx}`"
-            :class="[
-              'price-item',
-              row.side,
-              { highlight: nearestPrice != null && row.price === nearestPrice }
-            ]"
-            @click="selectPrice(row.price)"
-          >
-            <span class="price-item-price">{{ formatNumber(row.price) }}</span>
-            <span v-if="row.quantity != null" class="price-item-qty">{{ formatNumber(row.quantity) }}</span>
-          </div>
-          <div v-if="orderbookRows.length === 0" class="price-item empty">호가 없음</div>
-          <p v-if="orderbookNotice" class="notice-text orderbook-notice">{{ orderbookNotice }}</p>
+          <!-- KIS 점검/연동 불가: 가짜 호가 대신 점검 안내 (실제 없는 가격에 주문하는 사고 방지) -->
+          <KisMaintenanceNotice v-if="orderbookKisDown" variant="card" />
+          <template v-else>
+            <div
+              v-for="(row, idx) in orderbookRows"
+              :key="`${row.side}-${row.price}-${idx}`"
+              :class="[
+                'price-item',
+                row.side,
+                { highlight: nearestPrice != null && row.price === nearestPrice }
+              ]"
+              @click="selectPrice(row.price)"
+            >
+              <span class="price-item-price">{{ formatNumber(row.price) }}</span>
+              <span v-if="row.quantity != null" class="price-item-qty">{{ formatNumber(row.quantity) }}</span>
+            </div>
+            <div v-if="orderbookRows.length === 0" class="price-item empty">호가 없음</div>
+            <p v-if="orderbookNotice" class="notice-text orderbook-notice">{{ orderbookNotice }}</p>
+          </template>
         </div>
 
         <!-- 해외 호가 미지원 안내 -->
@@ -684,7 +670,6 @@ const realtimeNotice = computed(() => {
                 <span v-else class="form-hint">주문 가능 {{ formatNumber(orderForm.maxPrice) }}원</span>
               </div>
             </div>
-            <p v-if="!isOverseas && orderableNotice" class="notice-text">{{ orderableNotice }}</p>
             <div class="form-row total">
               <span class="form-label">총 {{ activeTab === 'buy' ? '매수' : '매도' }} 금액</span>
               <span class="form-total">{{ formatMoney(totalAmount) }}</span>
@@ -782,6 +767,11 @@ const realtimeNotice = computed(() => {
 
 .orderbook-notice {
   text-align: center;
+}
+
+/* 현재가 영역 KIS 점검 안내 배너 */
+.header-notice {
+  margin-top: var(--spacing-sm);
 }
 
 .realtime-notice {
