@@ -3,7 +3,10 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import InvestmentTabs from '@/components/common/InvestmentTabs.vue'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { stockApi, overseasApi, marketApi, favoriteApi } from '@/services/api'
+import { isKisOutageError, isKisUnavailableNotice } from '@/utils/kisStatus'
+import { logger } from '@/utils/logger'
 
 const router = useRouter()
 
@@ -84,9 +87,17 @@ const handleSearch = async () => {
       ? await stockApi.search(query)
       : await stockApi.searchOverseas(query)
     const data = unwrap(res)
-    results.value = Array.isArray(data) ? data : []
+    // 백엔드 응답은 snake_case(stock_code/stock_name)인데 화면은 camelCase로 읽으므로
+    // 여기서 정규화한다(둘 다 허용). 정규화 안 하면 이름/코드가 undefined → 목록이 비어 보임.
+    const list = Array.isArray(data) ? data : []
+    results.value = list.map((it) => ({
+      stockCode: it.stockCode ?? it.stock_code ?? '',
+      stockName: it.stockName ?? it.stock_name ?? '',
+      market: it.market ?? '',
+      exchangeCode: it.exchangeCode ?? it.exchange_code ?? it.exchange ?? null
+    }))
   } catch (error) {
-    console.error('종목 검색 실패:', error)
+    logger.debug('종목 검색 실패:', error)
     results.value = []
     searchError.value = '검색 중 오류가 발생했습니다'
   } finally {
@@ -106,15 +117,18 @@ const loadPrice = async (item) => {
   try {
     if (isDomestic.value) {
       const data = unwrap(await stockApi.getPrice(stockCode))
+      // StockPriceResponse는 snake_case(current_price 등) → camelCase 폴백과 함께 읽는다.
+      const currentPrice = data?.currentPrice ?? data?.current_price ?? null
       priceMap.value = {
         ...priceMap.value,
         [stockCode]: {
           loading: false,
           overseas: false,
-          currentPrice: data?.currentPrice ?? null,
-          changeAmount: data?.changeAmount ?? null,
-          changeRate: data?.changeRate ?? null,
-          notice: data?.notice ?? null
+          currentPrice,
+          changeAmount: data?.changeAmount ?? data?.change_amount ?? null,
+          changeRate: data?.changeRate ?? data?.change_rate ?? null,
+          notice: data?.notice ?? null,
+          kisDown: currentPrice === null && isKisUnavailableNotice(data?.notice)
         }
       }
     } else {
@@ -132,12 +146,13 @@ const loadPrice = async (item) => {
           currentPrice: last,
           changeAmount: data?.diff ?? data?.changeAmount ?? null,
           changeRate: rate,
-          notice: data?.notice ?? null
+          notice: data?.notice ?? null,
+          kisDown: last === null && isKisUnavailableNotice(data?.notice)
         }
       }
     }
   } catch (error) {
-    console.error(`현재가 조회 실패 (${stockCode}):`, error)
+    logger.debug(`현재가 조회 실패 (${stockCode}):`, error)
     priceMap.value = {
       ...priceMap.value,
       [stockCode]: {
@@ -146,7 +161,8 @@ const loadPrice = async (item) => {
         currentPrice: null,
         changeAmount: null,
         changeRate: null,
-        notice: '—'
+        notice: '—',
+        kisDown: isKisOutageError(error)
       }
     }
   }
@@ -158,6 +174,11 @@ const hasPrice = (stockCode) => {
   const info = getPriceInfo(stockCode)
   return !!info && !info.loading && info.currentPrice !== null && info.currentPrice !== undefined
 }
+
+// 화면 단위 KIS 점검 여부: 한 종목이라도 점검/연동 불가면 상단에 통일 안내를 표시
+const kisDown = computed(() =>
+  Object.values(priceMap.value).some((info) => info && !info.loading && info.kisDown)
+)
 
 const priceText = (stockCode) => {
   const info = getPriceInfo(stockCode)
@@ -207,7 +228,7 @@ const loadExchangeRates = async () => {
     usdKrwRate.value = usd && Number(usd.rate) ? Number(usd.rate) : null
   } catch (error) {
     // 환율 실패 시 KRW 병기만 생략 (해외 검색은 정상 동작)
-    console.error('환율 조회 실패:', error)
+    logger.debug('환율 조회 실패:', error)
     usdKrwRate.value = null
   }
 }
@@ -216,11 +237,11 @@ const loadFavorites = async () => {
   try {
     const res = await favoriteApi.list()
     const data = unwrap(res)
-    const codes = Array.isArray(data) ? data.map((f) => f.stockCode) : []
-    favoriteCodes.value = new Set(codes)
+    const codes = Array.isArray(data) ? data.map((f) => f.stockCode ?? f.stock_code) : []
+    favoriteCodes.value = new Set(codes.filter(Boolean))
   } catch (error) {
     // 비로그인/오류 시 관심종목 표시만 비움 (검색은 정상 동작)
-    console.error('관심종목 조회 실패:', error)
+    logger.debug('관심종목 조회 실패:', error)
     favoriteCodes.value = new Set()
   }
 }
@@ -243,7 +264,7 @@ const toggleFavorite = async (item) => {
     }
     favoriteCodes.value = next
   } catch (error) {
-    console.error('관심종목 변경 실패:', error)
+    logger.debug('관심종목 변경 실패:', error)
   }
 }
 
@@ -284,6 +305,13 @@ onMounted(() => {
 
       <!-- Results List -->
       <div class="results-container">
+        <!-- KIS 점검중: 상단 통일 안내 (다른 화면과 동일한 문구/모양) -->
+        <KisMaintenanceNotice
+          v-if="isDomestic && kisDown"
+          variant="banner"
+          class="list-notice"
+        />
+
         <div v-if="filteredResults.length === 0" class="empty-state">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
             <circle cx="11" cy="11" r="7" stroke="var(--color-text-tertiary)" stroke-width="2"/>
@@ -433,6 +461,11 @@ onMounted(() => {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+}
+
+.list-notice {
+  margin-bottom: var(--spacing-md);
+  flex-shrink: 0;
 }
 
 .empty-state {

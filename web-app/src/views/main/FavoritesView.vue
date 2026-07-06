@@ -3,7 +3,9 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import InvestmentTabs from '@/components/common/InvestmentTabs.vue'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { favoriteApi } from '@/services/api'
+import { logger } from '@/utils/logger'
 
 const router = useRouter()
 
@@ -16,6 +18,10 @@ const errorMessage = ref('')
 // 국내(domestic)만 실데이터 제공. 해외/코인 등은 추후 지원.
 const isDomestic = computed(() => tabs.value.sub === 'domestic')
 
+// KIS 시세 미연동/점검: 서버가 종목별로 notice 를 채워 내려준다.
+// 한 종목이라도 notice 가 있으면 KIS 점검중으로 보고 상단에 통일 안내를 표시.
+const kisDown = computed(() => favorites.value.some((f) => !!f.notice))
+
 const loadFavorites = async () => {
   if (!isDomestic.value) {
     favorites.value = []
@@ -24,10 +30,21 @@ const loadFavorites = async () => {
   isLoading.value = true
   errorMessage.value = ''
   try {
-    const data = await favoriteApi.list()
-    favorites.value = Array.isArray(data) ? data : []
+    const res = await favoriteApi.list()
+    // /favorites 는 ApiResponse 엔벨로프({success,data})로 반환 → data 를 언랩.
+    // 또한 필드가 snake_case(stock_code 등)라 camelCase 로 정규화(둘 다 허용).
+    const list = res && res.success && Array.isArray(res.data)
+      ? res.data
+      : (Array.isArray(res) ? res : [])
+    favorites.value = list.map((f) => ({
+      stockCode: f.stockCode ?? f.stock_code ?? '',
+      stockName: f.stockName ?? f.stock_name ?? '',
+      currentPrice: f.currentPrice ?? f.current_price ?? null,
+      changeRate: f.changeRate ?? f.change_rate ?? null,
+      notice: f.notice ?? null
+    }))
   } catch (error) {
-    console.error('관심 종목 조회 실패:', error)
+    logger.debug('관심 종목 조회 실패:', error)
     errorMessage.value = '관심 종목을 불러오지 못했습니다.'
     favorites.value = []
   } finally {
@@ -41,7 +58,7 @@ const removeFavorite = async (item) => {
     await favoriteApi.remove(item.stockCode)
     favorites.value = favorites.value.filter((f) => f.stockCode !== item.stockCode)
   } catch (error) {
-    console.error('관심 종목 삭제 실패:', error)
+    logger.debug('관심 종목 삭제 실패:', error)
   }
 }
 
@@ -98,6 +115,13 @@ onMounted(() => {
 
       <!-- Items List -->
       <div class="items-container">
+        <!-- KIS 점검중: 상단 통일 안내 (다른 화면과 동일한 문구/모양) -->
+        <KisMaintenanceNotice
+          v-if="isDomestic && !isLoading && !errorMessage && kisDown"
+          variant="banner"
+          class="list-notice"
+        />
+
         <!-- 해외/코인 등 추후 지원 -->
         <div v-if="!isDomestic" class="empty-state">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
@@ -148,11 +172,7 @@ onMounted(() => {
             </div>
             <div class="item-right">
               <div class="item-price">{{ formatPrice(item) }}</div>
-              <div
-                v-if="item.notice"
-                class="item-notice"
-                :title="item.notice"
-              >—</div>
+              <div v-if="item.notice" class="item-notice">—</div>
               <div
                 v-else
                 :class="['item-change', isPositive(item) ? 'positive' : 'negative']"
@@ -199,6 +219,10 @@ onMounted(() => {
   border-radius: 12px;
   padding: var(--spacing-md);
   min-height: 250px;
+}
+
+.list-notice {
+  margin-bottom: var(--spacing-md);
 }
 
 .empty-state {
