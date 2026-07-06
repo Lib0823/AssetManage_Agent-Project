@@ -1,6 +1,5 @@
 package com.inbeom.apiserver.dto.stock;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,6 +16,7 @@ import java.util.List;
  * bidp1..bidp10/bidp_rsqn1..bidp_rsqn10 → bids (매수호가/잔량).
  * current_price 는 주식현재가 시세(FHKST01010100) stck_prpr 를 별도로 조회해 채운다.
  * 시세 미연동(quote 비활성) 또는 조회 실패 시 asks/bids 는 빈 리스트, 가격은 null, notice 에 안내 메시지.
+ * JSON 직렬화는 camelCase — 프론트가 camelCase로 읽는다.
  */
 @Data
 @Builder
@@ -24,23 +24,18 @@ import java.util.List;
 @AllArgsConstructor
 public class OrderbookResponse {
 
-    @JsonProperty("stock_code")
     private String stockCode;
 
     // 현재가 (원, FHKST01010100 stck_prpr)
-    @JsonProperty("current_price")
     private Long currentPrice;
 
     // 매도호가 (1~10단계, 0원 호가 제외)
-    @JsonProperty("asks")
     private List<OrderbookLevel> asks;
 
     // 매수호가 (1~10단계, 0원 호가 제외)
-    @JsonProperty("bids")
     private List<OrderbookLevel> bids;
 
     // 시세 미연동 시 UI 안내용 메시지 (정상이면 null)
-    @JsonProperty("notice")
     private String notice;
 
     /**
@@ -53,11 +48,9 @@ public class OrderbookResponse {
     public static class OrderbookLevel {
 
         // 호가 (원)
-        @JsonProperty("price")
         private Long price;
 
         // 잔량 (주)
-        @JsonProperty("quantity")
         private Long quantity;
     }
 }
