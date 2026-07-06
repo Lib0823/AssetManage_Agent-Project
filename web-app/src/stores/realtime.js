@@ -123,6 +123,16 @@ export const useRealtimeStore = defineStore('realtime', () => {
     return realtimeClient.subscribeFills(handler)
   }
 
+  /**
+   * 실시간 사용 여부 설정. 실계좌(REAL) 모드에서만 true.
+   * 로그인/프로필 저장 시 계좌 모드에 따라 호출한다. false면 연결을 시도하지 않아
+   * 모의 모드에서 콘솔 WebSocket 에러가 발생하지 않는다.
+   */
+  function setEnabled(enabled) {
+    ensureStatusListener()
+    realtimeClient.setEnabled(enabled)
+  }
+
   /** 심볼별 최신 호가 조회 (없으면 null). */
   function getQuote(market, symbol) {
     return quotes.value[dataKey(market, symbol)] || null
@@ -143,6 +153,7 @@ export const useRealtimeStore = defineStore('realtime', () => {
     lastFill,
 
     // Actions
+    setEnabled,
     subscribeOrderbook,
     subscribeTick,
     subscribeFills,
