@@ -3,9 +3,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import InvestmentTabs from '@/components/common/InvestmentTabs.vue'
-import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { stockApi, overseasApi, marketApi, favoriteApi } from '@/services/api'
-import { isKisOutageError, isKisUnavailableNotice } from '@/utils/kisStatus'
 import { logger } from '@/utils/logger'
 
 const router = useRouter()
@@ -24,6 +22,9 @@ const favoriteCodes = ref(new Set())
 const usdKrwRate = ref(null)
 
 const isDomestic = computed(() => tabs.value.sub === 'domestic')
+
+// 검색어 없이 기본 상위 종목을 보여주는 상태(국내=코스피, 해외=S&P500)
+const showingTopStocks = computed(() => !searchQuery.value.trim())
 
 const filteredResults = computed(() => {
   // 백엔드 검색이 종목코드/이름으로 이미 필터링하므로 그대로 사용 (국내·해외 공통)
@@ -49,17 +50,6 @@ const formatNumber = (num) => {
 const getExchange = (item) =>
   item?.exchangeCode ?? item?.exchange_code ?? item?.exchange ?? null
 
-// USD 통화 표기 (소수 2자리). KRW 환율이 있으면 병기.
-const formatUsd = (num) => {
-  if (num === null || num === undefined || Number.isNaN(Number(num))) {
-    return '—'
-  }
-  return `$${new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(Number(num))}`
-}
-
 const toKrw = (usd) => {
   if (
     usd === null ||
@@ -72,12 +62,39 @@ const toKrw = (usd) => {
   return Number(usd) * usdKrwRate.value
 }
 
+// 백엔드 응답은 snake_case(stock_code/stock_name)일 수 있어 camelCase로 정규화(둘 다 허용).
+const normalizeResults = (data) => {
+  const list = Array.isArray(data) ? data : []
+  return list.map((it) => ({
+    stockCode: it.stockCode ?? it.stock_code ?? '',
+    stockName: it.stockName ?? it.stock_name ?? '',
+    market: it.market ?? '',
+    exchangeCode: it.exchangeCode ?? it.exchange_code ?? it.exchange ?? null
+  }))
+}
+
+// 화면 진입 기본 목록: 국내=코스피 상위, 해외=S&P500 상위. 검색어가 비면 이 목록으로 복귀.
+const loadTopStocks = async () => {
+  searchError.value = ''
+  searching.value = true
+  try {
+    const res = await stockApi.getTop(isDomestic.value ? undefined : 'US')
+    results.value = normalizeResults(unwrap(res))
+  } catch (error) {
+    logger.debug('상위 종목 조회 실패:', error)
+    results.value = []
+  } finally {
+    searching.value = false
+  }
+}
+
 const handleSearch = async () => {
   const query = searchQuery.value.trim()
   searchError.value = ''
 
   if (!query) {
-    results.value = []
+    // 검색어가 없으면 기본 상위 종목 목록으로 복귀
+    await loadTopStocks()
     return
   }
 
@@ -86,16 +103,7 @@ const handleSearch = async () => {
     const res = isDomestic.value
       ? await stockApi.search(query)
       : await stockApi.searchOverseas(query)
-    const data = unwrap(res)
-    // 백엔드 응답은 snake_case(stock_code/stock_name)인데 화면은 camelCase로 읽으므로
-    // 여기서 정규화한다(둘 다 허용). 정규화 안 하면 이름/코드가 undefined → 목록이 비어 보임.
-    const list = Array.isArray(data) ? data : []
-    results.value = list.map((it) => ({
-      stockCode: it.stockCode ?? it.stock_code ?? '',
-      stockName: it.stockName ?? it.stock_name ?? '',
-      market: it.market ?? '',
-      exchangeCode: it.exchangeCode ?? it.exchange_code ?? it.exchange ?? null
-    }))
+    results.value = normalizeResults(unwrap(res))
   } catch (error) {
     logger.debug('종목 검색 실패:', error)
     results.value = []
@@ -127,8 +135,7 @@ const loadPrice = async (item) => {
           currentPrice,
           changeAmount: data?.changeAmount ?? data?.change_amount ?? null,
           changeRate: data?.changeRate ?? data?.change_rate ?? null,
-          notice: data?.notice ?? null,
-          kisDown: currentPrice === null && isKisUnavailableNotice(data?.notice)
+          notice: data?.notice ?? null
         }
       }
     } else {
@@ -146,8 +153,7 @@ const loadPrice = async (item) => {
           currentPrice: last,
           changeAmount: data?.diff ?? data?.changeAmount ?? null,
           changeRate: rate,
-          notice: data?.notice ?? null,
-          kisDown: last === null && isKisUnavailableNotice(data?.notice)
+          notice: data?.notice ?? null
         }
       }
     }
@@ -161,8 +167,7 @@ const loadPrice = async (item) => {
         currentPrice: null,
         changeAmount: null,
         changeRate: null,
-        notice: '—',
-        kisDown: isKisOutageError(error)
+        notice: '—'
       }
     }
   }
@@ -175,32 +180,17 @@ const hasPrice = (stockCode) => {
   return !!info && !info.loading && info.currentPrice !== null && info.currentPrice !== undefined
 }
 
-// 화면 단위 KIS 점검 여부: 한 종목이라도 점검/연동 불가면 상단에 통일 안내를 표시
-const kisDown = computed(() =>
-  Object.values(priceMap.value).some((info) => info && !info.loading && info.kisDown)
-)
-
 const priceText = (stockCode) => {
   const info = getPriceInfo(stockCode)
   if (!info) {
     return '—'
   }
   if (info.overseas) {
-    return formatUsd(info.currentPrice)
+    // 해외도 원화로만 표기 (달러 병기 시 행 높이가 커짐). 환율 없으면 '—'.
+    const krw = toKrw(info.currentPrice)
+    return krw === null ? '—' : `${formatNumber(Math.round(krw))}원`
   }
   return `${formatNumber(info.currentPrice)}원`
-}
-
-const krwText = (stockCode) => {
-  const info = getPriceInfo(stockCode)
-  if (!info || !info.overseas) {
-    return null
-  }
-  const krw = toKrw(info.currentPrice)
-  if (krw === null) {
-    return null
-  }
-  return `≈ ${formatNumber(Math.round(krw))}원`
 }
 
 // 검색 결과가 바뀌면 각 항목 현재가 조회
@@ -212,12 +202,14 @@ watch(
   { immediate: false }
 )
 
-// 탭(국내↔해외) 전환 시 입력/결과/가격 캐시 초기화 — 통화·도메인이 다르므로 섞이지 않게
+// 탭(국내↔해외) 전환 시 입력/결과/가격 캐시 초기화 — 통화·도메인이 다르므로 섞이지 않게.
+// 국내로 전환하면 기본 상위 종목을 다시 노출한다.
 watch(isDomestic, () => {
   searchQuery.value = ''
   results.value = []
   priceMap.value = {}
   searchError.value = ''
+  loadTopStocks()
 })
 
 const loadExchangeRates = async () => {
@@ -259,7 +251,12 @@ const toggleFavorite = async (item) => {
       await favoriteApi.remove(code)
       next.delete(code)
     } else {
-      await favoriteApi.add(code)
+      // 해외는 종목명·거래소를 함께 저장(관심종목 화면 해외 탭에서 시세 조회에 필요)
+      await favoriteApi.add({
+        stockCode: code,
+        stockName: item.stockName || undefined,
+        exchangeCode: isDomestic.value ? undefined : (getExchange(item) || undefined)
+      })
       next.add(code)
     }
     favoriteCodes.value = next
@@ -275,6 +272,7 @@ const goToCompany = (item) => {
 onMounted(() => {
   loadFavorites()
   loadExchangeRates()
+  loadTopStocks()
 })
 </script>
 
@@ -305,12 +303,9 @@ onMounted(() => {
 
       <!-- Results List -->
       <div class="results-container">
-        <!-- KIS 점검중: 상단 통일 안내 (다른 화면과 동일한 문구/모양) -->
-        <KisMaintenanceNotice
-          v-if="isDomestic && kisDown"
-          variant="banner"
-          class="list-notice"
-        />
+        <div v-if="showingTopStocks && !searching && filteredResults.length > 0" class="list-caption">
+          {{ isDomestic ? '코스피 상위 종목' : 'S&P500 상위 종목' }}
+        </div>
 
         <div v-if="filteredResults.length === 0" class="empty-state">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
@@ -350,9 +345,6 @@ onMounted(() => {
             <div class="item-right">
               <template v-if="hasPrice(item.stockCode)">
                 <div class="item-price">{{ priceText(item.stockCode) }}</div>
-                <div v-if="!isDomestic && krwText(item.stockCode)" class="item-krw">
-                  {{ krwText(item.stockCode) }}
-                </div>
                 <div
                   v-if="getPriceInfo(item.stockCode).changeRate !== null && getPriceInfo(item.stockCode).changeRate !== undefined"
                   :class="['item-change', Number(getPriceInfo(item.stockCode).changeRate) >= 0 ? 'positive' : 'negative']"
@@ -463,8 +455,11 @@ onMounted(() => {
   flex-direction: column;
 }
 
-.list-notice {
-  margin-bottom: var(--spacing-md);
+.list-caption {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-tertiary);
+  padding: 0 4px var(--spacing-sm);
   flex-shrink: 0;
 }
 
@@ -557,11 +552,6 @@ onMounted(() => {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
-}
-
-.item-krw {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
 }
 
 .item-change {

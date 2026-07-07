@@ -150,6 +150,7 @@ export const tradingApi = {
 export const stockApi = {
   search: (q) => api.get('/stocks/search', { params: { q } }),
   searchOverseas: (q) => api.get('/stocks/search', { params: { q, market: 'US' } }),
+  getTop: (market) => api.get('/stocks/top', { params: market ? { market } : {} }),
   getPrice: (stockCode) => api.get(`/stocks/${stockCode}/price`),
   getOrderbook: (stockCode) => api.get(`/stocks/${stockCode}/orderbook`)
 }
@@ -172,7 +173,9 @@ export const overseasApi = {
 // Favorite API (Spring Boot api-server)
 export const favoriteApi = {
   list: () => api.get('/favorites'),
-  add: (stockCode) => api.post('/favorites', { stockCode }),
+  // payload: 문자열(종목코드) 또는 { stockCode, stockName?, exchangeCode? }
+  add: (payload) =>
+    api.post('/favorites', typeof payload === 'string' ? { stockCode: payload } : payload),
   remove: (stockCode) => api.delete(`/favorites/${stockCode}`)
 }
 
