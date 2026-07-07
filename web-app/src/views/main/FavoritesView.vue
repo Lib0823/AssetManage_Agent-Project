@@ -1,52 +1,66 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import InvestmentTabs from '@/components/common/InvestmentTabs.vue'
 import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
-import { favoriteApi } from '@/services/api'
+import { favoriteApi, overseasApi, marketApi } from '@/services/api'
 import { logger } from '@/utils/logger'
 
 const router = useRouter()
 
 const tabs = ref({ main: 'stocks', sub: 'domestic' })
 
-const favorites = ref([])
+// 전체 관심종목(국내+해외). 탭에 따라 아래 favorites 로 분리한다.
+const allFavorites = ref([])
 const isLoading = ref(false)
 const errorMessage = ref('')
 
-// 국내(domestic)만 실데이터 제공. 해외/코인 등은 추후 지원.
+// 해외 시세 lazy 캐시(종목코드별) + USD→KRW 환율(원화 표기용)
+const priceMap = ref({})
+const usdKrwRate = ref(null)
+
 const isDomestic = computed(() => tabs.value.sub === 'domestic')
 
-// KIS 시세 미연동/점검: 서버가 종목별로 notice 를 채워 내려준다.
-// 한 종목이라도 notice 가 있으면 KIS 점검중으로 보고 상단에 통일 안내를 표시.
-const kisDown = computed(() => favorites.value.some((f) => !!f.notice))
+// 국내/해외 구분: 국내 종목코드는 6자리 숫자, 해외는 영문 심볼.
+const isDomesticCode = (code) => /^\d{6}$/.test(String(code || ''))
+
+// 현재 탭에 해당하는 관심종목만 노출
+const favorites = computed(() =>
+  allFavorites.value.filter((f) =>
+    isDomestic.value ? isDomesticCode(f.stockCode) : !isDomesticCode(f.stockCode)
+  )
+)
+
+// KIS 시세 미연동/점검(국내 embedded notice). 해외는 lazy 라 여기서 판단하지 않는다.
+const kisDown = computed(() => isDomestic.value && favorites.value.some((f) => !!f.notice))
+
+// ApiResponse 엔벨로프({success,data})와 bare payload 모두 허용하는 안전 언랩
+const unwrap = (res) =>
+  res && typeof res === 'object' && !Array.isArray(res) && 'data' in res && 'success' in res
+    ? res.data
+    : res
 
 const loadFavorites = async () => {
-  if (!isDomestic.value) {
-    favorites.value = []
-    return
-  }
   isLoading.value = true
   errorMessage.value = ''
   try {
-    const res = await favoriteApi.list()
-    // /favorites 는 ApiResponse 엔벨로프({success,data})로 반환 → data 를 언랩.
-    // 또한 필드가 snake_case(stock_code 등)라 camelCase 로 정규화(둘 다 허용).
-    const list = res && res.success && Array.isArray(res.data)
-      ? res.data
-      : (Array.isArray(res) ? res : [])
-    favorites.value = list.map((f) => ({
-      stockCode: f.stockCode ?? f.stock_code ?? '',
-      stockName: f.stockName ?? f.stock_name ?? '',
-      currentPrice: f.currentPrice ?? f.current_price ?? null,
-      changeRate: f.changeRate ?? f.change_rate ?? null,
-      notice: f.notice ?? null
-    }))
+    const data = unwrap(await favoriteApi.list())
+    const list = Array.isArray(data) ? data : []
+    allFavorites.value = list
+      .map((f) => ({
+        stockCode: f.stockCode ?? f.stock_code ?? '',
+        stockName: f.stockName ?? f.stock_name ?? '',
+        currentPrice: f.currentPrice ?? f.current_price ?? null,
+        changeRate: f.changeRate ?? f.change_rate ?? null,
+        notice: f.notice ?? null,
+        exchangeCode: f.exchangeCode ?? f.exchange_code ?? null
+      }))
+      .filter((f) => f.stockCode)
   } catch (error) {
     logger.debug('관심 종목 조회 실패:', error)
     errorMessage.value = '관심 종목을 불러오지 못했습니다.'
-    favorites.value = []
+    allFavorites.value = []
   } finally {
     isLoading.value = false
   }
@@ -56,14 +70,10 @@ const removeFavorite = async (item) => {
   if (!item?.stockCode) return
   try {
     await favoriteApi.remove(item.stockCode)
-    favorites.value = favorites.value.filter((f) => f.stockCode !== item.stockCode)
+    allFavorites.value = allFavorites.value.filter((f) => f.stockCode !== item.stockCode)
   } catch (error) {
     logger.debug('관심 종목 삭제 실패:', error)
   }
-}
-
-const handleTabChange = () => {
-  loadFavorites()
 }
 
 const goToCompany = (item) => {
@@ -76,13 +86,54 @@ const formatNumber = (num) => {
   return new Intl.NumberFormat('ko-KR').format(num)
 }
 
-const formatPrice = (item) => {
-  if (item.currentPrice === null || item.currentPrice === undefined) return '—'
-  return `${formatNumber(item.currentPrice)}원`
+const toKrw = (usd) => {
+  if (usd === null || usd === undefined || Number.isNaN(Number(usd)) || usdKrwRate.value === null) {
+    return null
+  }
+  return Number(usd) * usdKrwRate.value
+}
+
+// 해외 종목 현재가 lazy 조회 (원화 환산 표기용)
+const loadOverseasPrice = async (item) => {
+  const code = item?.stockCode
+  if (!code || priceMap.value[code]) return
+  priceMap.value = { ...priceMap.value, [code]: { loading: true } }
+  try {
+    const data = unwrap(await overseasApi.getPrice(code, item.exchangeCode || 'NASD'))
+    priceMap.value = {
+      ...priceMap.value,
+      [code]: {
+        loading: false,
+        currentPrice: data?.last ?? data?.currentPrice ?? null,
+        changeRate: data?.rate ?? data?.changeRate ?? null
+      }
+    }
+  } catch (error) {
+    logger.debug(`해외 시세 조회 실패 (${code}):`, error)
+    priceMap.value = { ...priceMap.value, [code]: { loading: false, currentPrice: null, changeRate: null } }
+  }
+}
+
+// 국내는 백엔드 embedded 원화, 해외는 lazy 원화 환산.
+const priceText = (item) => {
+  if (isDomesticCode(item.stockCode)) {
+    return item.currentPrice == null ? '—' : `${formatNumber(item.currentPrice)}원`
+  }
+  const info = priceMap.value[item.stockCode]
+  if (!info || info.loading || info.currentPrice == null) return '—'
+  const krw = toKrw(info.currentPrice)
+  return krw == null ? '—' : `${formatNumber(Math.round(krw))}원`
+}
+
+// 등락률: 국내=embedded, 해외=lazy
+const rateOf = (item) => {
+  if (isDomesticCode(item.stockCode)) return item.changeRate
+  const info = priceMap.value[item.stockCode]
+  return info && !info.loading ? info.changeRate : null
 }
 
 const changeRateValue = (item) => {
-  const rate = item.changeRate
+  const rate = rateOf(item)
   if (rate === null || rate === undefined) return null
   const parsed = typeof rate === 'number' ? rate : Number(rate)
   return Number.isNaN(parsed) ? null : parsed
@@ -100,8 +151,32 @@ const isPositive = (item) => {
   return rate !== null && rate >= 0
 }
 
+const loadExchangeRates = async () => {
+  try {
+    const res = await marketApi.getExchangeRates()
+    const list = res && res.success && Array.isArray(res.data) ? res.data : []
+    const usd = list.find((r) => r && r.currency === 'USD')
+    usdKrwRate.value = usd && Number(usd.rate) ? Number(usd.rate) : null
+  } catch (error) {
+    logger.debug('환율 조회 실패:', error)
+    usdKrwRate.value = null
+  }
+}
+
+// 현재 탭이 해외면 해당 종목들의 시세를 lazy 로드 (탭 전환/목록 변경 시)
+watch(
+  favorites,
+  (items) => {
+    if (!isDomestic.value) {
+      items.forEach((item) => loadOverseasPrice(item))
+    }
+  },
+  { immediate: false }
+)
+
 onMounted(() => {
   loadFavorites()
+  loadExchangeRates()
 })
 </script>
 
@@ -111,26 +186,18 @@ onMounted(() => {
 
     <div class="content">
       <!-- Tabs -->
-      <InvestmentTabs v-model="tabs" @update:modelValue="handleTabChange" />
+      <InvestmentTabs v-model="tabs" />
 
       <!-- Items List -->
       <div class="items-container">
-        <!-- KIS 점검중: 상단 통일 안내 (다른 화면과 동일한 문구/모양) -->
+        <!-- KIS 점검중: 상단 통일 안내 (국내 전용) -->
         <KisMaintenanceNotice
           v-if="isDomestic && !isLoading && !errorMessage && kisDown"
           variant="banner"
           class="list-notice"
         />
 
-        <!-- 해외/코인 등 추후 지원 -->
-        <div v-if="!isDomestic" class="empty-state">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" stroke="var(--color-text-tertiary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <p class="empty-text">추후 지원 예정입니다</p>
-        </div>
-
-        <div v-else-if="isLoading" class="empty-state">
+        <div v-if="isLoading" class="empty-state">
           <p class="empty-text">불러오는 중...</p>
         </div>
 
@@ -167,12 +234,14 @@ onMounted(() => {
               </div>
               <div class="item-info">
                 <span class="item-name">{{ item.stockName || item.stockCode }}</span>
-                <span class="item-symbol">{{ item.stockCode }}</span>
+                <span class="item-symbol">
+                  {{ item.stockCode }}<template v-if="!isDomestic && item.exchangeCode"> · {{ item.exchangeCode }}</template>
+                </span>
               </div>
             </div>
             <div class="item-right">
-              <div class="item-price">{{ formatPrice(item) }}</div>
-              <div v-if="item.notice" class="item-notice">—</div>
+              <div class="item-price">{{ priceText(item) }}</div>
+              <div v-if="isDomestic && item.notice" class="item-notice">—</div>
               <div
                 v-else
                 :class="['item-change', isPositive(item) ? 'positive' : 'negative']"
@@ -189,40 +258,54 @@ onMounted(() => {
         </div>
       </div>
     </div>
-
-    <!-- Spacer for bottom nav -->
-    <div class="bottom-spacer"></div>
   </div>
 </template>
 
 <style scoped>
 .favorites-screen {
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
-  padding-bottom: var(--bottom-nav-height);
+  overflow: hidden;
 }
 
 .favorites-screen :deep(.app-header) {
   background: #0F172A;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
   padding: 0 var(--spacing-lg);
+  padding-bottom: var(--bottom-nav-height);
+}
+
+.content :deep(.investment-tabs) {
+  flex-shrink: 0;
 }
 
 /* Items Container */
 .items-container {
   margin-top: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
   background: rgba(30, 41, 59, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 12px;
   padding: var(--spacing-md);
-  min-height: 250px;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .list-notice {
   margin-bottom: var(--spacing-md);
+  flex-shrink: 0;
 }
 
 .empty-state {
@@ -232,6 +315,7 @@ onMounted(() => {
   justify-content: center;
   padding: var(--spacing-2xl);
   gap: var(--spacing-sm);
+  flex: 1;
 }
 
 .empty-text {
@@ -355,9 +439,5 @@ onMounted(() => {
 
 .star-btn:hover {
   opacity: 1;
-}
-
-.bottom-spacer {
-  height: var(--bottom-nav-height);
 }
 </style>
