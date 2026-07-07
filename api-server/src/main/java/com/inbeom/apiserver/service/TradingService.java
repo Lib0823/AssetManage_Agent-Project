@@ -10,6 +10,7 @@ import com.inbeom.apiserver.dto.trade.OrderableResponse;
 import com.inbeom.apiserver.dto.trade.PendingOrderResponse;
 import com.inbeom.apiserver.dto.trade.RecentTradeResponse;
 import com.inbeom.apiserver.dto.trade.TradeHistoryResponse;
+import com.inbeom.apiserver.exception.KisApiException;
 import com.inbeom.apiserver.exception.UserNotFoundException;
 import com.inbeom.apiserver.repository.TradeExecutionPlanRepository;
 import com.inbeom.apiserver.repository.TradeHistoryRepository;
@@ -100,6 +101,7 @@ public class TradingService {
                 Map.class
         );
 
+        verifyKisOrderSuccess(response.getBody());
         log.info("Buy order executed for userId={}, stockCode={}, quantity={}, orderNumber={}",
                 userId, stockCode, quantity, extractOrderNumber(response.getBody()));
 
@@ -134,6 +136,7 @@ public class TradingService {
                 Map.class
         );
 
+        verifyKisOrderSuccess(response.getBody());
         log.info("Sell order executed for userId={}, stockCode={}, quantity={}, orderNumber={}",
                 userId, stockCode, quantity, extractOrderNumber(response.getBody()));
 
@@ -554,6 +557,26 @@ public class TradingService {
         } catch (NumberFormatException e) {
             log.warn("Failed to parse BigDecimal: {}", value);
             return BigDecimal.ZERO;
+        }
+    }
+
+    /**
+     * KIS 주문 응답의 성공 여부(rt_cd)를 검증한다.
+     *
+     * <p>KIS 는 주문 거부 시에도 HTTP 200 + {@code rt_cd="1"} 과 사유({@code msg1},
+     * 예: "모의투자 영업일이 아닙니다.")를 함께 준다. 이를 검사하지 않으면 실패 주문이
+     * 성공(success=true)으로 잘못 보고되거나 후속 처리에서 generic 500 으로 사유가
+     * 가려진다. rt_cd 가 "0"(정상)이 아니면 KIS 사유를 담아 예외를 던져 호출자
+     * (ai-agent)까지 명확한 메시지가 전달되게 한다.
+     */
+    private void verifyKisOrderSuccess(Map<String, Object> kisResponse) {
+        if (kisResponse == null) {
+            throw KisApiException.serverError("KIS 주문 응답이 비어 있습니다.");
+        }
+        Object rtCd = kisResponse.get("rt_cd");
+        if (!"0".equals(String.valueOf(rtCd))) {
+            String msg = String.valueOf(kisResponse.getOrDefault("msg1", "KIS 주문이 거부되었습니다."));
+            throw KisApiException.serverError("KIS order rejected: " + msg.trim() + " (rt_cd=" + rtCd + ")");
         }
     }
 

@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import date
 from typing import Optional, Dict, List
 
-from collectors import KISClient, InternalApiClient
+from collectors import KISClient, InternalApiClient, KISUnavailableError
 from collectors.dart_client import DARTAPIClient
 from analysis import StockFilter, QuantitativeAnalyzer, SentimentAnalyzer, TimeSeriesAnalyzer
 from ai import TradingDecisionGenerator
@@ -95,7 +95,18 @@ class PipelineOrchestrator:
         try:
             # Step 0: Check if market is open (avoid unnecessary API calls on holidays)
             logger.info("⏳ Checking market status...")
-            is_open = await self.kis_client.is_market_open(trade_date=trade_date)
+            try:
+                is_open = await self.kis_client.is_market_open(trade_date=trade_date)
+            except KISUnavailableError as e:
+                # KIS 접속 실패(점검/네트워크) — 휴장일과 명확히 구분해서 보고한다.
+                logger.error(f"❌ KIS API 접속 실패로 개장 여부 확인 불가: {e}")
+                return {
+                    'success': False,
+                    'trade_date': trade_date.isoformat(),
+                    'error': f'KIS API 접속 실패 (점검 또는 네트워크 문제): {e}',
+                    'is_holiday': False,
+                    'kis_unavailable': True
+                }
 
             if not is_open:
                 logger.warning(f"⚠️ Market is closed on {trade_date} (holiday or non-trading day)")

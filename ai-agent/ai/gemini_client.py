@@ -8,6 +8,9 @@ Two call shapes:
 
 멀티유저로 유저당 1콜이 burst 로 나가므로, 무료 티어 RPM(10/분) 보호를 위해
 호출 간 최소 간격(throttle) + 429(쿼터) 지수 백오프 재시도를 적용한다.
+
+추가로 DNS 해석 실패·503·타임아웃 등 일시적 네트워크 오류도 짧은 백오프로
+재시도한다(순간적인 네트워크 끊김에 파이프라인 전체가 무너지는 것을 방지).
 """
 import json
 import logging
@@ -25,17 +28,31 @@ try:  # 429 감지용 (google-generativeai 가 내부적으로 사용)
 except Exception:  # pragma: no cover - import 환경에 따라 없을 수 있음
     ResourceExhausted = None
 
+try:  # 일시적 네트워크 오류(503/타임아웃) 감지용
+    from google.api_core.exceptions import ServiceUnavailable, DeadlineExceeded
+except Exception:  # pragma: no cover - import 환경에 따라 없을 수 있음
+    ServiceUnavailable = None
+    DeadlineExceeded = None
+
 
 class GeminiClient:
     """Gemini AI client for generating trading decisions."""
 
     MODEL_NAME = 'models/gemini-2.5-flash'  # Gemini 2.5 Flash (stable, fast, free tier)
 
+    # REST transport 사용(gRPC 대신).
+    # 기본 gRPC 리졸버(c-ares)는 IPv6 link-local DNS 서버(fe80::...%en0) 환경에서
+    # "Could not contact DNS servers"로 해석에 실패한다. REST 는 OS 리졸버를 타므로
+    # 동일 환경에서 정상 동작한다.
+    TRANSPORT = 'rest'
+
     # 무료 티어 보호: 10 RPM → 호출 간 최소 6.5초 간격(≈9.2/분, 마진 포함)
     MIN_CALL_INTERVAL_SEC = 6.5
     # 429(쿼터) 재시도: 지수 백오프
     MAX_RETRIES = 3
     BACKOFF_BASE_SEC = 10
+    # 일시적 네트워크 오류(DNS/503/타임아웃) 재시도: 쿼터와 무관하므로 짧게
+    NETWORK_BACKOFF_BASE_SEC = 3
 
     def __init__(self, api_key: Optional[str] = None):
         """
@@ -53,9 +70,12 @@ class GeminiClient:
             self.model = None
         else:
             try:
-                genai.configure(api_key=self.api_key)
+                genai.configure(api_key=self.api_key, transport=self.TRANSPORT)
                 self.model = genai.GenerativeModel(self.MODEL_NAME)
-                logger.info(f"Gemini AI client initialized with model: {self.MODEL_NAME}")
+                logger.info(
+                    f"Gemini AI client initialized with model: {self.MODEL_NAME} "
+                    f"(transport={self.TRANSPORT})"
+                )
             except Exception as e:
                 logger.error(f"Failed to initialize Gemini client: {e}")
                 self.model = None
@@ -76,11 +96,32 @@ class GeminiClient:
         if ResourceExhausted is not None and isinstance(e, ResourceExhausted):
             return True
         msg = str(e).lower()
-        return '429' in msg or 'quota' in msg or 'resource' in msg or 'rate limit' in msg
+        return '429' in msg or 'quota' in msg or 'rate limit' in msg
+
+    @staticmethod
+    def _is_transient_network_error(e: Exception) -> bool:
+        """DNS 해석 실패·연결 오류·503·타임아웃 등 일시적 네트워크 오류인지 판단."""
+        if ServiceUnavailable is not None and isinstance(e, ServiceUnavailable):
+            return True
+        if DeadlineExceeded is not None and isinstance(e, DeadlineExceeded):
+            return True
+        msg = str(e).lower()
+        keywords = (
+            '503', '502', '504',
+            'timeout', 'timed out', 'deadline',
+            'dns', 'lookup', 'resolv',            # 'resolving', 'address lookup failed'
+            'could not contact', 'unavailable',
+            'connection', 'network is unreachable', 'temporarily',
+        )
+        return any(k in msg for k in keywords)
 
     def _generate_text(self, prompt: str) -> str:
         """
-        throttle + 429 지수 백오프 재시도로 감싼 단일 텍스트 생성.
+        throttle + 지수 백오프 재시도로 감싼 단일 텍스트 생성.
+
+        재시도 대상:
+        - 429(쿼터) → 긴 백오프(무료 티어 쿼터 회복 대기)
+        - 일시적 네트워크 오류(DNS/503/타임아웃) → 짧은 백오프
 
         Returns:
             응답 텍스트
@@ -103,14 +144,23 @@ class GeminiClient:
             except Exception as e:  # noqa: BLE001
                 self._last_call_ts = time.monotonic()
                 last_err = e
-                if self._is_rate_limit_error(e) and attempt < self.MAX_RETRIES:
-                    backoff = self.BACKOFF_BASE_SEC * (2 ** attempt)
-                    logger.warning(
-                        f"Gemini rate-limited (attempt {attempt + 1}/{self.MAX_RETRIES}), "
-                        f"backing off {backoff}s: {e}"
-                    )
-                    time.sleep(backoff)
-                    continue
+                if attempt < self.MAX_RETRIES:
+                    if self._is_rate_limit_error(e):
+                        backoff = self.BACKOFF_BASE_SEC * (2 ** attempt)
+                        logger.warning(
+                            f"Gemini rate-limited (attempt {attempt + 1}/{self.MAX_RETRIES}), "
+                            f"backing off {backoff}s: {e}"
+                        )
+                        time.sleep(backoff)
+                        continue
+                    if self._is_transient_network_error(e):
+                        backoff = self.NETWORK_BACKOFF_BASE_SEC * (2 ** attempt)
+                        logger.warning(
+                            f"Gemini transient network error (attempt {attempt + 1}/{self.MAX_RETRIES}), "
+                            f"retrying in {backoff}s: {e}"
+                        )
+                        time.sleep(backoff)
+                        continue
                 raise
         raise RuntimeError(f"Gemini call failed after retries: {last_err}")
 

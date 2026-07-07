@@ -1,5 +1,6 @@
 package com.inbeom.apiserver.client;
 
+import com.inbeom.apiserver.exception.KisApiException;
 import com.inbeom.apiserver.service.KisAuthService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -7,6 +8,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
@@ -125,9 +128,23 @@ public class KisApiClient {
             ResponseEntity<T> response = restTemplate.exchange(url, method, request, responseType);
             log.debug("KIS API call success: {} {}, status={}", method, endpoint, response.getStatusCode());
             return response;
+        } catch (HttpStatusCodeException e) {
+            // KIS 가 4xx/5xx + 에러 본문을 준 경우: 상태·본문(rt_cd/msg1 등)을 보존해
+            // 실제 실패 사유가 generic 500 으로 가려지지 않게 한다.
+            String responseBody = e.getResponseBodyAsString();
+            log.error("KIS API HTTP error: {} {} status={} body={}", method, endpoint, e.getStatusCode(), responseBody);
+            String detail = "KIS API error (HTTP " + e.getStatusCode().value() + "): " + responseBody;
+            if (e.getStatusCode().is4xxClientError()) {
+                throw KisApiException.clientError(detail, e);
+            }
+            throw KisApiException.serverError(detail, e);
+        } catch (ResourceAccessException e) {
+            // 연결 실패/타임아웃
+            log.error("KIS API network error: {} {}", method, endpoint, e);
+            throw KisApiException.networkError("KIS API network error: " + e.getMessage(), e);
         } catch (Exception e) {
             log.error("KIS API call failed: {} {}", method, endpoint, e);
-            throw new RuntimeException("KIS API call failed: " + e.getMessage(), e);
+            throw KisApiException.serverError("KIS API call failed: " + e.getMessage(), e);
         }
     }
 
