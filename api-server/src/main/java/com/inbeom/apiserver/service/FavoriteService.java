@@ -46,26 +46,31 @@ public class FavoriteService {
      * unique(user_id, stock_code) 충돌 없이 멱등 처리(기존 항목 반환).
      */
     @Transactional
-    public FavoriteResponse addFavorite(Long userId, String stockCode) {
+    public FavoriteResponse addFavorite(Long userId, String stockCode, String stockName, String exchangeCode) {
         String code = stockCode != null ? stockCode.trim() : null;
         if (code == null || code.isBlank()) {
             return null;
         }
+        String exchange = (exchangeCode != null && !exchangeCode.isBlank()) ? exchangeCode.trim() : null;
+        String providedName = (stockName != null && !stockName.isBlank()) ? stockName.trim() : null;
 
         UserFavorite favorite = userFavoriteRepository
                 .findByUserIdAndStockCode(userId, code)
                 .orElseGet(() -> {
-                    String stockName = stockMasterRepository
-                            .findTop30ByStockCodeStartingWithOrStockNameContainingIgnoreCase(code, code)
-                            .stream()
-                            .filter(m -> code.equals(m.getStockCode()))
-                            .map(StockMaster::getStockName)
-                            .findFirst()
-                            .orElse(code);
+                    // 종목명: 프론트가 넘긴 값 우선(해외처럼 stock_master 에 없는 경우), 없으면 국내 카탈로그 해석.
+                    String resolvedName = providedName != null ? providedName
+                            : stockMasterRepository
+                                    .findTop30ByStockCodeStartingWithOrStockNameContainingIgnoreCase(code, code)
+                                    .stream()
+                                    .filter(m -> code.equals(m.getStockCode()))
+                                    .map(StockMaster::getStockName)
+                                    .findFirst()
+                                    .orElse(code);
                     UserFavorite created = UserFavorite.builder()
                             .userId(userId)
                             .stockCode(code)
-                            .stockName(stockName)
+                            .stockName(resolvedName)
+                            .exchangeCode(exchange)
                             .build();
                     return userFavoriteRepository.save(created);
                 });
@@ -89,6 +94,18 @@ public class FavoriteService {
      * 관심 종목 엔티티 → 응답 DTO. 현재가/등락률을 공용 quote 헬퍼로 조회한다.
      */
     private FavoriteResponse toResponse(UserFavorite favorite) {
+        String exchange = favorite.getExchangeCode();
+
+        // 해외 종목: 국내 시세 API(fetchCurrentPrice)로는 조회 불가 → 코드/이름/거래소만 반환하고
+        // 시세는 프론트가 해외 시세 API 로 lazy 조회한다(원화 환산 표시).
+        if (exchange != null && !exchange.isBlank()) {
+            return FavoriteResponse.builder()
+                    .stockCode(favorite.getStockCode())
+                    .stockName(favorite.getStockName())
+                    .exchangeCode(exchange)
+                    .build();
+        }
+
         Map<String, Object> price = kisQuoteClient.fetchCurrentPrice(favorite.getStockCode());
         if (price == null) {
             return FavoriteResponse.builder()

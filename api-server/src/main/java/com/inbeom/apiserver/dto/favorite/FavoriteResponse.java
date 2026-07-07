@@ -25,6 +25,9 @@ public class FavoriteResponse {
 
     private String stockName;
 
+    // 해외 거래소 코드 (NASD/NYSE/AMEX). 국내는 null. 프론트가 국내/해외 구분·해외 시세 조회에 사용.
+    private String exchangeCode;
+
     // 현재가 (원)
     private Long currentPrice;
 

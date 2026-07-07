@@ -34,6 +34,10 @@ public class UserFavorite {
     @Column(name = "stock_name", length = 50)
     private String stockName;
 
+    // 해외 거래소 코드 (NASD/NYSE/AMEX). 국내는 null → 국내/해외 구분 및 해외 시세 라우팅에 사용.
+    @Column(name = "exchange_code", length = 10)
+    private String exchangeCode;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

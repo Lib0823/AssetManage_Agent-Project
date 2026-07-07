@@ -58,7 +58,8 @@ public class FavoriteController {
         String token = authHeader.substring(7);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
-        FavoriteResponse favorite = favoriteService.addFavorite(userId, request.getStockCode());
+        FavoriteResponse favorite = favoriteService.addFavorite(
+                userId, request.getStockCode(), request.getStockName(), request.getExchangeCode());
 
         return ResponseEntity.ok(
                 ApiResponse.success("Favorite added successfully", favorite)

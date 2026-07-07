@@ -85,6 +85,11 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.15-kis-account-mode.yaml
       context: mvp
 
+  # Phase 17: Overseas favorites — exchange_code on user_favorites
+  - include:
+      file: classpath:db/changelog/mvp/v1.16-favorite-exchange.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================

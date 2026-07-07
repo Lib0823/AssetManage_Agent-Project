@@ -1,0 +1,26 @@
+databaseChangeLog:
+  # Overseas favorites: user_favorites 에 거래소 컬럼 추가
+  # (국내=NULL, 해외=NASD/NYSE/AMEX). 관심종목의 국내/해외 구분 및 해외 시세 라우팅에 사용.
+
+  - changeSet:
+      id: 1.16.1-add-favorite-exchange-code
+      author: claude
+      context: mvp
+      comment: "Add exchange_code to user_favorites for overseas (US) favorite support"
+      changes:
+        - addColumn:
+            tableName: user_favorites
+            columns:
+              - column:
+                  name: exchange_code
+                  type: VARCHAR(10)
+                  constraints:
+                    nullable: true
+        - setColumnRemarks:
+            tableName: user_favorites
+            columnName: exchange_code
+            remarks: '해외 거래소 코드 (NASD/NYSE/AMEX, 국내=NULL)'
+      rollback:
+        - dropColumn:
+            tableName: user_favorites
+            columnName: exchange_code
