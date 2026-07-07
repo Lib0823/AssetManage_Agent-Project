@@ -46,6 +46,43 @@ public class StockService {
     private static final String MARKET_US = "US";
 
     /**
+     * 검색 화면 기본 노출용 S&P500 대표(시가총액 상위권) 종목.
+     * 미국 대형주는 심볼·상장거래소가 안정적이라 정적 큐레이션(코드/이름/거래소)으로 관리한다.
+     * ※ 추후 KIS 해외 시가총액 랭킹으로 대체 가능.
+     */
+    private static final List<StockSearchResponse> TOP_US_STOCKS = List.of(
+            us("AAPL", "Apple", "NASD"),
+            us("MSFT", "Microsoft", "NASD"),
+            us("NVDA", "NVIDIA", "NASD"),
+            us("AMZN", "Amazon.com", "NASD"),
+            us("GOOGL", "Alphabet", "NASD"),
+            us("META", "Meta Platforms", "NASD"),
+            us("AVGO", "Broadcom", "NASD"),
+            us("TSLA", "Tesla", "NASD"),
+            us("LLY", "Eli Lilly", "NYSE"),
+            us("JPM", "JPMorgan Chase", "NYSE"),
+            us("V", "Visa", "NYSE"),
+            us("WMT", "Walmart", "NYSE"),
+            us("MA", "Mastercard", "NYSE"),
+            us("XOM", "Exxon Mobil", "NYSE"),
+            us("UNH", "UnitedHealth", "NYSE"),
+            us("ORCL", "Oracle", "NYSE"),
+            us("COST", "Costco", "NASD"),
+            us("NFLX", "Netflix", "NASD"),
+            us("JNJ", "Johnson & Johnson", "NYSE"),
+            us("HD", "Home Depot", "NYSE")
+    );
+
+    private static StockSearchResponse us(String code, String name, String exchange) {
+        return StockSearchResponse.builder()
+                .stockCode(code)
+                .stockName(name)
+                .market(exchange)
+                .exchangeCode(exchange)
+                .build();
+    }
+
+    /**
      * 종목 검색: 코드 prefix 또는 종목명 부분일치(대소문자 무시), 최대 30건.
      * 빈/공백 질의는 빈 리스트. 마켓 필터 없이 호출하면 국내(KRW) 결과를 반환한다.
      */
@@ -84,8 +121,22 @@ public class StockService {
                         .stockCode(m.getStockCode())
                         .stockName(m.getStockName())
                         .market(m.getMarket())
+                        .exchangeCode(m.getExchangeCode())  // 해외 시세/이동에 필요 (국내는 null)
                         .build())
                 .toList();
+    }
+
+    /**
+     * 검색 화면 기본 노출용 상위 종목(국내 코스피 대표). 최대 30건.
+     * 국내는 인메모리 카탈로그의 큐레이션 상위 종목, 해외(US)는 미지원(빈 리스트).
+     */
+    @Transactional(readOnly = true)
+    public List<StockSearchResponse> topStocks(String market) {
+        boolean us = MARKET_US.equalsIgnoreCase(market != null ? market.trim() : null);
+        if (us) {
+            return TOP_US_STOCKS;
+        }
+        return stockMasterCatalog.topDomestic(TOP_30_LIMIT);
     }
 
     /**

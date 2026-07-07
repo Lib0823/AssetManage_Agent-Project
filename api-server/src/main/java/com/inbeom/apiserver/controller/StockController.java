@@ -44,6 +44,19 @@ public class StockController {
     }
 
     /**
+     * 검색 화면 기본 노출용 상위 종목 (국내 코스피 대표, 최대 30건)
+     * GET /api/stocks/top?market=
+     */
+    @GetMapping("/top")
+    public ResponseEntity<ApiResponse<List<StockSearchResponse>>> top(
+            @RequestParam(value = "market", required = false) String market
+    ) {
+        log.info("GET /api/stocks/top?market={}", market);
+        List<StockSearchResponse> response = stockService.topStocks(market);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
      * 종목 현재가 (시세 비활성/실패 시 가격 null + notice)
      * GET /api/stocks/{stockCode}/price
      */

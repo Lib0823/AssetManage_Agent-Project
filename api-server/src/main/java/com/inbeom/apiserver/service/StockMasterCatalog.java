@@ -13,8 +13,10 @@ import java.net.URI;
 import java.net.URLConnection;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -53,6 +55,20 @@ public class StockMasterCatalog {
     private static final int NAME_OFFSET = 21;
     /** 주기적 갱신 간격(시간). KIS 는 영업일 1회 갱신. */
     private static final long REFRESH_HOURS = 12;
+
+    /**
+     * 검색 화면 기본 노출용 코스피 대표(시가총액 상위권) 종목 코드.
+     * 종목명은 카탈로그에서 해석해 최신 상태로 표시한다(코드만 관리).
+     * ※ 정적 큐레이션 — 추후 KIS 시가총액 상위 랭킹 API 로 대체 가능.
+     */
+    private static final List<String> TOP_KOSPI_CODES = List.of(
+            "005930", "000660", "373220", "207940", "005380",
+            "000270", "068270", "105560", "005490", "035420",
+            "012450", "329180", "055550", "028260", "012330",
+            "035720", "000810", "086790", "015760", "032830",
+            "051910", "138040", "009540", "011200", "010130",
+            "259960", "096770", "066570", "323410", "003670"
+    );
 
     /** 불변 스냅샷 (읽기 중 교체 안전). */
     private volatile List<StockSearchResponse> catalog = List.of();
@@ -93,6 +109,33 @@ public class StockMasterCatalog {
         for (StockSearchResponse s : snapshot) {
             if (s.getStockCode().toUpperCase(Locale.ROOT).startsWith(k)
                     || s.getStockName().toUpperCase(Locale.ROOT).contains(k)) {
+                out.add(s);
+                if (out.size() >= limit) {
+                    break;
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 검색 화면 기본 노출용 코스피 상위 종목(최대 {@code limit}건).
+     * 큐레이션 코드 순서대로 카탈로그에서 이름을 해석해 반환한다.
+     * 카탈로그 미로드 시 빈 리스트(호출측이 폴백/공백 처리).
+     */
+    public List<StockSearchResponse> topDomestic(int limit) {
+        List<StockSearchResponse> snapshot = catalog;
+        if (snapshot.isEmpty()) {
+            return List.of();
+        }
+        Map<String, StockSearchResponse> byCode = new HashMap<>();
+        for (StockSearchResponse s : snapshot) {
+            byCode.putIfAbsent(s.getStockCode(), s);
+        }
+        List<StockSearchResponse> out = new ArrayList<>();
+        for (String code : TOP_KOSPI_CODES) {
+            StockSearchResponse s = byCode.get(code);
+            if (s != null) {
                 out.add(s);
                 if (out.size() >= limit) {
                     break;

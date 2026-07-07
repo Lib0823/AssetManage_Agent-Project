@@ -23,4 +23,7 @@ public class StockSearchResponse {
     private String stockName;
 
     private String market;
+
+    // 해외(US) 거래소 코드 (NASD/NYSE/AMEX). 국내는 null.
+    private String exchangeCode;
 }
