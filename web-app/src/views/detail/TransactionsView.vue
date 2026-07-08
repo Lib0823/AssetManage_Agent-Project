@@ -157,6 +157,10 @@ const periodOptions = [
   { key: '3months', label: '3개월' }
 ]
 
+// 캘린더 직접 기간 선택. KIS 모의 체결조회가 최근 3개월만 제공하므로 선택 범위도 3개월로 제한한다.
+const showCalendar = ref(false)
+const customRange = ref(null) // { start: Date, end: Date } | null
+
 const formatDate = (date) => {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -184,18 +188,54 @@ const getCutoffDate = (key) => {
 
 const selectPeriod = (key) => {
   selectedPeriod.value = key
+  customRange.value = null // 프리셋 선택 시 직접 지정 해제
 }
 
-// 표시용 날짜 범위(시작=컷오프, 끝=오늘)를 선택 기간에서 파생한다.
-const dateRange = computed(() => ({
-  start: formatDate(getCutoffDate(selectedPeriod.value)),
-  end: formatDate(new Date())
-}))
+// 캘린더 선택 가능 범위: 최근 3개월 ~ 오늘 (KIS 데이터 제공 범위)
+const calendarMinDate = computed(() => getCutoffDate('3months'))
+const calendarMaxDate = computed(() => new Date())
 
-// 선택 기간 내(컷오프 ~ 오늘) 거래만 필터링한다. 원본 orderedAt(Date)로 비교.
+const openCalendar = () => {
+  showCalendar.value = true
+}
+
+// van-calendar type="range" confirm → [startDate, endDate]
+const onCalendarConfirm = (range) => {
+  const [start, end] = range || []
+  if (!start || !end) return
+  const s = new Date(start)
+  s.setHours(0, 0, 0, 0)
+  const e = new Date(end)
+  e.setHours(23, 59, 59, 999)
+  customRange.value = { start: s, end: e }
+  selectedPeriod.value = 'custom'
+  showCalendar.value = false
+}
+
+// 표시용 날짜 범위: 직접 지정이면 그 범위, 아니면 프리셋(컷오프 ~ 오늘).
+const dateRange = computed(() => {
+  if (selectedPeriod.value === 'custom' && customRange.value) {
+    return {
+      start: formatDate(customRange.value.start),
+      end: formatDate(customRange.value.end)
+    }
+  }
+  return {
+    start: formatDate(getCutoffDate(selectedPeriod.value)),
+    end: formatDate(new Date())
+  }
+})
+
+// 선택 기간 내 거래만 필터링한다. 직접 지정이면 [start, end], 아니면 컷오프 ~ 오늘. 원본 orderedAt(Date)로 비교.
 const filteredHistory = computed(() => {
+  if (selectedPeriod.value === 'custom' && customRange.value) {
+    const { start, end } = customRange.value
+    return history.value.filter(
+      (t) => t.orderedAt instanceof Date && t.orderedAt >= start && t.orderedAt <= end
+    )
+  }
   const cutoff = getCutoffDate(selectedPeriod.value)
-  return history.value.filter(t => t.orderedAt instanceof Date && t.orderedAt >= cutoff)
+  return history.value.filter((t) => t.orderedAt instanceof Date && t.orderedAt >= cutoff)
 })
 
 // 요약(총 매수/총 매도)을 선택 기간(filteredHistory) 기준으로 재계산한다.
@@ -303,7 +343,27 @@ const getTypeLabel = (type) => {
           >
             {{ option.label }}
           </button>
+          <!-- 캘린더 직접 기간 선택 -->
+          <button
+            :class="['period-btn', 'period-btn-calendar', { active: selectedPeriod === 'custom' }]"
+            aria-label="기간 직접 선택"
+            @click="openCalendar"
+          >
+            <van-icon name="calendar-o" />
+            <span v-if="selectedPeriod === 'custom'">직접</span>
+          </button>
         </div>
+
+        <!-- 기간 직접 선택 캘린더 (최근 3개월 이내) -->
+        <van-calendar
+          v-model:show="showCalendar"
+          type="range"
+          :min-date="calendarMinDate"
+          :max-date="calendarMaxDate"
+          :allow-same-day="true"
+          color="#8B5CF6"
+          @confirm="onCalendarConfirm"
+        />
 
         <div class="date-range">
           {{ dateRange.start }} - {{ dateRange.end }}
@@ -626,6 +686,12 @@ const getTypeLabel = (type) => {
   border-color: #8B5CF6;
   color: var(--color-text-inverse);
   font-weight: var(--font-weight-medium);
+}
+
+.period-btn-calendar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .date-range {
