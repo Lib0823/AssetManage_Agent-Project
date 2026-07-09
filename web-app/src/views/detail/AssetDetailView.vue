@@ -122,8 +122,11 @@ const loadBalance = async () => {
     // KIS API 응답 구조에 맞춰 파싱 (output2[0] = 잔고 요약)
     const balanceData = response.data?.balance?.output2?.[0]
     if (balanceData) {
-      cashDetail.value.krw.availableForOrder = parseInt(balanceData.ord_psbl_cash || 0)  // 주문가능현금
-      cashDetail.value.krw.availableForWithdrawal = parseInt(balanceData.wdrw_psbl_tot_amt || 0)  // 출금가능금액
+      // KIS inquire-balance output2 는 예수금(dnca_tot_amt)·D+2예수금(prvs_rcdl_excc_amt)을 제공한다.
+      // 주문가능현금(ord_psbl_cash)/출금가능(wdrw_psbl_tot_amt)은 이 TR 응답에 없어(매수가능조회 소관)
+      // 예전 매핑이 항상 0으로 나왔다. 실제 존재하는 예수금 필드로 매핑한다.
+      cashDetail.value.krw.availableForOrder = parseInt(balanceData.dnca_tot_amt || 0)          // 예수금총금액
+      cashDetail.value.krw.availableForWithdrawal = parseInt(balanceData.prvs_rcdl_excc_amt || 0)  // D+2 예수금(가수도정산금액)
 
       // 국내 주식 요약
       domesticSummary.value = {
@@ -131,7 +134,7 @@ const loadBalance = async () => {
         totalProfit: parseInt(balanceData.evlu_pfls_smtl_amt || 0),     // 평가손익합계
         profitPercent: parseFloat(balanceData.asst_icdc_erng_rt || 0),  // 자산증감수익률
         totalPurchase: parseInt(balanceData.pchs_amt_smtl_amt || 0),    // 매입금액합계
-        d2Deposit: parseInt(balanceData.ord_psbl_cash || 0)             // D+2 예수금(주문가능현금)
+        d2Deposit: parseInt(balanceData.prvs_rcdl_excc_amt || 0)        // D+2 예수금(가수도정산금액)
       }
     }
   } catch (error) {
