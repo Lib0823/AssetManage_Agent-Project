@@ -8,7 +8,10 @@ import com.inbeom.apiserver.dto.trade.BalanceSummaryResponse;
 import com.inbeom.apiserver.dto.trade.HoldingResponse;
 import com.inbeom.apiserver.dto.trade.OrderableResponse;
 import com.inbeom.apiserver.dto.trade.PendingOrderResponse;
+import com.inbeom.apiserver.dto.trade.PlaceReservedOrderRequest;
 import com.inbeom.apiserver.dto.trade.RecentTradeResponse;
+import com.inbeom.apiserver.dto.trade.ReservedOrderResponse;
+import com.inbeom.apiserver.dto.trade.ReservedOrderResultResponse;
 import com.inbeom.apiserver.dto.trade.TradeHistoryResponse;
 import com.inbeom.apiserver.exception.KisApiException;
 import com.inbeom.apiserver.exception.UserNotFoundException;
@@ -584,6 +587,316 @@ public class TradingService {
         if (kisResponse != null && kisResponse.containsKey("output")) {
             Map<String, Object> output = (Map<String, Object>) kisResponse.get("output");
             return (String) output.get("ODNO");
+        }
+        return null;
+    }
+
+    // ================== 국내주식 예약주문 (실전 전용) ==================
+    // 예약주문 TR(CTSC*)은 실전 계좌만 지원한다(모의 미지원). 프런트가 모드 안내로 게이트하므로
+    // 백엔드는 실전 경로만 구현한다. TR_ID CTSC* 는 KisApiClient.convertTrId 의 VTTC/TTTC 변환
+    // 대상이 아니므로 그대로 전송된다(도메인은 credentials.baseUrl() = 계정 모드 도메인).
+
+    /**
+     * 예약주문 접수 (KIS order-resv, CTSC0008U).
+     *
+     * <p>side "buy"→SLL_BUY_DVSN_CD "02", "sell"→"01".
+     * priceType "market"→ORD_DVSN_CD "01" & ORD_UNPR "0", "limit"→"00".
+     * KIS rt_cd != "0" 또는 예외 발생 시 예외를 전파하지 않고 success=false + 메시지로 graceful 반환한다.
+     */
+    public ReservedOrderResultResponse placeReservedOrder(Long userId, Long kisAccountId,
+                                                          PlaceReservedOrderRequest request) {
+        try {
+            // 1. Get KIS credentials and token
+            String kisToken = kisAuthService.getKisAccessToken(kisAccountId);
+            KisCredentials credentials = kisAuthService.getKisCredentials(kisAccountId);
+
+            // 2. Resolve KIS codes from camelCase request
+            boolean isSell = "sell".equalsIgnoreCase(request.getSide());
+            boolean isMarket = "market".equalsIgnoreCase(request.getPriceType());
+            String sllBuyDvsnCd = isSell ? "01" : "02";       // 01: 매도, 02: 매수
+            String ordDvsnCd = isMarket ? "01" : "00";        // 00: 지정가, 01: 시장가
+            long priceValue = request.getPrice() == null ? 0L : request.getPrice();
+            String ordUnpr = isMarket ? "0" : String.valueOf(priceValue);  // 시장가/장전은 "0"
+
+            // 3. Build request body (KIS uppercase params)
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("CANO", credentials.accountNumber());
+            requestBody.put("ACNT_PRDT_CD", credentials.accountProductCode());
+            requestBody.put("PDNO", request.getStockCode());
+            requestBody.put("ORD_QTY", String.valueOf(request.getQuantity()));
+            requestBody.put("ORD_UNPR", ordUnpr);
+            requestBody.put("SLL_BUY_DVSN_CD", sllBuyDvsnCd);
+            requestBody.put("ORD_DVSN_CD", ordDvsnCd);
+            requestBody.put("ORD_OBJT_CBLC_DVSN_CD", "10");   // 10: 현금
+            requestBody.put("LOAN_DT", "");
+            requestBody.put("RSVN_ORD_END_DT", request.getEndDate());  // YYYYMMDD, 익영업일~최대 30일
+            requestBody.put("LDNG_DT", "");
+
+            // 4. Call KIS API
+            ResponseEntity<Map> response = kisApiClient.post(
+                    credentials.baseUrl(),
+                    "/uapi/domestic-stock/v1/trading/order-resv",
+                    "CTSC0008U",  // 국내주식 예약주문 접수 (실전 전용)
+                    kisToken,
+                    credentials.appKey(),
+                    credentials.appSecret(),
+                    requestBody,
+                    Map.class
+            );
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> body = response.getBody();
+            if (body == null) {
+                return ReservedOrderResultResponse.builder()
+                        .success(false)
+                        .message("KIS 예약주문 응답이 비어 있습니다.")
+                        .build();
+            }
+            if (!"0".equals(String.valueOf(body.get("rt_cd")))) {
+                String msg = asString(body.get("msg1"));
+                log.warn("KIS reserved-order place rt_cd={} msg={} for userId={}, stockCode={}",
+                        body.get("rt_cd"), msg, userId, request.getStockCode());
+                return ReservedOrderResultResponse.builder()
+                        .success(false)
+                        .message(msg != null ? msg : "예약주문 접수에 실패했습니다.")
+                        .build();
+            }
+
+            // 5. Extract reservation seq / org no defensively from output
+            String reservationSeq = null;
+            String orgNo = null;
+            Object output = body.get("output");
+            if (output instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> outputMap = (Map<String, Object>) output;
+                // MUST-VERIFY: 실전 계좌 응답으로 예약주문순번/조직번호 실제 필드명을 확인할 것.
+                // (후보 키를 순차 시도하고, 없으면 null 로 둔다.)
+                reservationSeq = firstNonNull(outputMap, "RSVN_ORD_SEQ", "rsvn_ord_seq", "ODNO", "odno");
+                orgNo = firstNonNull(outputMap, "RSVN_ORD_ORGNO", "rsvn_ord_orgno",
+                        "RSVN_ORD_ORG_NO", "ORD_GNO_BRNO", "ord_gno_brno");
+            }
+
+            String msg = asString(body.get("msg1"));
+            log.info("Reserved order placed for userId={}, stockCode={}, seq={}, orgNo={}",
+                    userId, request.getStockCode(), reservationSeq, orgNo);
+            return ReservedOrderResultResponse.builder()
+                    .success(true)
+                    .message(msg != null ? msg : "예약주문이 접수되었습니다.")
+                    .reservationSeq(reservationSeq)
+                    .orgNo(orgNo)
+                    .build();
+        } catch (Exception e) {
+            log.warn("Failed to place reserved order for userId={}, stockCode={}: {}",
+                    userId, request.getStockCode(), e.getMessage());
+            return ReservedOrderResultResponse.builder()
+                    .success(false)
+                    .message("예약주문 접수 중 오류가 발생했습니다: " + e.getMessage())
+                    .build();
+        }
+    }
+
+    /**
+     * 예약주문 목록 조회 (KIS order-resv-ccnl, CTSC0004R).
+     * 조회기간: 오늘 ~ 오늘+30일. 예외/rt_cd != 0/빈결과 시 빈 리스트로 graceful 반환한다.
+     */
+    public List<ReservedOrderResponse> getReservedOrders(Long userId) {
+        try {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new UserNotFoundException(userId));
+
+            // 1. Get KIS account from user
+            Long kisAccountId = user.getKisAccount().getId();
+
+            // 2. Get KIS credentials and token
+            String kisToken = kisAuthService.getKisAccessToken(kisAccountId);
+            KisCredentials credentials = kisAuthService.getKisCredentials(kisAccountId);
+
+            // 3. Build query parameters (오늘 ~ 오늘+30일)
+            LocalDate today = LocalDate.now();
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+            Map<String, String> queryParams = new HashMap<>();
+            queryParams.put("RSVN_ORD_ORD_DT", today.format(formatter));            // 시작일
+            queryParams.put("RSVN_ORD_END_DT", today.plusDays(30).format(formatter)); // 종료일
+            queryParams.put("TMNL_MDIA_KIND_CD", "00");
+            queryParams.put("CANO", credentials.accountNumber());
+            queryParams.put("ACNT_PRDT_CD", credentials.accountProductCode());
+            queryParams.put("PRCS_DVSN_CD", "0");
+            queryParams.put("CNCL_YN", "N");
+            queryParams.put("RSVN_ORD_SEQ", "");
+            queryParams.put("PDNO", "");
+            queryParams.put("SLL_BUY_DVSN_CD", "");
+
+            // 4. Call KIS API
+            ResponseEntity<Map> response = kisApiClient.get(
+                    credentials.baseUrl(),
+                    "/uapi/domestic-stock/v1/trading/order-resv-ccnl",
+                    "CTSC0004R",  // 국내주식 예약주문 조회 (실전 전용)
+                    kisToken,
+                    credentials.appKey(),
+                    credentials.appSecret(),
+                    queryParams,
+                    Map.class
+            );
+
+            // 5. Validate response
+            @SuppressWarnings("unchecked")
+            Map<String, Object> body = response.getBody();
+            if (body == null || !"0".equals(String.valueOf(body.get("rt_cd")))) {
+                log.warn("KIS reserved-order list rt_cd={} msg={} for userId={}",
+                        body != null ? body.get("rt_cd") : "null",
+                        body != null ? body.get("msg1") : "null body", userId);
+                return new ArrayList<>();
+            }
+
+            // 6. output(array) 매핑 (KIS 리스트 TR 은 output 또는 output1 을 쓸 수 있어 둘 다 시도)
+            Object output = body.get("output");
+            if (!(output instanceof List)) {
+                output = body.get("output1");
+            }
+            if (!(output instanceof List)) {
+                return new ArrayList<>();
+            }
+
+            List<ReservedOrderResponse> result = new ArrayList<>();
+            for (Object row : (List<?>) output) {
+                if (row instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> rowMap = (Map<String, Object>) row;
+                    result.add(mapToReservedOrderResponse(rowMap));
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to load reserved orders from KIS API for userId={}: {}", userId, e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * 예약주문 취소 (KIS order-resv-rvsecncl, CTSC0009U).
+     * KIS rt_cd != "0" 또는 예외 시 예외를 전파하지 않고 success=false + 메시지로 graceful 반환한다.
+     */
+    public ReservedOrderResultResponse cancelReservedOrder(Long userId, Long kisAccountId,
+                                                           String seq, String orgNo, String orderDate) {
+        try {
+            // 1. Get KIS credentials and token
+            String kisToken = kisAuthService.getKisAccessToken(kisAccountId);
+            KisCredentials credentials = kisAuthService.getKisCredentials(kisAccountId);
+
+            // 2. Build request body
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("CANO", credentials.accountNumber());
+            requestBody.put("ACNT_PRDT_CD", credentials.accountProductCode());
+            requestBody.put("RSVN_ORD_SEQ", seq != null ? seq : "");
+            requestBody.put("RSVN_ORD_ORGNO", orgNo != null ? orgNo : "");
+            requestBody.put("RSVN_ORD_ORD_DT", orderDate != null ? orderDate : "");
+            requestBody.put("PDNO", "");
+            requestBody.put("ORD_QTY", "");
+            requestBody.put("ORD_UNPR", "");
+            requestBody.put("SLL_BUY_DVSN_CD", "");
+            requestBody.put("ORD_DVSN_CD", "");
+            requestBody.put("ORD_OBJT_CBLC_DVSN_CD", "");
+            requestBody.put("LOAN_DT", "");
+            requestBody.put("RSVN_ORD_END_DT", "");
+
+            // 3. Call KIS API
+            ResponseEntity<Map> response = kisApiClient.post(
+                    credentials.baseUrl(),
+                    "/uapi/domestic-stock/v1/trading/order-resv-rvsecncl",
+                    "CTSC0009U",  // 국내주식 예약주문 정정/취소 (실전 전용)
+                    kisToken,
+                    credentials.appKey(),
+                    credentials.appSecret(),
+                    requestBody,
+                    Map.class
+            );
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> body = response.getBody();
+            if (body == null) {
+                return ReservedOrderResultResponse.builder()
+                        .success(false)
+                        .message("KIS 예약주문 취소 응답이 비어 있습니다.")
+                        .reservationSeq(seq)
+                        .orgNo(orgNo)
+                        .build();
+            }
+            if (!"0".equals(String.valueOf(body.get("rt_cd")))) {
+                String msg = asString(body.get("msg1"));
+                log.warn("KIS reserved-order cancel rt_cd={} msg={} for userId={}, seq={}",
+                        body.get("rt_cd"), msg, userId, seq);
+                return ReservedOrderResultResponse.builder()
+                        .success(false)
+                        .message(msg != null ? msg : "예약주문 취소에 실패했습니다.")
+                        .reservationSeq(seq)
+                        .orgNo(orgNo)
+                        .build();
+            }
+
+            String msg = asString(body.get("msg1"));
+            log.info("Reserved order cancelled for userId={}, seq={}, orgNo={}", userId, seq, orgNo);
+            return ReservedOrderResultResponse.builder()
+                    .success(true)
+                    .message(msg != null ? msg : "예약주문이 취소되었습니다.")
+                    .reservationSeq(seq)
+                    .orgNo(orgNo)
+                    .build();
+        } catch (Exception e) {
+            log.warn("Failed to cancel reserved order for userId={}, seq={}: {}", userId, seq, e.getMessage());
+            return ReservedOrderResultResponse.builder()
+                    .success(false)
+                    .message("예약주문 취소 중 오류가 발생했습니다: " + e.getMessage())
+                    .reservationSeq(seq)
+                    .orgNo(orgNo)
+                    .build();
+        }
+    }
+
+    /**
+     * KIS 예약주문 조회 output 1행 → ReservedOrderResponse defensive 매핑.
+     * KIS 실제 필드명이 불확실한 항목은 후보 키를 순차 시도하고 없으면 null 로 둔다.
+     */
+    private ReservedOrderResponse mapToReservedOrderResponse(Map<String, Object> m) {
+        // 매매구분: 01→sell, 02→buy
+        String sllBuy = firstNonNull(m, "sll_buy_dvsn_cd", "SLL_BUY_DVSN_CD");
+        String side = "01".equals(sllBuy) ? "sell" : ("02".equals(sllBuy) ? "buy" : null);
+
+        // 가격유형: ord_dvsn_cd 01→market, 그 외→limit
+        String ordDvsn = firstNonNull(m, "ord_dvsn_cd", "ORD_DVSN_CD");
+        String priceType = "01".equals(ordDvsn) ? "market" : "limit";
+
+        return ReservedOrderResponse.builder()
+                .seq(firstNonNull(m, "rsvn_ord_seq", "RSVN_ORD_SEQ"))
+                .orgNo(firstNonNull(m, "rsvn_ord_orgno", "RSVN_ORD_ORGNO", "rsvn_ord_org_no"))
+                // 주문일자: 접수일자(rsvn_ord_ord_dt) 우선, 없으면 rsvn_ord_rcit_dt 후보 시도
+                .orderDate(firstNonNull(m, "rsvn_ord_ord_dt", "rsvn_ord_rcit_dt",
+                        "RSVN_ORD_ORD_DT", "RSVN_ORD_RCIT_DT"))
+                .stockCode(firstNonNull(m, "pdno", "PDNO"))
+                .stockName(firstNonNull(m, "prdt_name", "PRDT_NAME"))
+                .side(side)
+                .quantity(parseLongSafely(firstNonNull(m, "ord_qty", "ORD_QTY")))
+                .price(parseLongSafely(firstNonNull(m, "ord_unpr", "ORD_UNPR")))
+                .priceType(priceType)
+                // MUST-VERIFY: 처리상태 필드명이 불확실 — 후보 키를 순차 시도(없으면 null).
+                .status(firstNonNull(m, "rsvn_ord_rcit_dvsn_name", "prcs_dvsn_name",
+                        "rsvn_ord_prcs_dvsn_name", "ord_dvsn_name", "prcs_dvsn_cd"))
+                .endDate(firstNonNull(m, "rsvn_ord_end_dt", "RSVN_ORD_END_DT"))
+                .build();
+    }
+
+    /**
+     * 주어진 후보 키들을 순서대로 조회해 첫 non-null(trim 후 비공백) 값을 반환. 모두 없으면 null.
+     */
+    private String firstNonNull(Map<String, Object> map, String... keys) {
+        if (map == null) {
+            return null;
+        }
+        for (String key : keys) {
+            String value = asString(map.get(key));
+            if (value != null) {
+                return value;
+            }
         }
         return null;
     }
