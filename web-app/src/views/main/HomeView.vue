@@ -193,8 +193,7 @@ const loadNotifications = async () => {
 }
 
 // 2. 주요 지수 ← /market/indices (categories rendered dynamically)
-// mock 카테고리를 API 응답 형태(snake_case)로 정규화. 해외/코인은 KIS 실데이터를
-// 가져올 수 없어 기존 mock 으로 폴백한다.
+// 코인 카테고리만 mock 을 유지(코인은 지원 범위 밖). 국내·해외 지수는 실데이터만 사용한다.
 const mockIndexCategory = (key) => {
   const m = mockMarketIndices[key]
   if (!m) return null
@@ -211,8 +210,8 @@ const mockIndexCategory = (key) => {
 }
 
 const loadIndices = async () => {
-  // 국내: KIS 실데이터(가능 시), 해외/코인: 실데이터 미가용 → mock 폴백.
-  // 표시 순서: 국내 → 해외 → 코인.
+  // 국내·해외: KIS 실데이터만 사용(없으면 표시 안 함, 가짜로 덮지 않음).
+  // 코인: 지원 범위 밖이라 mock 유지. 표시 순서: 국내 → 해외 → 코인.
   const order = ['domestic', 'overseas', 'coin']
   const fromApi = {}
   try {
@@ -229,12 +228,12 @@ const loadIndices = async () => {
     logger.debug('Failed to load indices:', error)
   }
 
-  // 국내 지수만 KIS 실데이터. 비어 있으면 KIS 점검/미연동으로 간주하고 mock 가짜 지수로
-  // 덮지 않는다(사용자가 가짜 숫자를 실데이터로 오인하지 않도록). 해외/코인은 원래부터
-  // 실데이터 미가용이라 mock 을 유지한다.
+  // 국내·해외 지수는 KIS 실데이터만 노출한다. 비어 있으면 가짜 지수로 덮지 않고 카드를 생략한다
+  // (사용자가 가짜 숫자를 실데이터로 오인하지 않도록). 코인만 mock 유지(지원 범위 밖).
+  // 국내가 비면 KIS 점검/미연동으로 보고 상단 점검 안내를 표시한다.
   indicesKisDown.value = !fromApi.domestic
   indexCategories.value = order
-    .map((key) => (key === 'domestic' ? fromApi.domestic || null : fromApi[key] || mockIndexCategory(key)))
+    .map((key) => (key === 'coin' ? fromApi.coin || mockIndexCategory('coin') : fromApi[key] || null))
     .filter(Boolean)
   indicesLoading.value = false
 }
