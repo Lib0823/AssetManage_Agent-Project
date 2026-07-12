@@ -90,6 +90,11 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.16-favorite-exchange.yaml
       context: mvp
 
+  # Phase 18: Daily total-asset snapshot (asset trend line chart)
+  - include:
+      file: classpath:db/changelog/mvp/v1.17-asset-daily-snapshot.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================
