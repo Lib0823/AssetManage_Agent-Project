@@ -4,22 +4,41 @@ import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { isKisOutageError } from '@/utils/kisStatus'
-import { Doughnut } from 'vue-chartjs'
+import { Doughnut, Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
   ArcElement,
   Tooltip,
-  Legend
+  Legend,
+  LineController,
+  LineElement,
+  PointElement,
+  CategoryScale,
+  LinearScale,
+  Filler
 } from 'chart.js'
-import { assetApi } from '@/services/api'
+import { assetApi, overseasApi, marketApi } from '@/services/api'
 import { logger } from '@/utils/logger'
 
-ChartJS.register(ArcElement, Tooltip, Legend)
+ChartJS.register(
+  ArcElement,
+  Tooltip,
+  Legend,
+  LineController,
+  LineElement,
+  PointElement,
+  CategoryScale,
+  LinearScale,
+  Filler
+)
 
 const router = useRouter()
 
 const loading = ref(false)
 const kisUnavailable = ref(false)
+
+// 총자산 일별 추이 (자산 추이 라인차트용). [{ date: 'YYYY-MM-DD', totalAsset: number }]
+const history = ref([])
 
 // 자산 요약 (실데이터로 채움). 채권/코인은 추후 지원 → 0.
 const assetSummary = ref({
@@ -52,6 +71,21 @@ const pick = (obj, keys) => {
   return 0
 }
 
+// 총자산 일별 추이 조회 → history 정규화 저장. 실패 시 빈 배열.
+const loadHistory = async () => {
+  try {
+    const res = await assetApi.getHistory(30)
+    const rows = Array.isArray(res?.data) ? res.data : []
+    history.value = rows.map((row) => ({
+      date: row.date,
+      totalAsset: toNumber(row.totalAsset)
+    }))
+  } catch (e) {
+    logger.debug('자산 추이 조회 실패:', e)
+    history.value = []
+  }
+}
+
 const loadAssets = async () => {
   loading.value = true
   kisUnavailable.value = false
@@ -76,9 +110,6 @@ const loadAssets = async () => {
     // 주식 평가금액 / 손익
     const stockEvalAmount = pick(summaryRow, ['scts_evlu_amt', 'tot_evlu_amt'])
     const stockProfit = pick(summaryRow, ['evlu_pfls_smtl_amt', 'tot_evlu_pfls_amt', 'evlu_pfls_smtl'])
-    // 수익률(%) → 소수 비율로 변환 (formatPercent가 *100 함)
-    const stockProfitRatePct = pick(summaryRow, ['asst_icdc_erng_rt', 'evlu_pfls_rt'])
-    const stockChangePercent = stockProfitRatePct / 100
 
     // output2에 종목평가금액이 없으면 보유종목 평가금액 합으로 보강
     let stocksAmount = stockEvalAmount
@@ -86,21 +117,52 @@ const loadAssets = async () => {
       stocksAmount = holdings.output1.reduce((sum, item) => sum + pick(item, ['evlu_amt']), 0)
     }
 
-    const totalAsset = cashAmount + stocksAmount
+    // 해외 주식(USD) 평가금액·손익을 KRW로 환산해 국내 주식에 합산.
+    // 모의 미지원/조회 실패/환율 없음 시 0으로 graceful (국내만 반영).
+    let overseasKrw = 0
+    let overseasProfitKrw = 0
+    try {
+      const [ovRes, fxRes] = await Promise.all([overseasApi.getBalance(), marketApi.getExchangeRates()])
+      const ov = ovRes?.data ?? null
+      const fxList = fxRes && fxRes.success && Array.isArray(fxRes.data) ? fxRes.data : []
+      const usd = fxList.find((r) => r && r.currency === 'USD')
+      const usdRate = usd && Number.isFinite(Number(usd.rate)) ? Number(usd.rate) : null
+      if (ov && usdRate) {
+        overseasKrw = toNumber(ov.totalEval) * usdRate
+        overseasProfitKrw = toNumber(ov.totalProfitLoss) * usdRate
+      }
+    } catch (e) {
+      logger.debug('해외 잔고/환율 합산 생략:', e)
+    }
+
+    const stocksTotal = stocksAmount + overseasKrw
+    const stocksProfitTotal = stockProfit + overseasProfitKrw
+    const totalAsset = cashAmount + stocksTotal
 
     assetSummary.value = {
       totalAsset,
-      // 총자산 전일대비 추세 엔드포인트 없음 → 주식 평가손익을 총 변동으로 표시
-      totalChange: stockProfit,
-      changePercent: totalAsset > 0 ? stockProfit / totalAsset : 0,
+      // 총자산 전일대비 추세 엔드포인트 없음 → 주식 평가손익(국내+해외)을 총 변동으로 표시
+      totalChange: stocksProfitTotal,
+      changePercent: totalAsset > 0 ? stocksProfitTotal / totalAsset : 0,
       updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
       breakdown: {
         cash: { amount: cashAmount, change: 0, changePercent: 0 },
-        stocks: { amount: stocksAmount, change: stockProfit, changePercent: stockChangePercent },
+        stocks: {
+          amount: stocksTotal,
+          change: stocksProfitTotal,
+          changePercent: stocksTotal > 0 ? stocksProfitTotal / stocksTotal : 0
+        },
         bonds: { amount: 0, change: 0, changePercent: 0 },
         coins: { amount: 0, change: 0, changePercent: 0 }
       }
     }
+
+    // 오늘 총자산 스냅샷 기록(fire-and-forget) 후 추이 조회.
+    // 스냅샷 실패는 추이 로딩을 막지 않는다.
+    assetApi
+      .recordSnapshot(totalAsset)
+      .catch((e) => logger.debug('총자산 스냅샷 기록 생략:', e))
+    await loadHistory()
   } catch (error) {
     logger.debug('Failed to load assets:', error)
     if (isKisOutageError(error)) {
@@ -168,6 +230,76 @@ const pieChartOptions = {
   cutout: '70%'
 }
 
+// 자산 추이 라인차트 — 데이터 2건 이상일 때만 표시
+const hasHistory = computed(() => history.value.length >= 2)
+
+// 'YYYY-MM-DD' → 'MM/DD'
+const formatShortDate = (date) => {
+  if (typeof date !== 'string') return ''
+  const parts = date.split('-')
+  return parts.length === 3 ? `${parts[1]}/${parts[2]}` : date
+}
+
+const lineChartData = computed(() => ({
+  labels: history.value.map((row) => formatShortDate(row.date)),
+  datasets: [{
+    label: '총 자산',
+    data: history.value.map((row) => row.totalAsset),
+    borderColor: '#8B5CF6',
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    pointBackgroundColor: '#8B5CF6',
+    pointBorderColor: '#8B5CF6',
+    pointRadius: 3,
+    pointHoverRadius: 5,
+    borderWidth: 2,
+    tension: 0.35,
+    fill: true
+  }]
+}))
+
+const lineChartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: {
+    mode: 'index',
+    intersect: false
+  },
+  plugins: {
+    legend: {
+      display: false
+    },
+    tooltip: {
+      callbacks: {
+        label: (context) => `총 자산: ${formatNumber(context.parsed.y)}원`
+      }
+    }
+  },
+  scales: {
+    x: {
+      grid: {
+        color: 'rgba(255, 255, 255, 0.05)'
+      },
+      ticks: {
+        color: '#94A3B8',
+        font: { size: 11 },
+        maxRotation: 0,
+        autoSkip: true,
+        maxTicksLimit: 7
+      }
+    },
+    y: {
+      grid: {
+        color: 'rgba(255, 255, 255, 0.05)'
+      },
+      ticks: {
+        color: '#94A3B8',
+        font: { size: 11 },
+        callback: (value) => formatNumber(value)
+      }
+    }
+  }
+}
+
 const assetColors = {
   cash: '#3B82F6',
   stocks: '#F97316',
@@ -187,7 +319,7 @@ const goToDetail = (type) => {
     path: '/assets/detail',
     query: {
       main: type,
-      // 해외 주식은 추후 지원 → 국내 탭으로 진입
+      // 주식 상세는 국내 탭으로 진입하되, 상세 화면의 국내/해외 서브탭으로 해외도 조회 가능.
       sub: type === 'stocks' ? 'domestic' : undefined
     }
   })
@@ -252,6 +384,20 @@ const handleRefresh = () => {
               <span class="legend-value">{{ formatNumber(item.amount) }}원</span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- Asset Trend (일별 총자산 추이) -->
+      <section v-if="!kisUnavailable" class="trend-section">
+        <div class="trend-header">
+          <h2 class="trend-label">자산 추이</h2>
+          <span class="trend-sub">최근 30일 총자산</span>
+        </div>
+        <div v-if="hasHistory" class="trend-chart">
+          <Line :data="lineChartData" :options="lineChartOptions" />
+        </div>
+        <div v-else class="trend-empty">
+          자산 추이는 며칠 사용하면 표시됩니다.
         </div>
       </section>
 
@@ -546,6 +692,51 @@ const handleRefresh = () => {
   font-size: 14px;
   color: #F1F5F9;
   font-weight: var(--font-weight-semibold);
+}
+
+/* Asset Trend Section */
+.trend-section {
+  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  border-radius: 24px;
+  padding: 24px;
+  margin-bottom: var(--spacing-xl);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.trend-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.trend-label {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: #F1F5F9;
+}
+
+.trend-sub {
+  font-size: 12px;
+  color: #94A3B8;
+  font-weight: var(--font-weight-medium);
+}
+
+.trend-chart {
+  position: relative;
+  width: 100%;
+  height: 200px;
+}
+
+.trend-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: #64748B;
+  font-weight: var(--font-weight-medium);
 }
 
 /* Asset Cards */
