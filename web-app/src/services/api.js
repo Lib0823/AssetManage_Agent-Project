@@ -132,7 +132,10 @@ export const userApi = {
 // Asset API
 export const assetApi = {
   getHoldings: () => api.get('/assets/holdings'),
-  getBalance: () => api.get('/assets/balance')
+  getBalance: () => api.get('/assets/balance'),
+  // 총자산 일별 스냅샷 기록/조회 (자산 추이 라인차트용)
+  recordSnapshot: (totalAsset) => api.post('/assets/snapshot', { totalAsset }),
+  getHistory: (days = 30) => api.get('/assets/history', { params: { days } })
 }
 
 // Trading API
@@ -143,7 +146,11 @@ export const tradingApi = {
   getRecentTrades: (config) => api.get('/trading/recent', config),
   getHoldings: () => api.get('/trading/holdings'),
   getPendingOrders: () => api.get('/trading/pending-orders'),
-  getOrderable: (stockCode, price) => api.get('/trading/orderable', { params: { stockCode, price } })
+  getOrderable: (stockCode, price) => api.get('/trading/orderable', { params: { stockCode, price } }),
+  // 예약주문 (국내 실전 계좌 전용 — KIS 모의 미지원)
+  getReservedOrders: () => api.get('/trading/reserved-orders'),
+  placeReservedOrder: (body) => api.post('/trading/reserved-orders', body),
+  cancelReservedOrder: (seq, params) => api.delete(`/trading/reserved-orders/${seq}`, { params })
 }
 
 // Stock API (Spring Boot api-server)

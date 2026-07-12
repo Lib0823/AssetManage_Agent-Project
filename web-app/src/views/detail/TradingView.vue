@@ -1,15 +1,22 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { stockApi, tradingApi, overseasApi, marketApi } from '@/services/api'
 import { useRealtimeStore } from '@/stores/realtime'
+import { useAuthStore } from '@/stores/auth'
 import { isKisOutageError } from '@/utils/kisStatus'
 import { logger } from '@/utils/logger'
+import { showSuccess, showError } from '@/utils/toast'
 
 const route = useRoute()
 const router = useRouter()
+
+// KIS 계좌 모드 ('REAL'|'MOCK'|null). 예약주문은 실전 계좌에서만 동작.
+const authStore = useAuthStore()
+const { accountMode } = storeToRefs(authStore)
 
 const symbol = ref(route.params.symbol || '005930')  // Default to Samsung Electronics
 const stockName = ref(route.query.name || '삼성전자')  // Stock name
@@ -338,8 +345,7 @@ const startRealtime = () => {
   // 체결가는 국내·해외 공통으로 구독.
   realtimeUnsubs.push(realtimeStore.subscribeTick(market, sym, exch, onTick))
 
-  // 호가: 국내는 10호가, 해외는 1호가. 둘 다 동일 렌더 경로를 사용한다
-  // (해외 호가는 백엔드가 비어 보내면 onOrderbook이 무시 → 기존 '해외 호가 미지원' UI 유지).
+  // 호가: 국내는 10호가, 해외는 1호가(KIS 해외 호가 HHDFS76200100). 둘 다 동일 렌더 경로를 사용한다.
   realtimeUnsubs.push(realtimeStore.subscribeOrderbook(market, sym, exch, onOrderbook))
 }
 
@@ -471,6 +477,7 @@ const loadPendingOrders = async () => {
 
 onMounted(() => {
   loadPendingOrders()
+  loadReservedOrders()
   // REST 스냅샷으로 초기 paint 후 실시간 구독을 얹는다 (구독 자체는 비동기 paint를
   // 기다리지 않아도 됨 — 콜백이 도착하는 대로 ref를 갱신).
   loadMarketData()
@@ -500,11 +507,122 @@ watch(
   }
 )
 
-// 예약 주문은 미지원 (추후 지원) → 항상 빈 배열
 const filteredOrders = computed(() => ({
-  pending: pendingOrders.value,
-  reserved: []
+  pending: pendingOrders.value
 }))
+
+// ── 예약주문 (국내 실전 계좌 전용 — KIS 모의 미지원) ──────────────────────────
+// 실전(REAL) + 국내 종목일 때만 폼/목록을 노출하고, 그 외에는 안내만 표시한다.
+const reservedEnabled = computed(() => accountMode.value === 'REAL' && !isOverseas.value)
+
+// Date → 'YYYY-MM-DD' (date input v-model용)
+const toDateInput = (date) => {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+// 예약 종료일 기본값: 오늘 + 7일
+const defaultEndDate = () => {
+  const d = new Date()
+  d.setDate(d.getDate() + 7)
+  return toDateInput(d)
+}
+
+// 'YYYYMMDD' → 'YYYY-MM-DD' (목록 표시용)
+const formatEndDate = (ymd) => {
+  const s = String(ymd || '')
+  if (s.length === 8) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+  return s
+}
+
+const reservedForm = ref({
+  side: 'buy',
+  priceType: 'limit',
+  quantity: 1,
+  price: 0,
+  endDate: defaultEndDate() // 'YYYY-MM-DD' (전송 시 'YYYYMMDD'로 변환)
+})
+const reservedLoading = ref(false)
+const reservedOrders = ref([])
+
+// 현재가가 잡히면 예약 가격 기본값을 채운다 (사용자가 아직 안 건드린 경우에만)
+watch(currentPrice, (val) => {
+  if (val != null && !Number(reservedForm.value.price)) {
+    reservedForm.value.price = Number(val)
+  }
+})
+
+const loadReservedOrders = async () => {
+  if (!reservedEnabled.value) {
+    reservedOrders.value = []
+    return
+  }
+  try {
+    const res = await tradingApi.getReservedOrders()
+    reservedOrders.value = Array.isArray(res?.data) ? res.data : []
+  } catch (error) {
+    logger.debug('Failed to load reserved orders:', error)
+    reservedOrders.value = []
+  }
+}
+
+const placeReservedOrder = async () => {
+  if (reservedLoading.value) return
+
+  const qty = parseInt(reservedForm.value.quantity)
+  if (!qty || qty <= 0) {
+    showError('수량을 입력해 주세요')
+    return
+  }
+
+  const priceType = reservedForm.value.priceType
+  const price = Number(reservedForm.value.price)
+  if (priceType === 'limit' && (!price || price <= 0)) {
+    showError('지정가는 가격을 입력해 주세요')
+    return
+  }
+
+  const endDate = String(reservedForm.value.endDate || '').replace(/-/g, '')
+  if (endDate.length !== 8) {
+    showError('예약 종료일을 선택해 주세요')
+    return
+  }
+
+  try {
+    reservedLoading.value = true
+    await tradingApi.placeReservedOrder({
+      stockCode: symbol.value,
+      quantity: qty,
+      price: priceType === 'market' ? 0 : price,
+      side: reservedForm.value.side,
+      priceType,
+      endDate
+    })
+    showSuccess('예약주문이 접수되었습니다')
+    await loadReservedOrders()
+  } catch (error) {
+    logger.debug('Reserved order failed:', error)
+    showError(error.response?.data?.message || '예약주문 접수에 실패했습니다')
+  } finally {
+    reservedLoading.value = false
+  }
+}
+
+const cancelReservedOrder = async (order) => {
+  try {
+    await tradingApi.cancelReservedOrder(order.seq, {
+      orgNo: order.orgNo,
+      orderDate: order.orderDate
+    })
+    showSuccess('예약주문이 취소되었습니다')
+    await loadReservedOrders()
+  } catch (error) {
+    logger.debug('Cancel reserved order failed:', error)
+    showError(error.response?.data?.message || '예약주문 취소에 실패했습니다')
+  }
+}
 
 // 실시간 연결 상태 배너. open이면 숨기고, degrade 상태에서만 안내 노출
 // (마지막 REST/WS 스냅샷은 그대로 유지). connecting은 잠깐이라 표시 생략.
@@ -581,10 +699,101 @@ const realtimeNotice = computed(() => {
         </div>
 
         <div class="order-group">
-          <h3 class="order-title">예약 주문 (추후 지원)</h3>
-          <div class="no-orders">
-            <p>예약 주문 기능은 추후 지원될 예정입니다.</p>
-          </div>
+          <h3 class="order-title">예약 주문</h3>
+
+          <!-- 해외(US): 예약주문은 국내 계좌 전용 -->
+          <KisMaintenanceNotice
+            v-if="isOverseas"
+            variant="banner"
+            message="예약주문은 국내 계좌에서만 지원됩니다."
+          />
+          <!-- 모의/미등록 계좌: 실전 전용 안내 -->
+          <KisMaintenanceNotice
+            v-else-if="accountMode !== 'REAL'"
+            variant="card"
+            message="예약주문은 실전 계좌에서만 지원됩니다 (현재 모의투자 모드)."
+          />
+
+          <!-- 실전 + 국내: 예약주문 폼 + 목록 -->
+          <template v-else>
+            <div class="reserved-form">
+              <div class="reserved-tabs">
+                <button
+                  :class="['reserved-tab', 'buy', { active: reservedForm.side === 'buy' }]"
+                  @click="reservedForm.side = 'buy'"
+                >
+                  매수
+                </button>
+                <button
+                  :class="['reserved-tab', 'sell', { active: reservedForm.side === 'sell' }]"
+                  @click="reservedForm.side = 'sell'"
+                >
+                  매도
+                </button>
+              </div>
+
+              <div class="reserved-tabs">
+                <button
+                  :class="['reserved-tab', { active: reservedForm.priceType === 'limit' }]"
+                  @click="reservedForm.priceType = 'limit'"
+                >
+                  지정가
+                </button>
+                <button
+                  :class="['reserved-tab', { active: reservedForm.priceType === 'market' }]"
+                  @click="reservedForm.priceType = 'market'"
+                >
+                  시장가
+                </button>
+              </div>
+
+              <div class="reserved-row">
+                <span class="reserved-label">수량</span>
+                <input type="text" v-model="reservedForm.quantity" class="reserved-input" />
+              </div>
+              <div v-if="reservedForm.priceType === 'limit'" class="reserved-row">
+                <span class="reserved-label">가격</span>
+                <input type="text" v-model="reservedForm.price" class="reserved-input" />
+              </div>
+              <div class="reserved-row">
+                <span class="reserved-label">예약 종료일</span>
+                <input type="date" v-model="reservedForm.endDate" class="reserved-input" />
+              </div>
+
+              <button
+                class="reserved-submit"
+                :disabled="reservedLoading"
+                @click="placeReservedOrder"
+              >
+                예약주문
+              </button>
+            </div>
+
+            <div v-if="reservedOrders.length > 0" class="reserved-list">
+              <div v-for="order in reservedOrders" :key="order.seq" class="reserved-item">
+                <span
+                  :class="['order-type', String(order.side).toLowerCase() === 'sell' ? 'sell' : 'buy']"
+                >
+                  {{ String(order.side).toLowerCase() === 'sell' ? '매도' : '매수' }}
+                </span>
+                <div class="reserved-item-info">
+                  <span class="reserved-item-name">{{ order.stockName || order.stockCode }}</span>
+                  <span class="reserved-item-detail">
+                    {{ formatNumber(order.quantity) }}주 ·
+                    {{ order.priceType === 'market' ? '시장가' : `${formatNumber(order.price)}원` }}
+                  </span>
+                  <span class="reserved-item-meta">
+                    ~{{ formatEndDate(order.endDate) }}
+                    <template v-if="order.status"> · {{ order.status }}</template>
+                  </span>
+                </div>
+                <button class="reserved-cancel" @click="cancelReservedOrder(order)">취소</button>
+              </div>
+            </div>
+            <div v-else class="no-orders">
+              <p>등록된 예약주문이 없습니다.</p>
+            </div>
+          </template>
         </div>
 
         <div v-if="!isOverseas && filteredOrders.pending.length === 0" class="no-orders">
@@ -617,9 +826,26 @@ const realtimeNotice = computed(() => {
           </template>
         </div>
 
-        <!-- 해외 호가 미지원 안내 -->
+        <!-- 해외 호가 (KIS 해외 1호가 — 매수/매도 각 1단계) -->
         <div v-else class="price-list overseas-orderbook">
-          <div class="price-item empty">해외 호가<br />미지원</div>
+          <KisMaintenanceNotice v-if="orderbookKisDown" variant="card" />
+          <template v-else>
+            <div
+              v-for="(row, idx) in orderbookRows"
+              :key="`${row.side}-${row.price}-${idx}`"
+              :class="[
+                'price-item',
+                row.side,
+                { highlight: nearestPrice != null && row.price === nearestPrice }
+              ]"
+              @click="selectPrice(row.price)"
+            >
+              <span class="price-item-price">${{ formatUsd(row.price) }}</span>
+              <span v-if="row.quantity != null" class="price-item-qty">{{ formatNumber(row.quantity) }}</span>
+            </div>
+            <div v-if="orderbookRows.length === 0" class="price-item empty">호가 없음</div>
+            <p v-if="orderbookNotice" class="notice-text orderbook-notice">{{ orderbookNotice }}</p>
+          </template>
         </div>
 
         <!-- Order Form -->
@@ -854,6 +1080,140 @@ const realtimeNotice = computed(() => {
   text-align: center;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+}
+
+/* ===== 예약주문 ===== */
+.reserved-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.reserved-tabs {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.reserved-tab {
+  flex: 1;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.reserved-tab.active {
+  border-color: var(--color-primary);
+  color: var(--color-text-inverse);
+  background: var(--color-primary);
+}
+
+.reserved-tab.buy.active {
+  background: #f97316;
+  border-color: #f97316;
+}
+
+.reserved-tab.sell.active {
+  background: var(--color-secondary);
+  border-color: var(--color-secondary);
+}
+
+.reserved-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.reserved-label {
+  width: 72px;
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.reserved-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.reserved-submit {
+  width: 100%;
+  padding: var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  margin-top: 2px;
+}
+
+.reserved-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.reserved-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.reserved-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.reserved-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reserved-item-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.reserved-item-detail {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+}
+
+.reserved-item-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.reserved-cancel {
+  flex-shrink: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
 }
 
 .trading-form {
