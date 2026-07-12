@@ -20,7 +20,7 @@ const errorMessage = ref('')
 
 const assetItems = ref([
   { key: 'stocks_domestic', label: '주식 (국내)', icon: '🏠' },
-  { key: 'stocks_overseas', label: '주식 (해외, 추후 지원)', icon: '📈' },
+  { key: 'stocks_overseas', label: '주식 (해외)', icon: '📈' },
   { key: 'coins', label: '코인 (추후 지원)', icon: '🪙' },
   { key: 'bonds', label: '채권 (추후 지원)', icon: '📜' }
 ])
