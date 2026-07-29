@@ -1,0 +1,505 @@
+databaseChangeLog:
+  # Overseas (US) Stock Master Support
+
+  # ========================================
+  # stock_master 해외주식 컬럼 추가 (거래소/통화)
+  # ========================================
+  - changeSet:
+      id: 1.9.1-add-overseas-columns
+      author: claude
+      context: mvp
+      comment: "Add exchange_code and currency columns to stock_master for overseas (US) support"
+      changes:
+        - addColumn:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: exchange_code
+                  type: VARCHAR(10)
+                  constraints:
+                    nullable: true
+              - column:
+                  name: currency
+                  type: VARCHAR(3)
+                  defaultValue: KRW
+                  constraints:
+                    nullable: false
+        - setColumnRemarks:
+            tableName: stock_master
+            columnName: exchange_code
+            remarks: '해외 거래소 코드 (NASD/NYSE/AMEX, 국내=NULL)'
+        - setColumnRemarks:
+            tableName: stock_master
+            columnName: currency
+            remarks: '통화 (KRW/USD)'
+      rollback:
+        - dropColumn:
+            tableName: stock_master
+            columnName: exchange_code
+        - dropColumn:
+            tableName: stock_master
+            columnName: currency
+
+  # ========================================
+  # 해외(US) 종목 마스터 시드 데이터 (NASDAQ 15 + NYSE 10, currency=USD)
+  # ========================================
+  - changeSet:
+      id: 1.9.2-seed-overseas-stock-master
+      author: claude
+      context: mvp
+      comment: "Seed stock_master with ~25 US tickers (NASDAQ/NYSE), currency=USD"
+      changes:
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "AAPL"
+              - column:
+                  name: stock_name
+                  value: "Apple Inc."
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "MSFT"
+              - column:
+                  name: stock_name
+                  value: "Microsoft"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "NVDA"
+              - column:
+                  name: stock_name
+                  value: "NVIDIA"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "AMZN"
+              - column:
+                  name: stock_name
+                  value: "Amazon"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "GOOGL"
+              - column:
+                  name: stock_name
+                  value: "Alphabet"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "META"
+              - column:
+                  name: stock_name
+                  value: "Meta Platforms"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "AVGO"
+              - column:
+                  name: stock_name
+                  value: "Broadcom"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "TSLA"
+              - column:
+                  name: stock_name
+                  value: "Tesla"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "COST"
+              - column:
+                  name: stock_name
+                  value: "Costco"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "NFLX"
+              - column:
+                  name: stock_name
+                  value: "Netflix"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "AMD"
+              - column:
+                  name: stock_name
+                  value: "AMD"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "PEP"
+              - column:
+                  name: stock_name
+                  value: "PepsiCo"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "ADBE"
+              - column:
+                  name: stock_name
+                  value: "Adobe"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "INTC"
+              - column:
+                  name: stock_name
+                  value: "Intel"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "QCOM"
+              - column:
+                  name: stock_name
+                  value: "Qualcomm"
+              - column:
+                  name: market
+                  value: "NASDAQ"
+              - column:
+                  name: exchange_code
+                  value: "NASD"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "JPM"
+              - column:
+                  name: stock_name
+                  value: "JPMorgan"
+              - column:
+                  name: market
+                  value: "NYSE"
+              - column:
+                  name: exchange_code
+                  value: "NYSE"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "V"
+              - column:
+                  name: stock_name
+                  value: "Visa"
+              - column:
+                  name: market
+                  value: "NYSE"
+              - column:
+                  name: exchange_code
+                  value: "NYSE"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "JNJ"
+              - column:
+                  name: stock_name
+                  value: "Johnson & Johnson"
+              - column:
+                  name: market
+                  value: "NYSE"
+              - column:
+                  name: exchange_code
+                  value: "NYSE"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "WMT"
+              - column:
+                  name: stock_name
+                  value: "Walmart"
+              - column:
+                  name: market
+                  value: "NYSE"
+              - column:
+                  name: exchange_code
+                  value: "NYSE"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "PG"
+              - column:
+                  name: stock_name
+                  value: "Procter & Gamble"
+              - column:
+                  name: market
+                  value: "NYSE"
+              - column:
+                  name: exchange_code
+                  value: "NYSE"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "XOM"
+              - column:
+                  name: stock_name
+                  value: "Exxon Mobil"
+              - column:
+                  name: market
+                  value: "NYSE"
+              - column:
+                  name: exchange_code
+                  value: "NYSE"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "KO"
+              - column:
+                  name: stock_name
+                  value: "Coca-Cola"
+              - column:
+                  name: market
+                  value: "NYSE"
+              - column:
+                  name: exchange_code
+                  value: "NYSE"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "DIS"
+              - column:
+                  name: stock_name
+                  value: "Disney"
+              - column:
+                  name: market
+                  value: "NYSE"
+              - column:
+                  name: exchange_code
+                  value: "NYSE"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "BAC"
+              - column:
+                  name: stock_name
+                  value: "Bank of America"
+              - column:
+                  name: market
+                  value: "NYSE"
+              - column:
+                  name: exchange_code
+                  value: "NYSE"
+              - column:
+                  name: currency
+                  value: "USD"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "MA"
+              - column:
+                  name: stock_name
+                  value: "Mastercard"
+              - column:
+                  name: market
+                  value: "NYSE"
+              - column:
+                  name: exchange_code
+                  value: "NYSE"
+              - column:
+                  name: currency
+                  value: "USD"
+      rollback:
+        - sql:
+            sql: |
+              DELETE FROM stock_master WHERE currency='USD'

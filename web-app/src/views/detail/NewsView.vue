@@ -1,10 +1,11 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import AssetTabs from '@/components/common/AssetTabs.vue'
-import { mockTopNews } from '@/services/mockData'
+import { newsApi } from '@/services/api'
 
+const route = useRoute()
 const router = useRouter()
 
 const tabs = ref({ main: 'stocks', sub: 'domestic' })
@@ -22,7 +23,43 @@ const selectedDateFilter = ref('today')
 const sortOrders = ['최신순', '조회순', '추천순']
 const sortOrderIndex = ref(0)
 const searchQuery = ref('')
-const newsList = ref(mockTopNews)
+const searchActive = ref(false)
+const newsList = ref([])
+const loading = ref(false)
+
+const symbol = computed(() => route.query.symbol || '')
+
+// Client-side title search over the server-filtered list.
+// Only filters once the user actively edits the box, so a symbol-prefill
+// (which just reflects the searched state) never hides server results.
+const filteredNews = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!searchActive.value || !q) return newsList.value
+  return newsList.value.filter((n) => (n.title || '').toLowerCase().includes(q))
+})
+
+const onSearchInput = () => {
+  searchActive.value = true
+}
+
+const formatDate = (item) => {
+  const raw = item.published_at || item.analysis_date
+  if (!raw) return ''
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return String(raw)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+const formatTags = (tags) => {
+  if (!Array.isArray(tags) || tags.length === 0) return ''
+  return tags.map((t) => `#${t}`).join(' ')
+}
+
+const sentimentLabel = (label) => {
+  const map = { positive: '긍정', negative: '부정', neutral: '중립' }
+  return map[label] || ''
+}
 
 const selectDateFilter = (key) => {
   selectedDateFilter.value = key
@@ -36,12 +73,29 @@ const goToNewsDetail = (news) => {
   router.push(`/news/${news.id}`)
 }
 
-onMounted(() => {
-  // Reset scroll position of news list container
-  const newsListElement = document.querySelector('.news-list')
-  if (newsListElement) {
-    newsListElement.scrollTop = 0
+const loadNews = async () => {
+  loading.value = true
+  try {
+    const params = {}
+    if (symbol.value) params.symbol = symbol.value
+    const res = await newsApi.getList(params)
+    newsList.value = (res && res.success && Array.isArray(res.data)) ? res.data : []
+
+    // Reflect the filtered state in the search bar (stock name fallback to symbol)
+    if (symbol.value) {
+      const first = newsList.value[0]
+      searchQuery.value = (first && first.stock_name) || symbol.value
+    }
+  } catch (error) {
+    console.error('Failed to load news:', error)
+    newsList.value = []
+  } finally {
+    loading.value = false
   }
+}
+
+onMounted(() => {
+  loadNews()
 })
 </script>
 
@@ -76,6 +130,7 @@ onMounted(() => {
             type="text"
             placeholder="제목 / 내용"
             class="search-input"
+            @input="onSearchInput"
           />
           <button class="search-btn">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
@@ -89,22 +144,31 @@ onMounted(() => {
       <!-- News List -->
       <div class="news-list">
         <div
-          v-for="news in newsList"
+          v-for="news in filteredNews"
           :key="news.id"
           class="news-item"
           @click="goToNewsDetail(news)"
         >
-          <div class="news-thumb" v-if="news.image">
-            <img :src="news.image" :alt="news.title" />
-          </div>
           <div class="news-content">
-            <h3 class="news-title">{{ news.title }}</h3>
-            <p class="news-tags" v-if="news.tags">{{ news.tags.join(' ') }}</p>
+            <div class="news-title-row">
+              <h3 class="news-title">{{ news.title }}</h3>
+              <span
+                v-if="sentimentLabel(news.sentiment_label)"
+                :class="['sentiment-chip', news.sentiment_label]"
+              >
+                {{ sentimentLabel(news.sentiment_label) }}
+              </span>
+            </div>
+            <p class="news-tags" v-if="news.tags && news.tags.length">{{ formatTags(news.tags) }}</p>
           </div>
           <div class="news-meta">
             <span class="news-source" v-if="news.source">{{ news.source }}</span>
-            <span class="news-date">{{ news.date }}</span>
+            <span class="news-date">{{ formatDate(news) }}</span>
           </div>
+        </div>
+
+        <div v-if="!loading && filteredNews.length === 0" class="news-empty">
+          뉴스가 없습니다
         </div>
       </div>
     </div>
@@ -262,11 +326,50 @@ onMounted(() => {
   gap: var(--spacing-xs);
 }
 
+.news-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
 .news-title {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
   line-height: 1.4;
+}
+
+.sentiment-chip {
+  flex-shrink: 0;
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
+.sentiment-chip.positive {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10B981;
+}
+
+.sentiment-chip.negative {
+  background: rgba(239, 68, 68, 0.12);
+  color: #EF4444;
+}
+
+.sentiment-chip.neutral {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.news-empty {
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  padding: var(--spacing-2xl) 0;
 }
 
 .news-tags {

@@ -1,0 +1,133 @@
+databaseChangeLog:
+  # Stock News Storage (per-stock news articles persisted by ai-agent)
+
+  # ========================================
+  # 종목별 뉴스 기사 저장 테이블
+  # ========================================
+  - changeSet:
+      id: 1.10.1-create-stock-news
+      author: claude
+      context: mvp
+      comment: "Create stock_news table for per-stock news article storage"
+      changes:
+        - createTable:
+            tableName: stock_news
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: stock_code
+                  type: VARCHAR(10)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: stock_name
+                  type: VARCHAR(50)
+              - column:
+                  name: analysis_date
+                  type: DATE
+                  constraints:
+                    nullable: false
+              - column:
+                  name: title
+                  type: VARCHAR(500)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: summary
+                  type: TEXT
+              - column:
+                  name: url
+                  type: VARCHAR(1000)
+              - column:
+                  name: source
+                  type: VARCHAR(100)
+              - column:
+                  name: sentiment_score
+                  type: NUMERIC(5,3)
+              - column:
+                  name: sentiment_label
+                  type: VARCHAR(10)
+              - column:
+                  name: tags
+                  type: JSONB
+              - column:
+                  name: published_at
+                  type: TIMESTAMP
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+        - createIndex:
+            indexName: idx_stock_news_code_date
+            tableName: stock_news
+            columns:
+              - column:
+                  name: stock_code
+              - column:
+                  name: analysis_date
+        - createIndex:
+            indexName: idx_stock_news_date
+            tableName: stock_news
+            columns:
+              - column:
+                  name: analysis_date
+        - sql:
+            sql: CREATE INDEX idx_stock_news_tags ON stock_news USING gin (tags jsonb_path_ops);
+        - setTableRemarks:
+            tableName: stock_news
+            remarks: '종목별 뉴스 기사 저장 (ai-agent가 적재)'
+        - setColumnRemarks:
+            tableName: stock_news
+            columnName: stock_code
+            remarks: '종목 코드'
+        - setColumnRemarks:
+            tableName: stock_news
+            columnName: stock_name
+            remarks: '종목명 (표시용 비정규화)'
+        - setColumnRemarks:
+            tableName: stock_news
+            columnName: analysis_date
+            remarks: '분석 기준일 (파이프라인 실행일)'
+        - setColumnRemarks:
+            tableName: stock_news
+            columnName: title
+            remarks: '뉴스 제목'
+        - setColumnRemarks:
+            tableName: stock_news
+            columnName: summary
+            remarks: '뉴스 요약 본문'
+        - setColumnRemarks:
+            tableName: stock_news
+            columnName: url
+            remarks: '원문 URL'
+        - setColumnRemarks:
+            tableName: stock_news
+            columnName: source
+            remarks: '출처 (언론사 등)'
+        - setColumnRemarks:
+            tableName: stock_news
+            columnName: sentiment_score
+            remarks: '기사별 감성 점수 (-1 ~ 1)'
+        - setColumnRemarks:
+            tableName: stock_news
+            columnName: sentiment_label
+            remarks: "감성 라벨 (positive/negative/neutral)"
+        - setColumnRemarks:
+            tableName: stock_news
+            columnName: tags
+            remarks: '태그 (JSON 문자열 배열)'
+        - setColumnRemarks:
+            tableName: stock_news
+            columnName: published_at
+            remarks: '기사 발행 시각'
+      rollback:
+        - sql:
+            sql: DROP INDEX idx_stock_news_tags;
+        - dropTable:
+            tableName: stock_news

@@ -12,7 +12,7 @@ cp .env.example .env                                # KIS/DB/Gemini/DART 키 입
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-서버는 `http://localhost:8000`에서 상주하며, 스케줄러가 평일 08:50 KST에 Stage 1 필터링을 자동 실행한다. 전체 파이프라인은 `POST /api/pipeline/trigger`로 실행한다.
+서버는 `http://localhost:8000`에서 상주하며, 스케줄러가 평일 08:50 KST에 전체 파이프라인(Stage 1~6)을 자동 실행한다. 수동 실행은 `POST /api/pipeline/trigger`.
 
 ## 문서
 

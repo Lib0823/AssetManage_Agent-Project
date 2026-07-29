@@ -31,7 +31,7 @@
 | [`ai-agent/`](ai-agent/README.md) | 수집 · 3축 분석 · Gemini 판단 · 안전망 (파이프라인 코어) | Python, FastAPI, APScheduler, scikit-learn, Prophet, KR-FinBERT | 8000 |
 | [`api-server/`](api-server/README.md) | 인증 · 매매 실행(KIS) · 거래내역 · 시장분석 조회 API | Spring Boot 4.1, JPA, Spring Security + JWT, Jasypt, Liquibase | 7070 |
 | [`web-app/`](web-app/README.md) | 대시보드 · AI 분석 4탭 · 시각화 (PWA) | Vue 3, Vite, Tailwind CSS, Pinia | 5173 (dev) |
-| [`database/`](database/README.md) | 분석 결과 · 예측 · 판단 · 거래 이력 영속 저장 | PostgreSQL 16 (17 tables + 2 views) | 5432 |
+| [`database/`](database/README.md) | 분석 결과 · 예측 · 판단 · 거래 이력 영속 저장 | PostgreSQL 16 (17 tables + 4 views) | 5432 |
 
 ```mermaid
 flowchart LR
@@ -45,7 +45,7 @@ flowchart LR
     USER([사용자]) --> WEB
 ```
 
-> ⏱ **매 거래일(평일) 08:50 KST** 분석 파이프라인이 자동 실행됩니다.
+> ⏱ **매 거래일(평일) 08:50 KST**에 전체 분석 파이프라인(Stage 1~6)이 자동 실행됩니다. 수동 트리거(`POST /api/pipeline/trigger`)로도 실행할 수 있습니다.
 > web-app은 ai-agent를 직접 호출하지 않으며, ai-agent가 DB에 적재한 분석 결과를 **api-server를 통해** 조회합니다.
 
 ---

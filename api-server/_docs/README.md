@@ -13,7 +13,7 @@ AI 주식 자동매매 시스템의 백엔드 모듈이다. Spring Boot(Java 21)
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 패키지 구조, 레이어 흐름, 도메인/JPA 매핑, 외부 연동(KIS·DART), 보안 구성. **개발 전 필독** |
 | [STATUS.md](./STATUS.md) | 엔드포인트·기능별 구현 진행 상황(완료/진행중/미착수) 표 |
 | [USAGE.md](./USAGE.md) | 설치·환경변수·실행·빌드·테스트·트러블슈팅 (사용 방법) |
-| [API_DESIGN.md](./API_DESIGN.md) | 9개 컨트롤러 41개 REST 엔드포인트 전체 명세 |
+| [API_DESIGN.md](./API_DESIGN.md) | 12개 컨트롤러 52개 REST 엔드포인트 전체 명세 (해외주식 `/overseas/*` 포함) |
 | [AUTHENTICATION_FLOW.md](./AUTHENTICATION_FLOW.md) | JWT 발급·검증·리프레시·로그아웃, KIS 계정 연동 인증 흐름 |
 | [KIS_API_GUIDE.md](./KIS_API_GUIDE.md) | KIS Open API 연동(이중 자격증명 경로, TR_ID 매핑, 토큰 캐싱), DART 연동 |
 | [archive/](./archive/) | 일회성 수정 이력 보관(현재 `TRADE_HISTORY_FIX_SUMMARY.md`) |

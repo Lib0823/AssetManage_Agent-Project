@@ -96,7 +96,7 @@ ai-agent → Spring Boot         : is_active=true일 때 매매 실행 요청
 > web-app은 ai-agent를 직접 호출하지 않습니다. ai-agent가 DB에 쓴 분석 결과를 Spring Boot의 `MarketAnalysisController`/`MarketDataController`/`CompanyController`가 중계합니다.
 
 ### Daily Pipeline Flow (APScheduler @ 평일 08:50 KST)
-> **스케줄 범위**: 자동 스케줄(`run_stage1_sync`)은 **Stage 1만** 실행. 전체(Stage 1~6, `run_complete_pipeline`)는 `POST /api/pipeline/trigger` 수동 실행. 상세: [`ai-agent/_docs/PIPELINE_DESIGN.md`](ai-agent/_docs/PIPELINE_DESIGN.md)
+> **스케줄 범위**: 자동 스케줄(`run_complete_pipeline_sync`)이 **전체 파이프라인(Stage 1~6)**을 실행. 수동 트리거 `POST /api/pipeline/trigger`(`run_complete_pipeline`)도 동일하게 전체 실행. 상세: [`ai-agent/_docs/PIPELINE_DESIGN.md`](ai-agent/_docs/PIPELINE_DESIGN.md)
 
 1. **Stage 0 — 휴장일 체크**: 주말·공휴일이면 중단
 2. **Stage 1 — Stock Filtering**: KOSPI 100 → StandardScaler scoring → Top 30
@@ -172,7 +172,7 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 
 ## Database Schema
 
-**실제 테이블: 17개 + 뷰 2개** (Liquibase가 8개 changelog로 생성). 전체 목록·관계는 [`database/README.md`](database/README.md), DDL은 [`database/schema.sql`](database/schema.sql).
+**실제 테이블: 19개 + 뷰 4개** (Liquibase가 9개 changelog로 생성). 전체 목록·관계는 [`database/README.md`](database/README.md), DDL 스냅샷은 [`database/schema.sql`](database/schema.sql)(자동 생성 — `database/generate-schema.sh`).
 
 | 그룹 | 테이블 |
 |------|--------|
@@ -180,9 +180,10 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 | 분석 데이터 | `stock_filter_score`, `stock_financial`, `news_analysis`, `prophet_forecast`, `ai_trade_decision`, `safety_filter_result` |
 | 웹 표시용 | `market_daily_summary`, `stock_realtime_price`, `user_holdings` |
 | 매매 실행 | `trade_execution_plan`, `feature_threshold_config`, `trade_history` |
+| 검색 & 관심종목 | `stock_master`, `user_favorites` |
 | 뷰 | `v_latest_trade_plan`, `v_decision_with_filter` |
 
-> 이전 CLAUDE.md는 "8개 테이블"과 `database-erd.sql`/`database-erd-diagram.md`를 참조했으나, 실제 파일은 `database/schema.sql`이며 테이블은 17개입니다.
+> 이전 CLAUDE.md는 "8개 테이블"과 `database-erd.sql`/`database-erd-diagram.md`를 참조했으나, 실제 파일은 `database/schema.sql`이며 테이블은 19개입니다(v1.8에서 `stock_master`/`user_favorites` 추가).
 
 ## Technology Stack Summary
 
@@ -192,7 +193,7 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 | Backend API | Spring Boot 4.1, Java 21, Spring Data JPA, Spring Security + JWT(jjwt 0.12.3), Jasypt, Liquibase, PostgreSQL, Gradle |
 | AI Pipeline | Python 3.11+, FastAPI, APScheduler, pandas, NumPy, scikit-learn, Prophet, transformers (KR-FinBERT), matplotlib |
 | AI Model | Gemini API (free tier) |
-| Database | PostgreSQL 16 (17 tables + 2 views) |
+| Database | PostgreSQL 16 (19 tables + 4 views) |
 | Search | Elasticsearch 8.x (확장 예정) |
 | Infra | Docker, Docker Compose |
 | External APIs | KIS Developers (mock trading), DART (financial data) |
@@ -217,7 +218,7 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 ### AI Pipeline (ai-agent)
 - **venv 필수**: 시스템 python3 직접 실행 시 Prophet 깨짐 → `prophet_forecast` NULL
 - **Rate Limiting**: KIS API 5 req/sec, asyncio.Semaphore(5) + 0.2s 간격
-- **Scheduling**: APScheduler (프로그램 내 설정, 평일 08:50 KST). 자동 스케줄은 Stage 1만 실행, 전체는 `POST /api/pipeline/trigger`
+- **Scheduling**: APScheduler (프로그램 내 설정, 평일 08:50 KST). 자동 스케줄이 전체 파이프라인(Stage 1~6) 실행. 수동 트리거 `POST /api/pipeline/trigger`도 동일
 - **Data Flow**: 보유 종목을 final 30에 강제 포함 (매도 분석 가능하게)
 - **Charts**: matplotlib 차트 생성 단계는 미구현 (NanumGothic 폰트는 추후 차트 추가 시 필요)
 

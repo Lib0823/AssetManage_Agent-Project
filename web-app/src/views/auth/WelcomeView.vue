@@ -1,7 +1,17 @@
 <script setup>
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { Toast } from 'vant'
+import { isPlatformAuthAvailable, loginBiometric } from '@/services/webauthn'
 
 const router = useRouter()
+
+const biometricAvailable = ref(false)
+const isBiometricLoggingIn = ref(false)
+
+onMounted(async () => {
+  biometricAvailable.value = await isPlatformAuthAvailable()
+})
 
 const goToLogin = () => {
   router.push('/login')
@@ -11,9 +21,29 @@ const goToRegister = () => {
   router.push('/register')
 }
 
-const goToFaceId = () => {
-  // Face ID / Biometric authentication
-  console.log('Face ID')
+const goToFaceId = async () => {
+  if (isBiometricLoggingIn.value) {
+    return
+  }
+
+  try {
+    isBiometricLoggingIn.value = true
+    await loginBiometric()
+    Toast.success('생체 인증 로그인 성공')
+    router.push('/home')
+  } catch (error) {
+    console.error('Biometric login failed:', error)
+    // 사용자가 프롬프트를 취소한 경우(NotAllowedError) 등은 조용히 안내만
+    if (error?.name === 'NotAllowedError') {
+      Toast('생체 인증이 취소되었습니다')
+    } else if (error?.response?.status === 401 || error?.response?.status === 404) {
+      Toast.fail('등록된 생체 자격증명이 없습니다. 비밀번호로 로그인 후 등록해주세요')
+    } else {
+      Toast.fail('생체 로그인에 실패했습니다. 비밀번호로 로그인해주세요')
+    }
+  } finally {
+    isBiometricLoggingIn.value = false
+  }
 }
 </script>
 
@@ -36,7 +66,12 @@ const goToFaceId = () => {
       <div class="actions">
         <div class="login-row">
           <button class="btn btn-login" @click="goToLogin">Log In</button>
-          <button class="btn btn-faceid" @click="goToFaceId">
+          <button
+            v-if="biometricAvailable"
+            class="btn btn-faceid"
+            :disabled="isBiometricLoggingIn"
+            @click="goToFaceId"
+          >
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2"/>
               <rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2"/>
@@ -158,6 +193,11 @@ const goToFaceId = () => {
 
 .btn-faceid:hover {
   background: #374151;
+}
+
+.btn-faceid:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-register {

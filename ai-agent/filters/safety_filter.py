@@ -312,11 +312,11 @@ class SafetyFilter:
         logger.debug(f"Sell filter: passed=True")
         return True, None, check_details
 
-    async def check_investment_limit(self,
-                                     stock_code: str,
-                                     current_price: float,
-                                     order_amount: int,
-                                     user_id: int = 1) -> tuple[bool, Optional[str], int]:
+    def check_investment_limit(self,
+                               stock_code: str,
+                               current_price: float,
+                               order_amount: int,
+                               user_id: int = 1) -> tuple[bool, Optional[str], int]:
         """
         Check if purchase amount exceeds configured order_amount limit.
 
@@ -389,9 +389,8 @@ class SafetyFilter:
             if passed and stock_prices and order_amount:
                 current_price = stock_prices.get(stock_code)
                 if current_price:
-                    import asyncio
-                    limit_passed, limit_reason, max_qty = asyncio.run(
-                        self.check_investment_limit(stock_code, current_price, order_amount)
+                    limit_passed, limit_reason, max_qty = self.check_investment_limit(
+                        stock_code, current_price, order_amount
                     )
                     max_quantity = max_qty
 

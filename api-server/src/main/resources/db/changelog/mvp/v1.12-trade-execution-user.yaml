@@ -1,0 +1,38 @@
+databaseChangeLog:
+  # Per-user execution records (multi-user pipeline).
+  # ai-agent Stage 6 가 활성 유저별 매수/매도 실행 결과를 trade_execution_plan 에 기록한다.
+  # user_id 는 nullable: 기존/전역 행과 구분하고, 멀티유저 실행 행은 user_id 를 채운다.
+
+  - changeSet:
+      id: 1.12.1-add-user-id-to-trade-execution-plan
+      author: claude
+      context: mvp
+      comment: "Add user_id to trade_execution_plan for per-user (multi-user) execution records"
+      changes:
+        - addColumn:
+            tableName: trade_execution_plan
+            columns:
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: true
+        - createIndex:
+            indexName: idx_trade_exec_plan_user_date
+            tableName: trade_execution_plan
+            columns:
+              - column:
+                  name: user_id
+              - column:
+                  name: execution_date
+        - setColumnRemarks:
+            tableName: trade_execution_plan
+            columnName: user_id
+            remarks: '실행 대상 사용자 id (멀티유저). NULL = 레거시/전역 행'
+      rollback:
+        - dropIndex:
+            indexName: idx_trade_exec_plan_user_date
+            tableName: trade_execution_plan
+        - dropColumn:
+            tableName: trade_execution_plan
+            columnName: user_id

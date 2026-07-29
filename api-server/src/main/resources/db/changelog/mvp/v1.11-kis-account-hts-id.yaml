@@ -1,0 +1,28 @@
+databaseChangeLog:
+  # KIS HTS ID for Realtime Fill Notifications (체결통보 tr_key)
+
+  # ========================================
+  # user_kis_accounts.hts_id 컬럼 추가 (체결통보 tr_key, 비암호 평문)
+  # ========================================
+  - changeSet:
+      id: 1.11.1-add-hts-id
+      author: claude
+      context: mvp
+      comment: "Add hts_id column to user_kis_accounts for realtime fill notification tr_key (plain, not encrypted)"
+      changes:
+        - addColumn:
+            tableName: user_kis_accounts
+            columns:
+              - column:
+                  name: hts_id
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: true
+        - setColumnRemarks:
+            tableName: user_kis_accounts
+            columnName: hts_id
+            remarks: 'KIS HTS ID — 체결통보 tr_key, 시세 무관, 비암호'
+      rollback:
+        - dropColumn:
+            tableName: user_kis_accounts
+            columnName: hts_id

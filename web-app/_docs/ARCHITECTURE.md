@@ -73,7 +73,6 @@ web-app/
 | `/news` | news | `detail/NewsView` | 필요 | — |
 | `/news/:id` | news-detail | `detail/NewsDetailView` | 필요 | — |
 | `/market-analysis` | market-analysis | `analysis/MarketAnalysisView` | 필요 | — |
-| `/transfer` | transfer | `detail/TransferView` | 필요 | — |
 | `/profile` | profile | `settings/ProfileView` | 필요 | ✅ |
 | `/settings` | settings | `settings/SettingsView` | 필요 | — |
 

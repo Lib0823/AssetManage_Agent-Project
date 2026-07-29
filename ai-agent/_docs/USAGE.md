@@ -17,7 +17,7 @@ FastAPI 기동 (port 8000)
   → 서버 상주
 ```
 
-> ⚠️ **자동 스케줄은 현재 Stage 1만 실행**한다(`run_stage1_sync`). 전체 파이프라인(Stage 1~6)은 수동 트리거 API로 실행된다. 자세한 내용은 [STATUS.md](STATUS.md) §2-1 참고.
+> 자동 스케줄이 **전체 파이프라인(Stage 1~6)**을 실행한다(`_job_wrapper` → `run_complete_pipeline_sync`). 수동 트리거 API(`POST /api/pipeline/trigger`)도 동일한 전체 경로다. 자세한 내용은 [STATUS.md](STATUS.md) 참고.
 
 ---
 

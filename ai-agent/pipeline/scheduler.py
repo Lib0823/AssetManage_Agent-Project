@@ -28,14 +28,14 @@ class PipelineScheduler:
         logger.info(f"PipelineScheduler initialized with cron: {self.cron_expression} ({settings.pipeline_timezone})")
 
     def _job_wrapper(self):
-        """Wrapper function for scheduled job execution."""
-        logger.info("Scheduled pipeline execution triggered")
+        """Wrapper function for scheduled job execution (full pipeline, Stage 1~6)."""
+        logger.info("Scheduled pipeline execution triggered (full pipeline)")
 
         try:
-            result = self.orchestrator.run_stage1_sync()
+            result = self.orchestrator.run_complete_pipeline_sync()
 
-            if result['success']:
-                logger.info(f"Scheduled pipeline completed successfully: {result['selected_stocks']} stocks selected")
+            if result.get('success'):
+                logger.info("Scheduled pipeline completed successfully (Stage 1~6)")
             else:
                 logger.error(f"Scheduled pipeline failed: {result.get('error')}")
 
@@ -68,8 +68,8 @@ class PipelineScheduler:
         self.scheduler.add_job(
             self._job_wrapper,
             trigger=trigger,
-            id='stage1_filtering_job',
-            name='Stage 1: Stock Filtering',
+            id='full_pipeline_job',
+            name='Full Pipeline (Stage 1-6)',
             replace_existing=True
         )
 
@@ -83,16 +83,16 @@ class PipelineScheduler:
             logger.info("Pipeline scheduler stopped")
 
     def trigger_manual(self):
-        """Manually trigger pipeline execution (for testing/manual runs)."""
-        logger.info("Manual pipeline execution triggered")
-        return self.orchestrator.run_stage1_sync()
+        """Manually trigger full pipeline execution (for testing/manual runs)."""
+        logger.info("Manual pipeline execution triggered (full pipeline)")
+        return self.orchestrator.run_complete_pipeline_sync()
 
     def get_next_run_time(self):
         """Get the next scheduled run time."""
         if not self.scheduler.running:
             return None
 
-        job = self.scheduler.get_job('stage1_filtering_job')
+        job = self.scheduler.get_job('full_pipeline_job')
         if job:
             return job.next_run_time
         return None

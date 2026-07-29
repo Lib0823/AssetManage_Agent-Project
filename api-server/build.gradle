@@ -31,6 +31,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
+    // 실시간 시세 브리지 (KIS WebSocket ⇄ 브라우저). kis.realtime.enabled=true 일 때만 활성.
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
 
     // JWT Authentication
     implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
@@ -39,6 +41,17 @@ dependencies {
 
     // Jasypt (Encryption)
     implementation 'com.github.ulisesbocchio:jasypt-spring-boot-starter:3.0.5'
+
+    // WebAuthn / Passkey (Yubico java-webauthn-server).
+    // 자체 Jackson2(com.fasterxml) 직렬화를 내장하며, Spring Boot 4.1 의 Jackson3(tools.jackson)와
+    // 패키지가 달라 공존한다. 브라우저↔서버 WebAuthn JSON 은 라이브러리 헬퍼
+    // (toCredentialsCreateJson / parseRegistrationResponseJson 등)만 사용한다.
+    implementation 'com.yubico:webauthn-server-core:2.7.0'
+    // Yubico 의 toJson()/parse... 헬퍼가 com.fasterxml.jackson.core.JsonProcessingException 을
+    // throws 절에 노출하므로 jackson-core(Jackson2)를 compile 클래스패스에 명시한다.
+    // (Spring Boot 4.1 은 Jackson3(tools.jackson)를 쓰므로 자동으로 끌려오지 않음.)
+    // 버전은 Yubico 가 끌어오는 transitive 버전과 일치시켜 충돌을 피한다.
+    implementation 'com.fasterxml.jackson.core:jackson-core:2.21.4'
 
     // Lombok
     compileOnly 'org.projectlombok:lombok'

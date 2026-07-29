@@ -107,6 +107,15 @@ export const authApi = {
   validateKisAccount: (kisData) => api.post('/auth/validate-kis-account', kisData)
 }
 
+// WebAuthn (생체 로그인/패스키) API
+// register/* 는 JWT 필요(로그인 상태에서 기기 등록), login/* 은 공개(usernameless)
+export const webauthnApi = {
+  registerStart: () => api.post('/auth/webauthn/register/start'),
+  registerFinish: (data) => api.post('/auth/webauthn/register/finish', data),
+  loginStart: () => api.post('/auth/webauthn/login/start'),
+  loginFinish: (data) => api.post('/auth/webauthn/login/finish', data)
+}
+
 // User API
 export const userApi = {
   getProfile: () => api.get('/users/me'),
@@ -123,7 +132,10 @@ export const userApi = {
 // Asset API
 export const assetApi = {
   getHoldings: () => api.get('/assets/holdings'),
-  getBalance: () => api.get('/assets/balance')
+  getBalance: () => api.get('/assets/balance'),
+  // 총자산 일별 스냅샷 기록/조회 (자산 추이 라인차트용)
+  recordSnapshot: (totalAsset) => api.post('/assets/snapshot', { totalAsset }),
+  getHistory: (days = 30) => api.get('/assets/history', { params: { days } })
 }
 
 // Trading API
@@ -132,20 +144,47 @@ export const tradingApi = {
   sell: (order) => api.post('/trading/sell', order),
   getHistory: (config) => api.get('/trading/history', config),
   getRecentTrades: (config) => api.get('/trading/recent', config),
-  getHoldings: () => api.get('/trading/holdings')
+  getHoldings: () => api.get('/trading/holdings'),
+  getPendingOrders: () => api.get('/trading/pending-orders'),
+  getOrderable: (stockCode, price) => api.get('/trading/orderable', { params: { stockCode, price } }),
+  // 예약주문 (국내 실전 계좌 전용 — KIS 모의 미지원)
+  getReservedOrders: () => api.get('/trading/reserved-orders'),
+  placeReservedOrder: (body) => api.post('/trading/reserved-orders', body),
+  cancelReservedOrder: (seq, params) => api.delete(`/trading/reserved-orders/${seq}`, { params })
 }
 
-// ========== APIs below are not yet implemented in api-server ==========
-// TODO: Implement these endpoints in api-server
+// Stock API (Spring Boot api-server)
+export const stockApi = {
+  search: (q) => api.get('/stocks/search', { params: { q } }),
+  searchOverseas: (q) => api.get('/stocks/search', { params: { q, market: 'US' } }),
+  getTop: (market) => api.get('/stocks/top', { params: market ? { market } : {} }),
+  getPrice: (stockCode) => api.get(`/stocks/${stockCode}/price`),
+  getOrderbook: (stockCode) => api.get(`/stocks/${stockCode}/orderbook`)
+}
 
-// Stock API (Not implemented)
-// export const stockApi = {
-//   getList: (params) => api.get('/stocks', { params }),
-//   getDetail: (symbol) => api.get(`/stocks/${symbol}`),
-//   getPrice: (symbol) => api.get(`/stocks/${symbol}/price`),
-//   getChart: (symbol, period) => api.get(`/stocks/${symbol}/chart`, { params: { period } }),
-//   search: (query) => api.get('/stocks/search', { params: { q: query } })
-// }
+// Overseas (US) Stock API (Spring Boot api-server)
+export const overseasApi = {
+  getPrice: (symbol, exchange) =>
+    api.get(`/overseas/stocks/${symbol}/price`, { params: { exchange } }),
+  getOrderbook: (symbol, exchange) =>
+    api.get(`/overseas/stocks/${symbol}/orderbook`, { params: { exchange } }),
+  getBalance: () => api.get('/overseas/balance'),
+  getHistory: (exchange) => api.get('/overseas/history', { params: { exchange } }),
+  getPendingOrders: (exchange) => api.get('/overseas/pending-orders', { params: { exchange } }),
+  getOrderable: (symbol, exchange, price) =>
+    api.get('/overseas/orderable', { params: { symbol, exchange, price } }),
+  buy: (order) => api.post('/overseas/buy', order),
+  sell: (order) => api.post('/overseas/sell', order)
+}
+
+// Favorite API (Spring Boot api-server)
+export const favoriteApi = {
+  list: () => api.get('/favorites'),
+  // payload: 문자열(종목코드) 또는 { stockCode, stockName?, exchangeCode? }
+  add: (payload) =>
+    api.post('/favorites', typeof payload === 'string' ? { stockCode: payload } : payload),
+  remove: (stockCode) => api.delete(`/favorites/${stockCode}`)
+}
 
 // Company API (Spring Boot api-server)
 export const companyApi = {
@@ -154,11 +193,11 @@ export const companyApi = {
   getDisclosures: (stockCode) => api.get(`/company/${stockCode}/disclosures`)
 }
 
-// News API (Handled by FastAPI ai-agent)
+// News API (Spring Boot api-server)
 export const newsApi = {
+  // params: { symbol?, date? } — symbol omitted → recent feed, date omitted → latest available date
   getList: (params) => api.get('/news', { params }),
-  getDetail: (id) => api.get(`/news/${id}`),
-  getByDate: (date) => api.get('/news/by-date', { params: { date } })
+  getDetail: (id) => api.get(`/news/${id}`)
 }
 
 // Market API (Handled by FastAPI ai-agent)

@@ -2,8 +2,11 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { userApi, tradingApi, marketAnalysisApi } from '@/services/api'
+import { isKisOutageError } from '@/utils/kisStatus'
 import toast from '@/utils/toast'
+import { logger } from '@/utils/logger'
 
 const router = useRouter()
 
@@ -18,6 +21,9 @@ const botStatus = ref({
 
 // 보유 종목과 분석 정보를 통합
 const botStocks = ref([])
+
+// KIS API 점검/장애 여부 (보유 종목 조회 실패 시 true)
+const holdingsKisDown = ref(false)
 
 // 종목 카드 펼침 상태 관리
 const expandedStocks = ref(new Set())
@@ -50,18 +56,19 @@ const loadTradeConfig = async () => {
       botStatus.value.totalInvestment = response.data.orderAmount || 0
     }
   } catch (error) {
-    console.error('거래 설정 조회 실패:', error)
+    logger.debug('거래 설정 조회 실패:', error)
     toast.error('거래 설정을 불러올 수 없습니다')
   }
 }
 
 const loadHoldings = async () => {
+  holdingsKisDown.value = false
   try {
     const response = await tradingApi.getHoldings()
-    console.log('Holdings API Response:', response)
+    logger.debug('Holdings API Response:', response)
     if (response.success && response.data) {
       const holdingsData = response.data
-      console.log('Holdings Data:', holdingsData)
+      logger.debug('Holdings Data:', holdingsData)
 
       // 총 평가금액: KIS API에서 제공하는 총 평가금액 (소수점 제거)
       botStatus.value.totalValuation = Math.floor(holdingsData.totalEvaluationAmount || 0)
@@ -75,14 +82,14 @@ const loadHoldings = async () => {
       // 손익률: KIS API에서 제공하는 총 손익률 사용 (소수점 2자리까지)
       // Backend가 BigDecimal을 Number로 변환하므로 toFixed로 소수점 2자리까지 표시
       const rawProfitRate = holdingsData.totalProfitLossRate || 0
-      console.log('Raw Profit Rate from API:', rawProfitRate, 'Type:', typeof rawProfitRate)
+      logger.debug('Raw Profit Rate from API:', rawProfitRate, 'Type:', typeof rawProfitRate)
       botStatus.value.profitPercent = Number(rawProfitRate).toFixed(2)
 
-      console.log('Holdings Data:', holdingsData)
-      console.log('Total Valuation:', botStatus.value.totalValuation)
-      console.log('Current Invested (Purchase Amount):', botStatus.value.currentInvestedAmount)
-      console.log('Total Profit Loss:', botStatus.value.profitAmount)
-      console.log('Profit Percent:', botStatus.value.profitPercent)
+      logger.debug('Holdings Data:', holdingsData)
+      logger.debug('Total Valuation:', botStatus.value.totalValuation)
+      logger.debug('Current Invested (Purchase Amount):', botStatus.value.currentInvestedAmount)
+      logger.debug('Total Profit Loss:', botStatus.value.profitAmount)
+      logger.debug('Profit Percent:', botStatus.value.profitPercent)
 
       // 보유 종목 데이터 매핑
       botStocks.value = holdingsData.holdings.map((holding) => ({
@@ -110,8 +117,13 @@ const loadHoldings = async () => {
       loadStockAnalyses()
     }
   } catch (error) {
-    console.error('보유 종목 조회 실패:', error)
-    toast.error('보유 종목 정보를 불러올 수 없습니다')
+    logger.debug('보유 종목 조회 실패:', error)
+    if (isKisOutageError(error)) {
+      // KIS 점검/장애: 배너·카드로 안내하므로 별도 toast는 생략 (중복 알림 방지)
+      holdingsKisDown.value = true
+    } else {
+      toast.error('보유 종목 정보를 불러올 수 없습니다')
+    }
   }
 }
 
@@ -140,7 +152,7 @@ const loadStockAnalyses = async () => {
           }
         }
       } catch (error) {
-        console.error(`AI 분석 조회 실패 (${stock.symbol}):`, error)
+        logger.debug(`AI 분석 조회 실패 (${stock.symbol}):`, error)
         stock.analysis = {
           loading: false,
           hasAnalysis: false,
@@ -173,7 +185,7 @@ const saveSettings = async () => {
     // 쉼표 제거 후 숫자로 변환
     const numericValue = parseInt(settingsInvestment.value.replace(/,/g, '')) || 0
 
-    console.log('저장 요청:', {
+    logger.debug('저장 요청:', {
       orderAmount: numericValue,
       isActive: settingsBotEnabled.value
     })
@@ -185,7 +197,7 @@ const saveSettings = async () => {
       isActive: settingsBotEnabled.value
     })
 
-    console.log('API 응답:', response)
+    logger.debug('API 응답:', response)
 
     // API 응답 성공 여부 확인
     // 백엔드 응답 구조: { success: boolean, message: string, data: TradeConfigResponse }
@@ -200,13 +212,13 @@ const saveSettings = async () => {
       toast.success('설정이 저장되었습니다')
     } else {
       // API 응답 실패 또는 유효하지 않은 응답
-      console.error('API 응답 실패:', response)
+      logger.debug('API 응답 실패:', response)
       toast.error('설정 저장에 실패했습니다')
     }
   } catch (error) {
     // 네트워크 오류 또는 예외 발생 시
-    console.error('거래 설정 저장 실패:', error)
-    console.error('Error details:', {
+    logger.debug('거래 설정 저장 실패:', error)
+    logger.debug('Error details:', {
       message: error.message,
       response: error.response?.data,
       status: error.response?.status
@@ -255,20 +267,26 @@ const isStockExpanded = (symbol) => {
 
 <template>
   <div class="bot-screen">
-    <AppHeader title="투자 봇" showIcon icon="bot" />
+    <AppHeader title="투자 봇" showIcon icon="bot" show-kis-mode />
 
     <div class="content">
+      <!-- KIS 점검 안내 배너 -->
+      <KisMaintenanceNotice v-if="holdingsKisDown" variant="banner" />
+
       <!-- Total Valuation Section -->
       <div class="total-valuation-section">
         <div class="valuation-label">총 평가금액</div>
-        <div class="valuation-amount">{{ formatNumber(botStatus.totalValuation) }}원</div>
-        <div
-          class="valuation-profit"
-          :class="botStatus.profitAmount >= 0 ? 'profit-up' : 'profit-down'"
-        >
-          {{ botStatus.profitAmount >= 0 ? '+' : '' }}{{ formatNumber(botStatus.profitAmount) }}원
-          ({{ parseFloat(botStatus.profitPercent) >= 0 ? '+' : '' }}{{ botStatus.profitPercent }}%)
-        </div>
+        <template v-if="!holdingsKisDown">
+          <div class="valuation-amount">{{ formatNumber(botStatus.totalValuation) }}원</div>
+          <div
+            class="valuation-profit"
+            :class="botStatus.profitAmount >= 0 ? 'profit-up' : 'profit-down'"
+          >
+            {{ botStatus.profitAmount >= 0 ? '+' : '' }}{{ formatNumber(botStatus.profitAmount) }}원
+            ({{ parseFloat(botStatus.profitPercent) >= 0 ? '+' : '' }}{{ botStatus.profitPercent }}%)
+          </div>
+        </template>
+        <div v-else class="valuation-amount">—</div>
       </div>
 
       <!-- Bot Avatar & Status -->
@@ -380,7 +398,9 @@ const isStockExpanded = (symbol) => {
             <div class="investment-divider"></div>
             <div class="investment-item">
               <span class="investment-label">현재 투자금액</span>
-              <span class="investment-value">{{ formatNumber(botStatus.currentInvestedAmount) }}원</span>
+              <span class="investment-value">
+                {{ holdingsKisDown ? '—' : formatNumber(botStatus.currentInvestedAmount) + '원' }}
+              </span>
             </div>
           </div>
         </div>
@@ -417,6 +437,8 @@ const isStockExpanded = (symbol) => {
       <!-- Bot Stocks Section -->
       <div class="bot-stocks-section">
         <h3 class="section-title">보유 종목 및 분석</h3>
+
+        <KisMaintenanceNotice v-if="holdingsKisDown" variant="card" />
 
         <div v-for="stock in botStocks" :key="stock.symbol" class="stock-analysis-card">
           <!-- Stock Info Header (Clickable) -->

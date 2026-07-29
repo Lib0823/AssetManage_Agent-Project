@@ -11,6 +11,7 @@ import feedparser
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+from urllib.parse import urlparse
 import logging
 
 logger = logging.getLogger(__name__)
@@ -184,7 +185,7 @@ class NewsCollector:
             max_articles: Maximum number of articles to collect
 
         Returns:
-            List of articles: [{title, content, published, url}] (newest first)
+            List of articles: [{title, content, published, url, source}] (newest first)
         """
         try:
             if self.session is None:
@@ -243,11 +244,16 @@ class NewsCollector:
 
                     content = (body or title)[:200]
 
+                    # 출처(언론사): 응답 officeName 우선, 없으면 기사 URL 도메인,
+                    # 그래도 없으면 '네이버' 로 폴백.
+                    source = self._resolve_news_source(item, link)
+
                     articles.append({
                         'title': title,
                         'content': content,
                         'published': published,
-                        'url': link
+                        'url': link,
+                        'source': source
                     })
 
                     if len(articles) >= max_articles:
@@ -340,6 +346,34 @@ class NewsCollector:
             except ValueError:
                 continue
         return datetime.now()
+
+    def _resolve_news_source(self, item: Dict, url: str) -> str:
+        """
+        Resolve the news source (언론사) for a Naver stock-news item.
+
+        우선순위: 응답의 officeName(언론사명) → 기사 URL 도메인 → '네이버'.
+
+        Args:
+            item: Naver stock-news API item dict.
+            url: Resolved article URL (may be empty).
+
+        Returns:
+            str: Source/publisher name (never empty).
+        """
+        office_name = (item.get('officeName') or '').strip()
+        if office_name:
+            return office_name
+
+        if url:
+            try:
+                netloc = urlparse(url).netloc
+                if netloc:
+                    # 'www.' 접두 제거로 도메인 가독성 향상
+                    return netloc[4:] if netloc.startswith('www.') else netloc
+            except Exception:
+                pass
+
+        return '네이버'
 
     def _parse_naver_date(self, date_str: str) -> datetime:
         """

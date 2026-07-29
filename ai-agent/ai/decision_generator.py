@@ -212,6 +212,108 @@ class TradingDecisionGenerator:
 
         return prompt
 
+    # ------------------------------------------------------------------
+    # Per-user portfolio-aware decision (Stage 6, multi-user)
+    # ------------------------------------------------------------------
+    def generate_user_decision(
+        self,
+        candidate_features: pd.DataFrame,
+        portfolio: Dict,
+        order_amount: int,
+        max_holdings: int,
+        user_id: int
+    ) -> Dict:
+        """
+        한 사용자의 포트폴리오 맥락을 반영한 맞춤 매수/매도 결정 (유저당 Gemini 1콜).
+
+        Args:
+            candidate_features: 분석 유니버스 11피처 (매수 후보 풀)
+            portfolio: InternalApiClient.get_user_portfolio() 결과
+                       (holdings/cash/total_assets 포함)
+            order_amount: 1회 주문 한도(원)
+            max_holdings: 최대 보유 종목수
+            user_id: 로깅용 사용자 id
+
+        Returns:
+            {'buy': [{'stock_code', 'reason'}, ...], 'sell': [{'stock_code', 'reason'}, ...]}
+            (가변 길이, 판단 실패 시 빈 리스트)
+        """
+        logger.info(f"Generating per-user decision for user {user_id}...")
+
+        candidate_contexts = self._build_stock_contexts(candidate_features)
+        portfolio_context = self._build_portfolio_context(portfolio, order_amount, max_holdings)
+        prompt = self._generate_user_prompt(candidate_contexts, portfolio_context)
+
+        return self.gemini_client.generate_user_decision(prompt)
+
+    def _build_portfolio_context(self, portfolio: Dict, order_amount: int, max_holdings: int) -> str:
+        """사용자 포트폴리오/자금 상황을 프롬프트용 문자열로 구성."""
+        holdings = portfolio.get('holdings', [])
+        cash = portfolio.get('cash', 0)
+        total_assets = portfolio.get('total_assets', 0)
+
+        if holdings:
+            lines = []
+            for h in holdings:
+                lines.append(
+                    f"- [{h['stock_code']} {h['stock_name']}] 수량 {h['quantity']:,}주, "
+                    f"매입단가 {h['avg_price']:,.0f}원, 현재가 {h['current_price']:,.0f}원, "
+                    f"평가금액 {h['eval_amount']:,.0f}원, 손익률 {h['profit_loss_rate']:+.2f}%, "
+                    f"총자산 대비 비중 {h['weight_pct']:.2f}%"
+                )
+            holdings_text = '\n'.join(lines)
+        else:
+            holdings_text = "- (보유 종목 없음)"
+
+        return f"""주문가능현금: {cash:,.0f}원
+총자산(보유평가 + 현금): {total_assets:,.0f}원
+1회 주문 한도(order_amount): {order_amount:,}원
+최대 보유 종목수(max_holdings): {max_holdings}
+현재 보유 종목 수: {len(holdings)}
+
+보유 종목:
+{holdings_text}"""
+
+    def _generate_user_prompt(self, candidate_contexts: List[str], portfolio_context: str) -> str:
+        """유저 맞춤 매수/매도 프롬프트 생성."""
+        contexts_text = '\n'.join(candidate_contexts)
+
+        return f"""당신은 한국 주식 시장의 AI 트레이딩 어드바이저입니다.
+아래 분석 후보 종목들과 '이 사용자'의 포트폴리오/자금 상황을 함께 고려하여,
+이 사용자에게 맞는 매수/매도를 결정하세요.
+
+## 분석 후보 종목 (11개 피처)
+{contexts_text}
+
+## 이 사용자의 포트폴리오 / 자금
+{portfolio_context}
+
+## 매수 판단 시 반드시 고려
+1. 가용 현금이 부족하면 매수하지 않는다(주문가능현금 한도 내).
+2. 이미 보유 중인 종목은 신규 매수에서 제외한다(비중 과다 종목도 회피).
+3. 보유 종목과 같은/유사 종목으로의 집중을 피하고 분산을 고려한다.
+4. 최대 보유 종목수(max_holdings)를 초과하지 않도록 신규 매수 수를 제한한다.
+5. 1회 주문 한도(order_amount) 안에서 매수 가능한 종목만 고른다.
+
+## 매도 판단
+- 매도는 '보유 종목' 중에서만 한다(분석 후보가 아니라 보유 목록 기준).
+- 추세 하락 / 부정적 뉴스 심리 / 펀더멘탈 악화 / 비중 과다 등을 근거로 한다.
+- 매도할 이유가 없으면 매도하지 않아도 된다(빈 리스트 허용).
+
+## 출력 형식 (JSON) — 매수/매도는 각각 0개 이상 가변
+{{
+  "buy": [
+    {{"stock_code": "005930", "reason": "현금 충분 + 미보유 + 외국인·기관 순매수 + 상승 추세"}}
+  ],
+  "sell": [
+    {{"stock_code": "000660", "reason": "비중 과다 + 가격 하락 추세 + 부정 뉴스"}}
+  ]
+}}
+
+**중요**: 반드시 JSON 형식으로만 답변하세요. buy 의 stock_code 는 분석 후보 중에서,
+sell 의 stock_code 는 위 '보유 종목' 중에서만 선택하세요. 근거가 약하면 빈 리스트로 두세요.
+"""
+
     def validate_decision(self, decision: Dict) -> Dict[str, bool]:
         """
         Validate generated decision for completeness and correctness.

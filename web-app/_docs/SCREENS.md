@@ -95,7 +95,7 @@
 - **목적**: 보유 주식·현금 잔고 상세(KIS).
 - **API**: `assetApi.getHoldings()`, `assetApi.getBalance()` — **혼합**(국내는 실데이터, 해외는 `mockStocks`).
 - **쿼리 파라미터**: `main`, `sub`(탭 상태). **컴포넌트**: `AppHeader`, `AssetTabs`, `van-icon`.
-- **네비게이션**: `→ /news?symbol=`, `→ /trading/:symbol`, `→ /company/:symbol`, `→ /transfer`.
+- **네비게이션**: `→ /news?symbol=`, `→ /trading/:symbol`, `→ /company/:symbol`. (송금 진입 버튼은 범위 외로 제거됨)
 
 ### CompanyDetailView (`/company/:symbol`) — 기업/AI 상세 ✅ 실데이터
 - **목적**: 기업 종합 정보 — AI 분석(정량/센티먼트/시계열), 기본정보, 재무, 공시.
@@ -103,9 +103,9 @@
 - **route params**: `:symbol`. **컴포넌트**: `AppHeader`, `van-icon`, `van-popup`, 커스텀 SVG 차트(Prophet 예측, KIS 피처 막대).
 - **네비게이션**: `→ /news?symbol=`, `→ /trading/:symbol`.
 
-### TradingView (`/trading/:symbol`) — 매매 🔶 혼합
-- **목적**: 매수/매도 주문 폼.
-- **API**: `tradingApi.buy(order)`, `tradingApi.sell(order)` — 주문 실행은 **실데이터**. 주문 표시·가격 목록은 하드코딩 배열.
+### TradingView (`/trading/:symbol`) — 매매 ✅ 실데이터
+- **목적**: 매수/매도 주문 폼 + 실시간 호가 + 매수가능 조회.
+- **API**: `tradingApi.buy(order)`, `tradingApi.sell(order)`(주문 실행), `/stocks/{code}/orderbook`(10단계 호가), `/trading/orderable`(매수가능 수량/금액), `tradingApi.getPendingOrders`(미체결) — **전부 실데이터**(목업 없음). 예약주문은 추후 지원.
 - **route params**: `:symbol`(기본값 `005930`). **컴포넌트**: `AppHeader`.
 - **네비게이션**: 성공 `→ /transactions`.
 
@@ -127,11 +127,7 @@
 - **컴포넌트**: `AppHeader`.
 - **네비게이션**: 관련 뉴스 `→ /news/:id`.
 
-### TransferView (`/transfer`) — 이체 ⚠️ 스텁
-- **목적**: 계좌 이체 입력·검증·성공 모달.
-- **API**: 없음(라인 주석 TODO "실제 이체 API 호출"). 성공은 Mock 처리.
-- **컴포넌트**: `AppHeader`, `van-popup`.
-- **네비게이션**: 성공 2초 후 `router.back()`.
+> 송금/계좌이체 화면(구 `TransferView` · `/transfer`)은 주식 MVP 범위 밖으로 제거되었다(라우트·진입 버튼 포함).
 
 ---
 

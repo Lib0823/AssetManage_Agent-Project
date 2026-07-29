@@ -2,14 +2,18 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { tradingApi, marketApi } from '@/services/api'
 import { mockMarketIndices } from '@/services/mockData'
+import { logger } from '@/utils/logger'
 
 const router = useRouter()
 
 // Reactive state (loaded from API in onMounted)
 const indexCategories = ref([])
 const indicesLoading = ref(true)
+// 국내(KIS) 지수를 불러오지 못하면 true → mock 으로 덮지 않고 점검 안내를 표시
+const indicesKisDown = ref(false)
 const exchangeRates = ref([])
 const exchangeLoading = ref(true)
 const topNews = ref([])
@@ -127,6 +131,10 @@ const goToNews = (news) => {
   }
 }
 
+const goToNewsFeed = () => {
+  router.push('/news')
+}
+
 const goToCompany = (symbol) => {
   router.push({
     path: `/company/${symbol}`,
@@ -176,17 +184,16 @@ const loadNotifications = async () => {
   } catch (error) {
     // 타임아웃/네트워크 실패는 치명적이지 않으므로 경고로만 남기고 빈 상태로 degrade.
     if (error?.code === 'ECONNABORTED') {
-      console.warn('Notifications (trade history) timed out; showing empty state')
+      logger.debug('Notifications (trade history) timed out; showing empty state')
     } else {
-      console.error('Failed to load notifications:', error)
+      logger.debug('Failed to load notifications:', error)
     }
     notifications.value = [{ id: 'empty', type: 'none', title: '최근 알림이 없습니다', desc: '', time: '', read: true }]
   }
 }
 
 // 2. 주요 지수 ← /market/indices (categories rendered dynamically)
-// mock 카테고리를 API 응답 형태(snake_case)로 정규화. 해외/코인은 KIS 실데이터를
-// 가져올 수 없어 기존 mock 으로 폴백한다.
+// 코인 카테고리만 mock 을 유지(코인은 지원 범위 밖). 국내·해외 지수는 실데이터만 사용한다.
 const mockIndexCategory = (key) => {
   const m = mockMarketIndices[key]
   if (!m) return null
@@ -203,8 +210,8 @@ const mockIndexCategory = (key) => {
 }
 
 const loadIndices = async () => {
-  // 국내: KIS 실데이터(가능 시), 해외/코인: 실데이터 미가용 → mock 폴백.
-  // 표시 순서: 국내 → 해외 → 코인.
+  // 국내·해외: KIS 실데이터만 사용(없으면 표시 안 함, 가짜로 덮지 않음).
+  // 코인: 지원 범위 밖이라 mock 유지. 표시 순서: 국내 → 해외 → 코인.
   const order = ['domestic', 'overseas', 'coin']
   const fromApi = {}
   try {
@@ -218,11 +225,15 @@ const loadIndices = async () => {
       }
     }
   } catch (error) {
-    console.error('Failed to load indices:', error)
+    logger.debug('Failed to load indices:', error)
   }
 
+  // 국내·해외 지수는 KIS 실데이터만 노출한다. 비어 있으면 가짜 지수로 덮지 않고 카드를 생략한다
+  // (사용자가 가짜 숫자를 실데이터로 오인하지 않도록). 코인만 mock 유지(지원 범위 밖).
+  // 국내가 비면 KIS 점검/미연동으로 보고 상단 점검 안내를 표시한다.
+  indicesKisDown.value = !fromApi.domestic
   indexCategories.value = order
-    .map((key) => fromApi[key] || mockIndexCategory(key))
+    .map((key) => (key === 'coin' ? fromApi.coin || mockIndexCategory('coin') : fromApi[key] || null))
     .filter(Boolean)
   indicesLoading.value = false
 }
@@ -233,7 +244,7 @@ const loadExchangeRates = async () => {
     const res = await marketApi.getExchangeRates()
     exchangeRates.value = (res && res.success && Array.isArray(res.data)) ? res.data : []
   } catch (error) {
-    console.error('Failed to load exchange rates:', error)
+    logger.debug('Failed to load exchange rates:', error)
     exchangeRates.value = []
   } finally {
     exchangeLoading.value = false
@@ -246,7 +257,7 @@ const loadTopNews = async () => {
     const res = await marketApi.getTopNews()
     topNews.value = (res && res.success && Array.isArray(res.data)) ? res.data : []
   } catch (error) {
-    console.error('Failed to load top news:', error)
+    logger.debug('Failed to load top news:', error)
     topNews.value = []
   }
 }
@@ -266,7 +277,7 @@ const loadAiRecommendations = async () => {
         logo: null
       }))
   } catch (error) {
-    console.error('Failed to load AI recommendations:', error)
+    logger.debug('Failed to load AI recommendations:', error)
     aiRecommendations.value = []
   }
 }
@@ -285,7 +296,7 @@ onMounted(() => {
 
 <template>
   <div class="home-screen">
-    <AppHeader title="홈" showIcon icon="home" />
+    <AppHeader title="홈" showIcon icon="home" show-kis-mode />
 
     <div class="content">
       <!-- Notification Banner -->
@@ -339,6 +350,11 @@ onMounted(() => {
         <div v-if="indicesLoading" class="loading-state">
           <span class="loading-spinner"></span> 지수 불러오는 중...
         </div>
+        <KisMaintenanceNotice
+          v-else-if="indicesKisDown"
+          variant="banner"
+          class="indices-notice"
+        />
         <div v-else class="indices-swipe-container">
           <div class="swipe-fade left" :class="{ visible: currentIndexSlide > 0 }"></div>
           <div class="swipe-fade right" :class="{ visible: currentIndexSlide < indexCategories.length - 1 }"></div>
@@ -506,6 +522,12 @@ onMounted(() => {
             속보가 없습니다
           </div>
         </div>
+        <button class="news-more-btn" @click="goToNewsFeed">
+          뉴스 더보기
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 18l6-6-6-6"/>
+          </svg>
+        </button>
       </section>
 
       <!-- AI Recommendations -->
@@ -958,6 +980,26 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
+}
+
+.news-more-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  margin: var(--spacing-sm) auto 0;
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: none;
+  border: none;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.news-more-btn:hover {
+  color: var(--color-text-primary);
 }
 
 .news-item {

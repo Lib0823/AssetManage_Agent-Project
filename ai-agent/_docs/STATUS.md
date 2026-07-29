@@ -28,13 +28,11 @@
 
 ## 2. 알려진 갭 / 주의사항
 
-### 2-1. 스케줄러는 Stage 1만 실행 ⚠️
+### 2-1. 스케줄러는 전체 파이프라인 실행 ✅
 
-`PipelineScheduler._job_wrapper`(`pipeline/scheduler.py`)는 현재 `orchestrator.run_stage1_sync()`를 호출한다. 즉 **자동 스케줄(평일 08:50)은 Stage 1 필터링까지만** 수행한다.
+`PipelineScheduler._job_wrapper`(`pipeline/scheduler.py`)는 `orchestrator.run_complete_pipeline_sync()`를 호출한다. 즉 **자동 스케줄(평일 08:50)이 전체 파이프라인(Stage 1~6)**을 수행한다(잡 id `full_pipeline_job`).
 
-전체 파이프라인(Stage 1~6)은 `PipelineOrchestrator.run_complete_pipeline()`이며, 이 경로는 **수동 트리거 API** `POST /api/pipeline/trigger`로만 실행된다.
-
-> 자동 스케줄에서 전체 파이프라인을 돌리려면 `_job_wrapper`가 `run_complete_pipeline_sync()`를 호출하도록 변경이 필요하다(코드 변경 사항, 본 문서 범위 밖).
+수동 트리거 API `POST /api/pipeline/trigger`(main.py → `run_complete_pipeline()`)도 동일한 전체 경로를 실행한다.
 
 ### 2-2. Stage 3 차트 미구현 ❌
 

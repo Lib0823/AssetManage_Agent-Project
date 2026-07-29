@@ -1,4 +1,5 @@
 """Database repository for CRUD operations."""
+import json
 import logging
 from datetime import date
 from typing import List, Optional, Dict
@@ -289,6 +290,119 @@ class DatabaseRepository:
             session.rollback()
             logger.error(f"Error saving sentiment analysis for {stock_code}: {e}")
             return False
+        finally:
+            session.close()
+
+    def save_stock_news(
+        self,
+        stock_code: str,
+        stock_name: Optional[str],
+        analysis_date: date,
+        articles: List[Dict]
+    ) -> int:
+        """
+        Persist per-stock news articles to the stock_news table (idempotent).
+
+        save_sentiment_analysis 와 동일한 DELETE-then-INSERT 멱등 패턴을 따른다:
+        (stock_code, analysis_date) 키의 기존 행을 모두 삭제한 뒤 새 기사들을
+        삽입하므로, 같은 날 재실행해도 중복이 쌓이지 않는다. 전체를 단일
+        트랜잭션으로 처리하며 실패 시 롤백한다.
+
+        각 기사의 tags(JSONB array)는 ``[stock_name, 감성라벨(한글)] + keywords``
+        형태로 구성한다. stock_name 이 None 이면 태그에서 제외한다.
+
+        Args:
+            stock_code: 6-digit stock code.
+            stock_name: 종목명(태그 선두에 포함). None 이면 태그에서 제외.
+            analysis_date: 분석 기준일 (stock_news.analysis_date).
+            articles: 기사 레코드 리스트. 각 dict 는
+                {title, summary, url, source, published_at, sentiment_score,
+                 sentiment_label, keywords} 키를 가진다.
+
+        Returns:
+            int: 실제로 삽입한 기사 행 수 (실패 시 0).
+        """
+        if not articles:
+            # 기사가 없으면 기존 행만 정리하고 0 반환 (멱등성 유지)
+            session = self.session_factory()
+            try:
+                session.execute(
+                    text(
+                        "DELETE FROM stock_news "
+                        "WHERE stock_code = :c AND analysis_date = :d"
+                    ),
+                    {'c': stock_code, 'd': analysis_date}
+                )
+                session.commit()
+            except SQLAlchemyError as e:
+                session.rollback()
+                logger.error(f"Error clearing stock_news for {stock_code}: {e}")
+            finally:
+                session.close()
+            return 0
+
+        # 감성 라벨(영문) → 한글 태그 매핑
+        label_ko = {'positive': '긍정', 'negative': '부정', 'neutral': '중립'}
+
+        insert_sql = text(
+            "INSERT INTO stock_news "
+            "(stock_code, stock_name, analysis_date, title, summary, url, source, "
+            " sentiment_score, sentiment_label, tags, published_at) "
+            "VALUES "
+            "(:stock_code, :stock_name, :analysis_date, :title, :summary, :url, :source, "
+            " :sentiment_score, :sentiment_label, CAST(:tags AS jsonb), :published_at)"
+        )
+
+        params = []
+        for article in articles:
+            label = article.get('sentiment_label') or 'neutral'
+
+            # tags = [종목명, 감성라벨(한글)] + keywords (None 종목명은 제외)
+            tags: List[str] = []
+            if stock_name:
+                tags.append(stock_name)
+            tags.append(label_ko.get(label, '중립'))
+            keywords = article.get('keywords') or []
+            tags.extend(str(k) for k in keywords)
+
+            title = (article.get('title') or '')[:500]
+            summary = article.get('summary') or ''
+            url = (article.get('url') or '')[:1000]
+            source = (article.get('source') or '')[:100] or None
+
+            params.append({
+                'stock_code': stock_code,
+                'stock_name': stock_name,
+                'analysis_date': analysis_date,
+                'title': title,
+                'summary': summary,
+                'url': url,
+                'source': source,
+                'sentiment_score': article.get('sentiment_score'),
+                'sentiment_label': label,
+                'tags': json.dumps(tags, ensure_ascii=False),
+                'published_at': article.get('published_at'),
+            })
+
+        session = self.session_factory()
+        try:
+            session.execute(
+                text(
+                    "DELETE FROM stock_news "
+                    "WHERE stock_code = :c AND analysis_date = :d"
+                ),
+                {'c': stock_code, 'd': analysis_date}
+            )
+            session.execute(insert_sql, params)
+            session.commit()
+            logger.debug(f"Saved {len(params)} stock_news rows for {stock_code}")
+            return len(params)
+
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Error saving stock_news for {stock_code}: {e}")
+            return 0
+
         finally:
             session.close()
 
@@ -768,3 +882,71 @@ class DatabaseRepository:
         except Exception as e:
             logger.error(f"Failed to fetch user order_amount: {e}")
             return 1_000_000  # Fallback to default
+
+    def save_trade_execution_plan(self, user_id, execution_date, records) -> int:
+        """
+        유저별 매수/매도 실행 결과를 trade_execution_plan 에 기록 (멀티유저, 멱등).
+
+        (user_id, execution_date) 키의 기존 행을 삭제 후 재삽입한다(재실행 중복 방지).
+
+        Args:
+            user_id: 사용자 id
+            execution_date: 실행일(date)
+            records: [{stock_code, stock_name, trade_type('BUY'|'SELL'), planned_quantity,
+                       reference_price, estimated_amount, gemini_reason, gemini_rank,
+                       safety_filter_passed, execution_status, execution_result(dict)}]
+
+        Returns:
+            int: 삽입한 행 수 (실패 시 0)
+        """
+        if not records:
+            return 0
+
+        insert_sql = text("""
+            INSERT INTO trade_execution_plan
+                (user_id, execution_date, stock_code, stock_name, trade_type,
+                 planned_quantity, reference_price, estimated_amount, gemini_reason,
+                 gemini_rank, safety_filter_passed, execution_status, order_no, executed_at,
+                 execution_result)
+            VALUES
+                (:user_id, :execution_date, :stock_code, :stock_name, :trade_type,
+                 :planned_quantity, :reference_price, :estimated_amount, :gemini_reason,
+                 :gemini_rank, :safety_filter_passed, :execution_status, :order_no, now(),
+                 CAST(:execution_result AS JSONB))
+        """)
+
+        params = []
+        for r in records:
+            params.append({
+                'user_id': user_id,
+                'execution_date': execution_date,
+                'stock_code': r['stock_code'],
+                'stock_name': (r.get('stock_name') or r['stock_code'])[:100],
+                'trade_type': str(r['trade_type'])[:4],
+                'planned_quantity': int(r.get('planned_quantity') or 0),
+                'reference_price': r.get('reference_price'),
+                'estimated_amount': r.get('estimated_amount'),
+                'gemini_reason': r.get('gemini_reason') or '',
+                'gemini_rank': int(r.get('gemini_rank') or 0),
+                'safety_filter_passed': bool(r.get('safety_filter_passed', True)),
+                'execution_status': str(r.get('execution_status') or 'PENDING')[:20],
+                'order_no': (str(r.get('order_no'))[:30] if r.get('order_no') else None),
+                'execution_result': json.dumps(r.get('execution_result') or {}, ensure_ascii=False),
+            })
+
+        session = self.session_factory()
+        try:
+            session.execute(
+                text("DELETE FROM trade_execution_plan WHERE user_id = :u AND execution_date = :d"),
+                {'u': user_id, 'd': execution_date}
+            )
+            session.execute(insert_sql, params)
+            session.commit()
+            logger.info(f"Saved {len(params)} trade_execution_plan rows for user {user_id}")
+            return len(params)
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Error saving trade_execution_plan for user {user_id}: {e}")
+            return 0
+        finally:
+            session.close()

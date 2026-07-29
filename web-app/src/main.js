@@ -18,6 +18,7 @@ import {
   Field,
   Switch,
   Toast,
+  Notify,
   Dialog,
   Loading,
   Popup,
@@ -86,6 +87,7 @@ app.use(CellGroup)
 app.use(Field)
 app.use(Switch)
 app.use(Toast)
+app.use(Notify)
 app.use(Dialog)
 app.use(Loading)
 app.use(Popup)

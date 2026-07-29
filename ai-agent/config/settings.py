@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # DART API Configuration
     dart_api_key: Optional[str] = None  # DART Open API key
 
+    # API Server (Spring Boot) — 내부 서비스 호출 (멀티유저 파이프라인)
+    api_server_url: str = "http://api-server:7070"  # base URL (컨텍스트패스 /api 제외)
+    internal_api_key: Optional[str] = None  # X-Internal-Api-Key (api-server 와 공유)
+
     # Logging Configuration
     log_level: str = "INFO"
     log_file: str = "logs/pipeline.log"

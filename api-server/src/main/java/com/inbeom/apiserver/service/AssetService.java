@@ -1,22 +1,35 @@
 package com.inbeom.apiserver.service;
 
 import com.inbeom.apiserver.client.KisApiClient;
+import com.inbeom.apiserver.domain.AssetDailySnapshot;
+import com.inbeom.apiserver.dto.asset.AssetHistoryResponse;
+import com.inbeom.apiserver.repository.AssetDailySnapshotRepository;
 import com.inbeom.apiserver.service.KisAuthService.KisCredentials;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AssetService {
 
+    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
     private final KisAuthService kisAuthService;
     private final KisApiClient kisApiClient;
+    private final AssetDailySnapshotRepository assetDailySnapshotRepository;
 
     /**
      * Get holdings from KIS API (VTTC8434R)
@@ -44,6 +57,7 @@ public class AssetService {
 
         // 4. Call KIS API
         ResponseEntity<Map> response = kisApiClient.get(
+                credentials.baseUrl(),
                 "/uapi/domestic-stock/v1/trading/inquire-balance",
                 "VTTC8434R",
                 kisToken,
@@ -65,5 +79,45 @@ public class AssetService {
 
         // Extract balance from holdings response
         return Map.of("balance", holdings);
+    }
+
+    /**
+     * 오늘(Asia/Seoul) 총자산 스냅샷을 upsert 한다.
+     * 같은 날짜 스냅샷이 있으면 total_asset 을 갱신, 없으면 새로 저장한다.
+     */
+    @Transactional
+    public void recordSnapshot(Long userId, Long totalAsset) {
+        LocalDate today = LocalDate.now(SEOUL);
+
+        AssetDailySnapshot snapshot = assetDailySnapshotRepository
+                .findByUserIdAndSnapshotDate(userId, today)
+                .orElseGet(() -> AssetDailySnapshot.builder()
+                        .userId(userId)
+                        .snapshotDate(today)
+                        .build());
+
+        snapshot.setTotalAsset(totalAsset);
+        assetDailySnapshotRepository.save(snapshot);
+
+        log.debug("Recorded asset snapshot: userId={}, date={}, totalAsset={}",
+                userId, today, totalAsset);
+    }
+
+    /**
+     * (오늘-days+1 ~ 오늘) 범위의 스냅샷을 날짜 오름차순으로 반환한다.
+     */
+    @Transactional(readOnly = true)
+    public List<AssetHistoryResponse> getHistory(Long userId, int days) {
+        LocalDate today = LocalDate.now(SEOUL);
+        LocalDate from = today.minusDays(Math.max(days, 1) - 1L);
+
+        return assetDailySnapshotRepository
+                .findByUserIdAndSnapshotDateBetweenOrderBySnapshotDateAsc(userId, from, today)
+                .stream()
+                .map(s -> AssetHistoryResponse.builder()
+                        .date(s.getSnapshotDate().format(DATE_FORMAT))
+                        .totalAsset(s.getTotalAsset())
+                        .build())
+                .collect(Collectors.toList());
     }
 }

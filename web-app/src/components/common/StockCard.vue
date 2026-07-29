@@ -12,7 +12,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['news', 'trade', 'info'])
+defineEmits(['news', 'trade', 'info'])
 
 const profitClass = computed(() => {
   if (props.stock.profit > 0) return 'profit-positive'

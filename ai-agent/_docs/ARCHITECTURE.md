@@ -172,7 +172,7 @@ APScheduler / 수동 트리거
 | 5 | Safety Filter | `safety_filter_result` | `filter_checks` JSONB |
 | 6 | 주문 실행 | `trade_history` (api-server) | `is_active=false`면 skip |
 
-> **스케줄러 주의**: `PipelineScheduler._job_wrapper`는 현재 `run_stage1_sync()`(Stage 1만)를 호출한다. 전체 파이프라인(Stage 1~6)은 `run_complete_pipeline()`이며, 수동 트리거 API(`POST /api/pipeline/trigger`)가 이 전체 경로를 실행한다. 상세는 [STATUS.md](STATUS.md) 참고.
+> **스케줄러**: `PipelineScheduler._job_wrapper`가 `run_complete_pipeline_sync()`를 호출해 **전체 파이프라인(Stage 1~6)**을 실행한다. 수동 트리거 API(`POST /api/pipeline/trigger`)는 `run_complete_pipeline()`으로 동일한 전체 경로를 실행한다.
 
 ---
 

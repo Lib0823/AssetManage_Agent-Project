@@ -63,13 +63,26 @@ graph TD
 
 > **분석 결과는 ai-agent가 DB에 쓰고, web-app은 Spring Boot를 통해 그 결과를 조회**하는 구조입니다. (web-app이 ai-agent를 직접 호출하지 않음 — `MarketAnalysisController`, `MarketDataController`, `CompanyController`가 DB/외부 API를 중계.)
 
+### 실시간 시세 WebSocket 브리지 (Phase 1)
+
+REST 폴링과 별개로, 실시간 호가·체결가는 KIS WebSocket을 통해 푸시된다. 브라우저는 KIS 소켓을 직접 연결하지 않고 Spring Boot가 브리지(BFF)로 중계한다.
+
+```
+Browser ⇄ Spring /ws/realtime ⇄ KIS upstream (ws://ops.koreainvestment.com)
+```
+
+- 브라우저는 핸드셰이크 시 JWT를 쿼리 파라미터로 전달: `/ws/realtime?token={JWT}`.
+- KIS `approval_key`/appkey/appsecret은 서버에만 존재(브라우저 비노출). PINGPONG 연결 유지도 브리지가 담당.
+- **Phase 1 범위**: 실시간 호가(`H0STASP0`/`HDFSASP0`) + 체결가(`H0STCNT0`/`HDFSCNT0`). **체결통보(`H0STCNI0`/`H0GSCNI0`)는 Phase 2 보류.**
+- 상세는 [`api-server/_docs/KIS_API_GUIDE.md`](../api-server/_docs/KIS_API_GUIDE.md) §5 참고.
+
 ---
 
 ## 3. 일일 파이프라인 (Daily Pipeline @ 평일 08:50 KST)
 
 ai-agent의 APScheduler가 평일 08:50에 트리거합니다. 상세·설계 근거는 [`ai-agent/_docs/PIPELINE_DESIGN.md`](../ai-agent/_docs/PIPELINE_DESIGN.md) 참고.
 
-> **스케줄 범위 주의**: 자동 스케줄(`run_stage1_sync`)은 **Stage 1 필터링만** 실행합니다. 전체 파이프라인(Stage 1~6, `run_complete_pipeline`)은 `POST /api/pipeline/trigger` 수동 트리거로 실행합니다. ([`ai-agent/_docs/STATUS.md`](../ai-agent/_docs/STATUS.md))
+> 자동 스케줄(`run_complete_pipeline_sync`)이 아래 **전체 파이프라인(Stage 1~6)**을 실행합니다. 수동 트리거 `POST /api/pipeline/trigger`(`run_complete_pipeline`)도 동일한 전체 경로입니다.
 
 ```mermaid
 flowchart TD
@@ -127,7 +140,7 @@ score = |foreign_net_buy|*0.3 + |institutional_net_buy|*0.3 + vol_avg_multiple*0
 | Backend | Spring Boot 4.1.0-SNAPSHOT, Java 21, Spring Data JPA, Spring Security + JWT(jjwt 0.12.3), Jasypt(AES-256), Liquibase, Gradle |
 | AI Pipeline | Python 3.11+, FastAPI, APScheduler, pandas, NumPy, scikit-learn, Prophet, transformers(KR-FinBERT), matplotlib |
 | AI Model | Gemini API (무료 티어) |
-| Database | PostgreSQL 16 (17 tables + 2 views) |
+| Database | PostgreSQL 16 (17 tables + 4 views) |
 | Search | Elasticsearch 8.x (확장 예정) |
 | Infra | Docker, Docker Compose |
 | 외부 API | KIS Developers (모의투자), DART (재무·공시) |

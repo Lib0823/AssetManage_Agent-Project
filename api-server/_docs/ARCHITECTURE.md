@@ -38,12 +38,15 @@ AI 분석 데이터의 **생성**은 별도 모듈(`ai-agent`, FastAPI 스케줄
 ```
 com.inbeom.apiserver
 ├── ApiServerApplication.java        # main 진입점
-├── controller/   (9)  # REST 엔드포인트
+├── controller/   (12)  # REST 엔드포인트
 │   ├── AuthController          /auth        (public)
 │   ├── UserController          /users       (auth)
 │   ├── AssetController         /assets      (auth)
 │   ├── TradingController       /trading     (auth)
 │   ├── CompanyController       /company     (public)
+│   ├── StockController         /stocks      (public)
+│   ├── FavoriteController      /favorites   (auth)
+│   ├── OverseasController      /overseas    (price public, 매매/잔고 auth) # 해외주식(US) 지정가
 │   ├── MarketAnalysisController /market     (public)
 │   ├── MarketDataController    /market      (public)
 │   ├── HealthController        /health      (public)
@@ -165,6 +168,20 @@ KIS 연동은 **두 개의 분리된 자격증명 경로**를 쓴다. 상세는 
 | 현재가/지표 | `FHKST01010100` | 실전 |
 | 손익계산서/재무비율/안정성 | `FHKST66430200` / `FHKST66430300` / `FHKST66430600` | 실전 |
 | 지수 조회 | `FHKUP03500100` | 실전 |
+
+### 실시간 시세 WebSocket 브리지 (Phase 1)
+
+REST 폴링과 별개로 실시간 호가·체결가는 KIS WebSocket으로 푸시된다. 브라우저는 KIS 소켓을 직접 연결하지 않고 api-server가 브리지(BFF)로 중계한다.
+
+```
+Browser ⇄ Spring /ws/realtime ⇄ KIS upstream (ws://ops.koreainvestment.com:21000 real | :31000 mock)
+```
+
+- 접속키는 REST 토큰이 아닌 `approval_key`(`POST /oauth2/Approval`)를 사용하며, 시세용 앱 단위 자격증명(경로 (B))으로 발급한다.
+- 업스트림 구독은 JSON 프레임(`header.tr_type` 1=등록/2=해제, `body.input.tr_id`/`tr_key`)으로 전송하고, KIS `PINGPONG` 제어 프레임은 그대로 echo해 연결을 유지한다.
+- 브라우저는 핸드셰이크 시 JWT를 쿼리 파라미터로 전달: `/ws/realtime?token={JWT}`(WebSocket 핸드셰이크가 `Authorization` 헤더를 싣기 어려워 `?token=` 사용). `approval_key`/appkey/appsecret은 서버에만 존재.
+- **Phase 1 범위**: 호가(국내 `H0STASP0` / 미국 `HDFSASP0`) + 체결가(국내 `H0STCNT0` / 미국 `HDFSCNT0`). **체결통보(`H0STCNI0`/`H0GSCNI0`)는 Phase 2 보류.**
+- 상세 TR·프레임·URL은 [KIS_API_GUIDE.md](./KIS_API_GUIDE.md) §5 참고.
 
 ---
 

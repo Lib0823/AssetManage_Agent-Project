@@ -11,6 +11,9 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamReader;
@@ -82,6 +85,20 @@ public class MarketDataService {
         put("KRX300", "0028");
     }};
 
+    // 해외 지수: KIS 해외주식 종목/지수/환율 기간별시세(FHKST03030100, 시장코드 N=해외지수).
+    // 공식 문서상 미국은 다우30/나스닥100/S&P500 지수만 조회 가능. 지수코드(FID_INPUT_ISCD)는
+    // KIS 해외지수 마스터 기준 — MUST-VERIFY(.DJI/COMP/SPX). 권한(엔타이틀먼트) 없으면 graceful degrade.
+    private static final String OVERSEAS_INDEX_ENDPOINT =
+            "/uapi/overseas-price/v1/quotations/inquire-daily-chartprice";
+    private static final String OVERSEAS_INDEX_TR_ID = "FHKST03030100";
+
+    /** 해외 지수: (label, KIS 해외지수코드). */
+    private static final Map<String, String> OVERSEAS_INDICES = new LinkedHashMap<>() {{
+        put("다우존스", ".DJI");
+        put("나스닥", "COMP");
+        put("S&P500", "SPX");
+    }};
+
     public IndicesResponse getIndices() {
         // 신선한 캐시면 그대로 반환 (KIS 재호출 회피).
         IndicesResponse cached = cachedIndices;
@@ -97,12 +114,20 @@ public class MarketDataService {
                 .items(domestic)
                 .build());
 
-        // 해외 지수(S&P500/나스닥/다우/니케이)는 KIS 해외지수 권한(custtype/엔타이틀먼트)을
-        // 안정적으로 확인할 수 없어 OMIT 한다. 가짜 데이터로 채우지 않는다.
+        // 해외 지수(다우/나스닥/S&P500): KIS FHKST03030100(시장코드 N)로 조회. 권한/실패 시
+        // 빈 목록이면 카테고리를 추가하지 않아 프론트가 mock 으로 폴백한다(가짜 데이터 미주입).
+        List<IndicesResponse.IndexItem> overseas = fetchOverseasIndices();
+        if (!overseas.isEmpty()) {
+            categories.add(IndicesResponse.IndexCategory.builder()
+                    .key("overseas")
+                    .label("주식(해외)")
+                    .items(overseas)
+                    .build());
+        }
 
         IndicesResponse fresh = IndicesResponse.builder().categories(categories).build();
 
-        if (!domestic.isEmpty()) {
+        if (!domestic.isEmpty() || !overseas.isEmpty()) {
             cachedIndices = fresh;
             cachedIndicesAt = System.currentTimeMillis();
             return fresh;
@@ -184,6 +209,122 @@ public class MarketDataService {
             log.warn("KIS inquire-index-price call failed for {}({}): {}", label, code, e.getMessage());
             return null;
         }
+    }
+
+    private List<IndicesResponse.IndexItem> fetchOverseasIndices() {
+        List<IndicesResponse.IndexItem> items = new ArrayList<>();
+        if (!kisQuoteService.isQuoteEnabled()) {
+            return items;
+        }
+        String token = kisQuoteService.getQuoteAccessToken();
+        if (token == null) {
+            return items;
+        }
+        String baseUrl = kisQuoteService.getQuoteBaseUrl();
+        String appKey = kisQuoteService.getQuoteAppKey();
+        String appSecret = kisQuoteService.getQuoteAppSecret();
+
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyyMMdd");
+        String end = LocalDate.now().format(fmt);
+        String start = LocalDate.now().minusDays(14).format(fmt);
+
+        for (Map.Entry<String, String> entry : OVERSEAS_INDICES.entrySet()) {
+            IndicesResponse.IndexItem item = fetchSingleOverseasIndex(
+                    baseUrl, token, appKey, appSecret, entry.getKey(), entry.getValue(), start, end);
+            if (item != null) {
+                items.add(item);
+            } else if (items.isEmpty()) {
+                // 첫 호출부터 실패(권한 없음/도달 불가)면 나머지도 실패 가능성이 높아 즉시 중단(타임아웃 누적 방지).
+                log.warn("First KIS overseas index fetch failed; skipping remaining to avoid stacked timeouts");
+                break;
+            }
+        }
+        return items;
+    }
+
+    @SuppressWarnings("unchecked")
+    private IndicesResponse.IndexItem fetchSingleOverseasIndex(
+            String baseUrl, String token, String appKey, String appSecret,
+            String label, String code, String start, String end) {
+        try {
+            Map<String, String> params = new HashMap<>();
+            params.put("FID_COND_MRKT_DIV_CODE", "N");  // N = 해외지수
+            params.put("FID_INPUT_ISCD", code);
+            params.put("FID_INPUT_DATE_1", start);
+            params.put("FID_INPUT_DATE_2", end);
+            params.put("FID_PERIOD_DIV_CODE", "D");
+
+            ResponseEntity<Map> response = kisApiClient.get(
+                    baseUrl, OVERSEAS_INDEX_ENDPOINT, OVERSEAS_INDEX_TR_ID,
+                    token, appKey, appSecret, params, Map.class);
+
+            Map<String, Object> body = response.getBody();
+            if (!isRtOk(body)) {
+                log.warn("KIS overseas index rt_cd!=0 for {}({}): {}", label, code,
+                        body != null ? body.get("msg1") : "null body");
+                return null;
+            }
+
+            // output1: 지수 요약(현재가/전일대비). 필드명 MUST-VERIFY → 후보 키 순차 탐색.
+            BigDecimal value = null, change = null, pct = null;
+            Object o1 = body.get("output1");
+            if (o1 instanceof Map) {
+                Map<String, Object> out1 = (Map<String, Object>) o1;
+                value = firstNonNull(out1, "ovrs_nmix_prpr", "ovrs_prpr", "stck_prpr");
+                change = firstNonNull(out1, "ovrs_nmix_prdy_vrss", "prdy_vrss");
+                pct = firstNonNull(out1, "prdy_ctrt", "ovrs_nmix_prdy_ctrt");
+            }
+
+            // output1 에 값이 없으면 output2(일별 캔들, 최신순)의 종가/전일대비로 도출.
+            if (value == null) {
+                Object o2 = body.get("output2");
+                if (o2 instanceof List) {
+                    List<Object> candles = (List<Object>) o2;
+                    BigDecimal v0 = candleClose(candles, 0);
+                    BigDecimal v1 = candleClose(candles, 1);
+                    value = v0;
+                    if (v0 != null && v1 != null && v1.signum() != 0) {
+                        change = v0.subtract(v1);
+                        pct = v0.subtract(v1).multiply(BigDecimal.valueOf(100))
+                                .divide(v1, 2, java.math.RoundingMode.HALF_UP);
+                    }
+                }
+            }
+
+            if (value == null) {
+                log.warn("KIS overseas index no value parsed for {}({})", label, code);
+                return null;
+            }
+            return IndicesResponse.IndexItem.builder()
+                    .label(label).value(value).change(change).changePercent(pct).build();
+        } catch (Exception e) {
+            log.warn("KIS overseas index call failed for {}({}): {}", label, code, e.getMessage());
+            return null;
+        }
+    }
+
+    /** map 에서 후보 키들을 순서대로 시도해 첫 파싱 성공값 반환. 없으면 null. */
+    private BigDecimal firstNonNull(Map<String, Object> map, String... keys) {
+        for (String k : keys) {
+            BigDecimal v = parseBigDecimal(map.get(k));
+            if (v != null) {
+                return v;
+            }
+        }
+        return null;
+    }
+
+    /** output2 캔들 리스트의 idx 번째 종가. 후보 키 탐색. */
+    @SuppressWarnings("unchecked")
+    private BigDecimal candleClose(List<Object> candles, int idx) {
+        if (candles == null || idx >= candles.size()) {
+            return null;
+        }
+        Object c = candles.get(idx);
+        if (!(c instanceof Map)) {
+            return null;
+        }
+        return firstNonNull((Map<String, Object>) c, "ovrs_nmix_prpr", "clos", "stck_clpr");
     }
 
     // -----------------------------------------------------------------

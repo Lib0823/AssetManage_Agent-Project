@@ -16,7 +16,8 @@
 6. [SecurityConfig 설정](#6-securityconfig-설정)
 7. [앱 JWT vs KIS 토큰 헤더 차이](#7-앱-jwt-vs-kis-토큰-헤더-차이)
 8. [인증 관련 ErrorCode](#8-인증-관련-errorcode)
-9. [관련 문서](#9-관련-문서)
+9. [WebAuthn 생체/패스키 로그인](#9-webauthn-생체패스키-로그인)
+10. [관련 문서](#10-관련-문서)
 
 ---
 
@@ -102,10 +103,12 @@
 | 2 | `existsByUsername` | `USERNAME_DUPLICATE` |
 | 3 | `findByEmail` | `EMAIL_DUPLICATE` |
 | 4 | `User` 생성 (BCrypt password) | - |
-| 5 | (선택) `UserKisAccount` 생성, `isVerified=false` | - |
+| 5 | (선택) `UserKisAccount` 생성, `isVerified=false`, `accountMode`=요청 `mode`(REAL/그외 MOCK) | - |
 | 6 | 기본 `UserTradeConfig` 생성 (`orderAmount=1000000`, `maxHoldings=10`, `orderType="market"`, `isActive=false`) | - |
 
 > 가입 시 토큰을 발급하지 않습니다. 가입 후 별도 `login`이 필요합니다.
+
+> **KIS 모의/실전 모드:** 가입 KIS 파트와 `POST /auth/validate-kis-account`, `PUT /users/kis-account`는 `mode`(MOCK/REAL)를 받는다. `validateKisAccount`는 `baseUrlFor(mode)` 도메인으로 OAuth 검증하고, 저장된 `account_mode`(v1.15, 기본 MOCK)가 이후 매매/조회/체결통보 도메인·TR 라우팅 기준이 된다. 상세는 [KIS_API_GUIDE.md](KIS_API_GUIDE.md) §2(A) 참고.
 
 ### 4.3 refresh
 
@@ -194,7 +197,55 @@ KIS 토큰 발급/캐싱 상세는 [KIS_API_GUIDE.md](KIS_API_GUIDE.md)를 참�
 
 ---
 
-## 9. 관련 문서
+## 9. WebAuthn 생체/패스키 로그인
+
+비밀번호 로그인에 더해 WebAuthn(FIDO2) 기반 생체/패스키 로그인을 지원합니다. 단말의 플랫폼 인증기(Face ID/Touch ID/Windows Hello 등)에 저장된 패스키로 비밀번호 없이 로그인합니다.
+
+### 9.1 자격증명 저장 (`webauthn_credentials`)
+
+| 컬럼 | 설명 |
+|------|------|
+| `credential_id` | 인증기가 발급한 자격증명 ID (Base64URL), unique |
+| `user_id` | 소유 사용자 FK→`users(id)` |
+| `public_key` | 자격증명 공개키 (검증용) |
+| `sign_count` | 서명 카운터 (복제 탐지) |
+| `user_handle` | WebAuthn userHandle = `user_id` |
+| `created_at` | 등록 시각 |
+
+- **credential ↔ userId 매핑은 1:1**입니다. `webauthn_credentials`의 `user_handle`에 `user_id`를 그대로 저장하여, usernameless 로그인 시 단말이 보낸 자격증명으로 사용자를 역조회합니다.
+
+### 9.2 enroll(등록) — 가입 이후, JWT 필요
+
+회원가입(`POST /auth/register`)을 마친 뒤 **로그인된 상태(JWT)** 에서 패스키를 등록합니다.
+
+| 단계 | 엔드포인트 | 접근 | 동작 |
+|------|-----------|------|------|
+| 1 | `POST /auth/webauthn/register/start` | 인증 필요 (JWT) | 등록용 challenge·RP 정보·user 정보 반환 (서버가 challenge 보관) |
+| 2 | (단말) | - | 플랫폼 인증기로 자격증명 생성 (생체 인증 프롬프트) |
+| 3 | `POST /auth/webauthn/register/finish` | 인증 필요 (JWT) | 클라이언트 응답(attestation) 검증 → `webauthn_credentials`에 `credential_id`/`public_key`/`user_handle=userId` 저장 |
+
+### 9.3 login(로그인) — public, usernameless 패스키
+
+| 단계 | 엔드포인트 | 접근 | 동작 |
+|------|-----------|------|------|
+| 1 | `POST /auth/webauthn/login/start` | public (permitAll) | 로그인용 challenge 반환 (usernameless — username 불필요) |
+| 2 | (단말) | - | 단말에 저장된 패스키로 서명 (생체 인증 프롬프트) |
+| 3 | `POST /auth/webauthn/login/finish` | public (permitAll) | assertion 서명·challenge·`sign_count` 검증 → `user_handle`(=userId)로 사용자 조회 → access/refresh token 발급 (기존 비밀번호 로그인과 동일 토큰 구조) |
+
+> usernameless: 사용자가 아이디를 입력하지 않습니다. 단말이 반환한 자격증명의 `user_handle`(=userId)로 사용자를 식별합니다.
+
+### 9.4 RP(Relying Party) 설정 · HTTPS 요구사항
+
+| 항목 | 값 |
+|------|-----|
+| `rp-id` | WebAuthn Relying Party ID (서비스 도메인) |
+| `origins` | 허용 origin 목록 (단말이 보낸 origin 검증) |
+
+- **HTTPS 필수**: WebAuthn(`navigator.credentials`)은 보안 컨텍스트에서만 동작합니다. `localhost`는 예외로 허용되지만, 그 외 도메인은 **HTTPS**가 아니면 등록/로그인이 불가합니다. `rp-id`/`origins`는 실제 서비스 도메인과 일치해야 합니다.
+
+---
+
+## 10. 관련 문서
 
 - [../README.md](../README.md) — 프로젝트 개요 및 실행 방법
 - [API_DESIGN.md](API_DESIGN.md) — 전체 REST API 명세

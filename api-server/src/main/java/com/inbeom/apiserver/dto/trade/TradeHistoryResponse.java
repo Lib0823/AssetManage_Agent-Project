@@ -40,4 +40,7 @@ public class TradeHistoryResponse {
     private String orderDate;  // 주문일자 (YYYY-MM-DD)
 
     private String orderTime;  // 주문시각 (HH:MM:SS)
+
+    @lombok.Builder.Default
+    private Boolean aiTraded = false;  // AI(봇) 자동매매 주문 여부 (trade_execution_plan ODNO 매칭)
 }

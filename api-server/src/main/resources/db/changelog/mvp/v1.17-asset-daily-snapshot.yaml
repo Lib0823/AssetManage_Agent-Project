@@ -1,0 +1,67 @@
+databaseChangeLog:
+  # 자산 추이(일별 총자산 스냅샷) — 자산 화면이 매일 총자산을 upsert 하면
+  # 프론트가 이를 라인차트로 추이 표시한다. user_id + snapshot_date 로 하루 1건.
+
+  - changeSet:
+      id: 1.17.1-create-asset-daily-snapshot
+      author: claude
+      context: mvp
+      comment: "Create asset_daily_snapshot table for daily total-asset trend"
+      changes:
+        - createTable:
+            tableName: asset_daily_snapshot
+            remarks: '일별 총자산 스냅샷 — user_id+snapshot_date 하루 1건(upsert), 자산 추이 라인차트용'
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_asset_daily_snapshot
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: snapshot_date
+                  type: DATE
+                  remarks: '스냅샷 날짜 (Asia/Seoul 기준)'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: total_asset
+                  type: BIGINT
+                  remarks: '해당 일자 총자산'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+        - addForeignKeyConstraint:
+            constraintName: fk_asset_daily_snapshot_user
+            baseTableName: asset_daily_snapshot
+            baseColumnNames: user_id
+            referencedTableName: users
+            referencedColumnNames: id
+            onDelete: CASCADE
+        - addUniqueConstraint:
+            constraintName: uk_asset_daily_snapshot_user_date
+            tableName: asset_daily_snapshot
+            columnNames: user_id, snapshot_date
+        - createIndex:
+            indexName: idx_asset_daily_snapshot_user_date
+            tableName: asset_daily_snapshot
+            columns:
+              - column:
+                  name: user_id
+              - column:
+                  name: snapshot_date
+      rollback:
+        - dropTable:
+            tableName: asset_daily_snapshot

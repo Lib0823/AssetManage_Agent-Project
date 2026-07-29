@@ -1,0 +1,1379 @@
+databaseChangeLog:
+  # Stock Master Catalog & User Favorites
+
+  # ========================================
+  # 종목 마스터 카탈로그 테이블 (검색용)
+  # ========================================
+  - changeSet:
+      id: 1.8.1-create-stock-master
+      author: claude
+      context: mvp
+      comment: "Create stock_master table for stock search catalog"
+      changes:
+        - createTable:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: stock_code
+                  type: VARCHAR(10)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: stock_name
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: market
+                  type: VARCHAR(20)
+                  defaultValue: KOSPI
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+        - createIndex:
+            indexName: idx_stock_master_code
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+        - createIndex:
+            indexName: idx_stock_master_name
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_name
+        - setTableRemarks:
+            tableName: stock_master
+            remarks: '종목 마스터 카탈로그 (검색용)'
+        - setColumnRemarks:
+            tableName: stock_master
+            columnName: stock_code
+            remarks: '종목 코드'
+        - setColumnRemarks:
+            tableName: stock_master
+            columnName: stock_name
+            remarks: '종목명'
+        - setColumnRemarks:
+            tableName: stock_master
+            columnName: market
+            remarks: '시장 구분 (KOSPI/KOSDAQ 등)'
+      rollback:
+        - dropTable:
+            tableName: stock_master
+
+  # ========================================
+  # 종목 마스터 시드 데이터 (KOSPI 100 + 삼성전자/신한지주)
+  # ========================================
+  - changeSet:
+      id: 1.8.2-seed-stock-master
+      author: claude
+      context: mvp
+      comment: "Seed stock_master with KOSPI catalog from ai-agent STOCK_NAMES plus 005930/055550"
+      changes:
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "000660"
+              - column:
+                  name: stock_name
+                  value: "SK하이닉스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "051910"
+              - column:
+                  name: stock_name
+                  value: "LG화학"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "005490"
+              - column:
+                  name: stock_name
+                  value: "POSCO홀딩스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "006400"
+              - column:
+                  name: stock_name
+                  value: "삼성SDI"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "035420"
+              - column:
+                  name: stock_name
+                  value: "NAVER"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "000270"
+              - column:
+                  name: stock_name
+                  value: "기아"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "005380"
+              - column:
+                  name: stock_name
+                  value: "현대차"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "035720"
+              - column:
+                  name: stock_name
+                  value: "카카오"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "105560"
+              - column:
+                  name: stock_name
+                  value: "KB금융"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "012330"
+              - column:
+                  name: stock_name
+                  value: "현대모비스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "068270"
+              - column:
+                  name: stock_name
+                  value: "셀트리온"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "028260"
+              - column:
+                  name: stock_name
+                  value: "삼성물산"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "066570"
+              - column:
+                  name: stock_name
+                  value: "LG전자"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "032830"
+              - column:
+                  name: stock_name
+                  value: "삼성생명"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "096770"
+              - column:
+                  name: stock_name
+                  value: "SK이노베이션"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "003550"
+              - column:
+                  name: stock_name
+                  value: "LG"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "017670"
+              - column:
+                  name: stock_name
+                  value: "SK텔레콤"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "034730"
+              - column:
+                  name: stock_name
+                  value: "SK"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "051900"
+              - column:
+                  name: stock_name
+                  value: "LG생활건강"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "009150"
+              - column:
+                  name: stock_name
+                  value: "삼성전기"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "033780"
+              - column:
+                  name: stock_name
+                  value: "KT&G"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "003670"
+              - column:
+                  name: stock_name
+                  value: "포스코퓨처엠"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "000810"
+              - column:
+                  name: stock_name
+                  value: "삼성화재"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "018260"
+              - column:
+                  name: stock_name
+                  value: "삼성에스디에스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "086790"
+              - column:
+                  name: stock_name
+                  value: "하나금융지주"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "316140"
+              - column:
+                  name: stock_name
+                  value: "우리금융지주"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "015760"
+              - column:
+                  name: stock_name
+                  value: "한국전력"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "010130"
+              - column:
+                  name: stock_name
+                  value: "고려아연"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "042660"
+              - column:
+                  name: stock_name
+                  value: "한화오션"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "028670"
+              - column:
+                  name: stock_name
+                  value: "팬오션"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "047050"
+              - column:
+                  name: stock_name
+                  value: "포스코인터내셔널"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "036570"
+              - column:
+                  name: stock_name
+                  value: "엔씨소프트"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "009540"
+              - column:
+                  name: stock_name
+                  value: "현대중공업"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "011170"
+              - column:
+                  name: stock_name
+                  value: "롯데케미칼"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "010950"
+              - column:
+                  name: stock_name
+                  value: "S-Oil"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "032640"
+              - column:
+                  name: stock_name
+                  value: "LG유플러스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "004020"
+              - column:
+                  name: stock_name
+                  value: "현대제철"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "001450"
+              - column:
+                  name: stock_name
+                  value: "현대해상"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "138930"
+              - column:
+                  name: stock_name
+                  value: "BNK금융지주"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "071050"
+              - column:
+                  name: stock_name
+                  value: "한국금융지주"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "011780"
+              - column:
+                  name: stock_name
+                  value: "금호석유"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "000720"
+              - column:
+                  name: stock_name
+                  value: "현대건설"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "021240"
+              - column:
+                  name: stock_name
+                  value: "코웨이"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "004170"
+              - column:
+                  name: stock_name
+                  value: "신세계"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "001040"
+              - column:
+                  name: stock_name
+                  value: "CJ"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "139480"
+              - column:
+                  name: stock_name
+                  value: "이마트"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "011070"
+              - column:
+                  name: stock_name
+                  value: "LG이노텍"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "004990"
+              - column:
+                  name: stock_name
+                  value: "롯데지주"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "030200"
+              - column:
+                  name: stock_name
+                  value: "KT"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "008770"
+              - column:
+                  name: stock_name
+                  value: "호텔신라"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "078930"
+              - column:
+                  name: stock_name
+                  value: "GS"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "010060"
+              - column:
+                  name: stock_name
+                  value: "OCI홀딩스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "006360"
+              - column:
+                  name: stock_name
+                  value: "GS건설"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "003490"
+              - column:
+                  name: stock_name
+                  value: "대한항공"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "011790"
+              - column:
+                  name: stock_name
+                  value: "SKC"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "009830"
+              - column:
+                  name: stock_name
+                  value: "한화솔루션"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "004000"
+              - column:
+                  name: stock_name
+                  value: "롯데정밀화학"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "001740"
+              - column:
+                  name: stock_name
+                  value: "SK네트웍스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "002790"
+              - column:
+                  name: stock_name
+                  value: "아모레G"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "003230"
+              - column:
+                  name: stock_name
+                  value: "삼양식품"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "097950"
+              - column:
+                  name: stock_name
+                  value: "CJ제일제당"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "020150"
+              - column:
+                  name: stock_name
+                  value: "롯데에너지머티리얼즈"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "012450"
+              - column:
+                  name: stock_name
+                  value: "한화에어로스페이스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "001680"
+              - column:
+                  name: stock_name
+                  value: "대상"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "000880"
+              - column:
+                  name: stock_name
+                  value: "한화"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "001440"
+              - column:
+                  name: stock_name
+                  value: "대한전선"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "002390"
+              - column:
+                  name: stock_name
+                  value: "한독"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "008930"
+              - column:
+                  name: stock_name
+                  value: "한미사이언스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "005300"
+              - column:
+                  name: stock_name
+                  value: "롯데칠성"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "026960"
+              - column:
+                  name: stock_name
+                  value: "동서"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "001430"
+              - column:
+                  name: stock_name
+                  value: "세아베스틸"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "009970"
+              - column:
+                  name: stock_name
+                  value: "영원무역홀딩스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "002710"
+              - column:
+                  name: stock_name
+                  value: "TCC스틸"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "000100"
+              - column:
+                  name: stock_name
+                  value: "유한양행"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "001500"
+              - column:
+                  name: stock_name
+                  value: "현대차증권"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "006650"
+              - column:
+                  name: stock_name
+                  value: "대한유화"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "003410"
+              - column:
+                  name: stock_name
+                  value: "쌍용C&E"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "010780"
+              - column:
+                  name: stock_name
+                  value: "아이에스동서"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "007070"
+              - column:
+                  name: stock_name
+                  value: "GS리테일"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "000120"
+              - column:
+                  name: stock_name
+                  value: "CJ대한통운"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "004490"
+              - column:
+                  name: stock_name
+                  value: "세방전지"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "001230"
+              - column:
+                  name: stock_name
+                  value: "동국제강"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "207940"
+              - column:
+                  name: stock_name
+                  value: "삼성바이오로직스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "010620"
+              - column:
+                  name: stock_name
+                  value: "현대미포조선"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "005830"
+              - column:
+                  name: stock_name
+                  value: "DB손해보험"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "009450"
+              - column:
+                  name: stock_name
+                  value: "경동나비엔"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "010120"
+              - column:
+                  name: stock_name
+                  value: "LS ELECTRIC"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "000990"
+              - column:
+                  name: stock_name
+                  value: "DB하이텍"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "018880"
+              - column:
+                  name: stock_name
+                  value: "한온시스템"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "023530"
+              - column:
+                  name: stock_name
+                  value: "롯데쇼핑"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "003000"
+              - column:
+                  name: stock_name
+                  value: "부광약품"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "002310"
+              - column:
+                  name: stock_name
+                  value: "아세아제지"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "000400"
+              - column:
+                  name: stock_name
+                  value: "롯데손해보험"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "003620"
+              - column:
+                  name: stock_name
+                  value: "쌍용양회공업"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "001800"
+              - column:
+                  name: stock_name
+                  value: "오리온홀딩스"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "014820"
+              - column:
+                  name: stock_name
+                  value: "동원시스템즈"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "009440"
+              - column:
+                  name: stock_name
+                  value: "삼아알미늄"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "000670"
+              - column:
+                  name: stock_name
+                  value: "영풍"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "005940"
+              - column:
+                  name: stock_name
+                  value: "NH투자증권"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "002300"
+              - column:
+                  name: stock_name
+                  value: "삼척블루파워"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "005930"
+              - column:
+                  name: stock_name
+                  value: "삼성전자"
+              - column:
+                  name: market
+                  value: "KOSPI"
+        - insert:
+            tableName: stock_master
+            columns:
+              - column:
+                  name: stock_code
+                  value: "055550"
+              - column:
+                  name: stock_name
+                  value: "신한지주"
+              - column:
+                  name: market
+                  value: "KOSPI"
+      rollback:
+        - sql:
+            sql: |
+              DELETE FROM stock_master
+
+  # ========================================
+  # 사용자 관심 종목 테이블
+  # ========================================
+  - changeSet:
+      id: 1.8.3-create-user-favorites
+      author: claude
+      context: mvp
+      comment: "Create user_favorites table for user watchlist"
+      changes:
+        - createTable:
+            tableName: user_favorites
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_user_favorites_user
+                    references: users(id)
+                    deleteCascade: true
+              - column:
+                  name: stock_code
+                  type: VARCHAR(10)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: stock_name
+                  type: VARCHAR(50)
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: user_favorites
+            columnNames: user_id, stock_code
+            constraintName: uk_user_favorites_user_stock
+        - createIndex:
+            indexName: idx_user_favorites_user
+            tableName: user_favorites
+            columns:
+              - column:
+                  name: user_id
+        - setTableRemarks:
+            tableName: user_favorites
+            remarks: '사용자별 관심 종목'
+        - setColumnRemarks:
+            tableName: user_favorites
+            columnName: user_id
+            remarks: '사용자 ID (FK)'
+        - setColumnRemarks:
+            tableName: user_favorites
+            columnName: stock_code
+            remarks: '종목 코드'
+        - setColumnRemarks:
+            tableName: user_favorites
+            columnName: stock_name
+            remarks: '종목명 (표시용 비정규화)'
+      rollback:
+        - dropTable:
+            tableName: user_favorites

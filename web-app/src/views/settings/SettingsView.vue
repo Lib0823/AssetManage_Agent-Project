@@ -2,21 +2,27 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
-import { mockSettings } from '@/services/mockData'
 import { userApi } from '@/services/api'
 import toast from '@/utils/toast'
 
 const router = useRouter()
 
-const settings = ref(mockSettings)
+const settings = ref({
+  darkMode: false,
+  autoLogin: false,
+  notifications: {
+    stocks: { news: true, trading: true },
+    coins: { news: true, trading: true }
+  }
+})
 const loading = ref(false)
 const errorMessage = ref('')
 
 const assetItems = ref([
-  { key: 'stocks_overseas', label: '주식 (해외)', icon: '📈' },
   { key: 'stocks_domestic', label: '주식 (국내)', icon: '🏠' },
-  { key: 'coins', label: '코인', icon: '🪙' },
-  { key: 'bonds', label: '채권', icon: '📜' }
+  { key: 'stocks_overseas', label: '주식 (해외)', icon: '📈' },
+  { key: 'coins', label: '코인 (추후 지원)', icon: '🪙' },
+  { key: 'bonds', label: '채권 (추후 지원)', icon: '📜' }
 ])
 
 const draggedIndex = ref(null)
@@ -45,12 +51,23 @@ const loadSettings = async () => {
   try {
     loading.value = true
     const response = await userApi.getSettings()
-    if (response.data) {
-      const settingsData = response.data
-      settings.value.darkMode = settingsData.darkMode
-      settings.value.autoLogin = settingsData.autoLogin
-      settings.value.notifications = settingsData.notifications
-      if (settingsData.assetOrder && Array.isArray(settingsData.assetOrder)) {
+    const settingsData = response?.data
+    if (settingsData) {
+      settings.value = {
+        darkMode: settingsData.darkMode ?? false,
+        autoLogin: settingsData.autoLogin ?? false,
+        notifications: {
+          stocks: {
+            news: settingsData.notifications?.stocks?.news ?? true,
+            trading: settingsData.notifications?.stocks?.trading ?? true
+          },
+          coins: {
+            news: settingsData.notifications?.coins?.news ?? true,
+            trading: settingsData.notifications?.coins?.trading ?? true
+          }
+        }
+      }
+      if (Array.isArray(settingsData.assetOrder) && settingsData.assetOrder.length) {
         assetItems.value = settingsData.assetOrder
       }
     }
@@ -232,7 +249,7 @@ onMounted(() => {
 
         <div class="notification-category">
           <div class="category-header">
-            <span class="category-name">코인</span>
+            <span class="category-name">코인 (추후 지원)</span>
           </div>
           <div class="notification-items">
             <div class="notification-item">

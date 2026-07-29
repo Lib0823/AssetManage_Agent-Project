@@ -1,15 +1,21 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import InvestmentTabs from '@/components/common/InvestmentTabs.vue'
-import { tradingApi } from '@/services/api'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
+import { tradingApi, overseasApi } from '@/services/api'
+import { isKisOutageError } from '@/utils/kisStatus'
+import { logger } from '@/utils/logger'
 
 const router = useRouter()
 
 const tabs = ref({ main: 'stocks', sub: 'domestic' })
 const loading = ref(false)
 const errorMessage = ref('')
+
+// 해외(KIS 연동) 탭 점검중 여부 — 국내(DB 기반) 탭에는 영향 없음
+const overseasKisDown = ref(false)
 
 // 거래 내역 데이터 (API에서 가져옴)
 const history = ref([])
@@ -20,18 +26,61 @@ const orders = ref({
   reserved: []
 })
 
-// 요약 데이터
-const summary = ref({
-  buy: { amount: 0 },
-  sell: { amount: 0 },
-  other: { amount: 0, label: '배당금' }
-})
-
 // Load trade history
+// 해외(US) 탭 여부 + KIS 일시(yyyyMMddHHmmss) 파서
+const isOverseas = computed(() => tabs.value.sub === 'overseas')
+const parseKisDateTime = (s) => {
+  if (!s || s.length < 8) return new Date(NaN)
+  const y = +s.slice(0, 4), mo = +s.slice(4, 6) - 1, d = +s.slice(6, 8)
+  const h = +(s.slice(8, 10) || 0), mi = +(s.slice(10, 12) || 0), se = +(s.slice(12, 14) || 0)
+  return new Date(y, mo, d, h, mi, se)
+}
+
 const loadHistory = async () => {
   try {
     loading.value = true
     errorMessage.value = ''
+    overseasKisDown.value = false
+
+    // 해외(US): 체결내역 + 미체결을 overseasApi 로 조회 (USD)
+    if (isOverseas.value) {
+      const [hRes, pRes] = await Promise.all([
+        overseasApi.getHistory(undefined),
+        overseasApi.getPendingOrders(undefined)
+      ])
+      const hList = Array.isArray(hRes?.data?.list) ? hRes.data.list : []
+      history.value = hList.map((t) => {
+        const at = parseKisDateTime(t.executedAt)
+        const qty = Number(t.qty) || 0
+        const price = Number(t.price) || 0
+        return {
+          id: t.orderNo,
+          symbol: t.symbol,
+          name: t.name,
+          type: (t.side || '').toUpperCase() === 'SELL' ? 'sell' : 'buy',
+          quantity: qty,
+          price,
+          amount: price * qty,
+          orderedAt: at,
+          date: at.toLocaleDateString('ko-KR'),
+          time: at.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+          status: 'COMPLETED',  // 체결내역(inquire-ccnl)은 체결 완료분
+          currency: '$'
+        }
+      })
+      const pList = Array.isArray(pRes?.data?.list) ? pRes.data.list : []
+      orders.value.pending = pList.map((o) => ({
+        type: (o.side || '').toUpperCase() === 'SELL' ? 'sell' : 'buy',
+        name: o.name || o.symbol || '',
+        symbol: o.symbol || '',
+        price: Number(o.orderPrice ?? o.price) || 0,
+        status: 'PENDING',
+        currency: '$'
+      }))
+      orders.value.reserved = []
+      return
+    }
+
     // 거래내역(KIS 3개월 체결조회)은 시세보다 느려 전역 10s 로는 부족 → 25s.
     const response = await tradingApi.getHistory({ timeout: 25000 })
 
@@ -45,9 +94,12 @@ const loadHistory = async () => {
         quantity: trade.quantity,
         price: trade.executedPrice || trade.orderPrice,
         amount: (trade.executedPrice || trade.orderPrice) * trade.quantity,
+        // 기간 필터가 날짜를 비교할 수 있도록 원본 타임스탬프(Date)를 보존한다.
+        orderedAt: new Date(trade.orderedAt),
         date: new Date(trade.orderedAt).toLocaleDateString('ko-KR'),
         time: new Date(trade.orderedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
         status: trade.orderStatus,  // PENDING, COMPLETED 등
+        aiTraded: trade.aiTraded || false,  // AI(봇) 자동매매 주문 여부
         currency: '원'
       }))
 
@@ -55,19 +107,17 @@ const loadHistory = async () => {
       orders.value.pending = history.value.filter(t => t.status === 'PENDING')
       orders.value.reserved = []  // 예약 주문은 별도 API 필요 시 추가
 
-      // 요약 데이터 계산
-      const buyTrades = history.value.filter(t => t.type === 'buy' && t.status === 'COMPLETED')
-      const sellTrades = history.value.filter(t => t.type === 'sell' && t.status === 'COMPLETED')
-
-      const totalBuy = buyTrades.reduce((sum, t) => sum + t.amount, 0)
-      const totalSell = sellTrades.reduce((sum, t) => sum + t.amount, 0)
-
-      summary.value.buy = { amount: totalBuy }
-      summary.value.sell = { amount: totalSell }
-      summary.value.other = { amount: 0, label: '배당금' }  // 배당금/입출금은 별도 API 필요
+      // 요약(총 매수/매도/기타)은 선택 기간(filteredHistory) 기준으로
+      // computed(summary)에서 자동 재계산된다.
     }
   } catch (error) {
-    console.error('Failed to load trade history:', error)
+    logger.debug('Failed to load trade history:', error)
+
+    // 해외(KIS 연동) 탭에서 KIS 장애면 점검중 안내 표시 (국내 탭은 영향 없음)
+    if (isOverseas.value && isKisOutageError(error)) {
+      overseasKisDown.value = true
+      return
+    }
 
     // API 키 에러 처리
     if (error.response?.status === 401 || error.response?.status === 403) {
@@ -89,24 +139,27 @@ onMounted(() => {
   loadHistory()
 })
 
+// 국내/해외 탭 전환 시 데이터 소스 전환 재로드
+watch(() => tabs.value.sub, () => {
+  loadHistory()
+})
+
 const goToTrading = (order) => {
   router.push(`/trading/${order.symbol}`)
 }
 
 // 기간 선택 (달력 대신 버튼 방식)
+// KIS 체결조회는 약 3개월치만 반환하므로 그 이상은 노출하지 않는다.
 const selectedPeriod = ref('1month')
 const periodOptions = [
   { key: '1week', label: '1주일' },
   { key: '1month', label: '1개월' },
-  { key: '3months', label: '3개월' },
-  { key: '6months', label: '6개월' },
-  { key: '1year', label: '1년' }
+  { key: '3months', label: '3개월' }
 ]
 
-const dateRange = ref({
-  start: '2024.08.19',
-  end: '2024.11.09'
-})
+// 캘린더 직접 기간 선택. KIS 모의 체결조회가 최근 3개월만 제공하므로 선택 범위도 3개월로 제한한다.
+const showCalendar = ref(false)
+const customRange = ref(null) // { start: Date, end: Date } | null
 
 const formatDate = (date) => {
   const year = date.getFullYear()
@@ -115,48 +168,91 @@ const formatDate = (date) => {
   return `${year}.${month}.${day}`
 }
 
-const selectPeriod = (key) => {
-  selectedPeriod.value = key
-
-  const today = new Date()
-  const startDate = new Date()
-
-  // 기간에 따라 시작 날짜 계산
+// 선택 기간으로부터 컷오프(시작) 날짜를 계산한다. (오늘 기준 상대값)
+const getCutoffDate = (key) => {
+  const cutoff = new Date()
+  cutoff.setHours(0, 0, 0, 0)
   switch (key) {
     case '1week':
-      startDate.setDate(today.getDate() - 7)
+      cutoff.setDate(cutoff.getDate() - 7)
       break
     case '1month':
-      startDate.setMonth(today.getMonth() - 1)
+      cutoff.setMonth(cutoff.getMonth() - 1)
       break
     case '3months':
-      startDate.setMonth(today.getMonth() - 3)
-      break
-    case '6months':
-      startDate.setMonth(today.getMonth() - 6)
-      break
-    case '1year':
-      startDate.setFullYear(today.getFullYear() - 1)
+      cutoff.setMonth(cutoff.getMonth() - 3)
       break
   }
-
-  dateRange.value = {
-    start: formatDate(startDate),
-    end: formatDate(today)
-  }
+  return cutoff
 }
+
+const selectPeriod = (key) => {
+  selectedPeriod.value = key
+  customRange.value = null // 프리셋 선택 시 직접 지정 해제
+}
+
+// 캘린더 선택 가능 범위: 최근 3개월 ~ 오늘 (KIS 데이터 제공 범위)
+const calendarMinDate = computed(() => getCutoffDate('3months'))
+const calendarMaxDate = computed(() => new Date())
+
+const openCalendar = () => {
+  showCalendar.value = true
+}
+
+// van-calendar type="range" confirm → [startDate, endDate]
+const onCalendarConfirm = (range) => {
+  const [start, end] = range || []
+  if (!start || !end) return
+  const s = new Date(start)
+  s.setHours(0, 0, 0, 0)
+  const e = new Date(end)
+  e.setHours(23, 59, 59, 999)
+  customRange.value = { start: s, end: e }
+  selectedPeriod.value = 'custom'
+  showCalendar.value = false
+}
+
+// 표시용 날짜 범위: 직접 지정이면 그 범위, 아니면 프리셋(컷오프 ~ 오늘).
+const dateRange = computed(() => {
+  if (selectedPeriod.value === 'custom' && customRange.value) {
+    return {
+      start: formatDate(customRange.value.start),
+      end: formatDate(customRange.value.end)
+    }
+  }
+  return {
+    start: formatDate(getCutoffDate(selectedPeriod.value)),
+    end: formatDate(new Date())
+  }
+})
+
+// 선택 기간 내 거래만 필터링한다. 직접 지정이면 [start, end], 아니면 컷오프 ~ 오늘. 원본 orderedAt(Date)로 비교.
+const filteredHistory = computed(() => {
+  if (selectedPeriod.value === 'custom' && customRange.value) {
+    const { start, end } = customRange.value
+    return history.value.filter(
+      (t) => t.orderedAt instanceof Date && t.orderedAt >= start && t.orderedAt <= end
+    )
+  }
+  const cutoff = getCutoffDate(selectedPeriod.value)
+  return history.value.filter((t) => t.orderedAt instanceof Date && t.orderedAt >= cutoff)
+})
+
+// 요약(총 매수/총 매도)을 선택 기간(filteredHistory) 기준으로 재계산한다.
+// 배당 수령액·현금 입출금 내역은 KIS 국내주식 OpenAPI에 전용 TR이 없어(개인 ledger 미제공,
+// 배당은 종목 기준 '배당일정' HHKDB669102C0만 존재) 요약에서 제외한다. 체결 기반 매수/매도만 집계.
+const summary = computed(() => {
+  const buyTrades = filteredHistory.value.filter(t => t.type === 'buy' && t.status === 'COMPLETED')
+  const sellTrades = filteredHistory.value.filter(t => t.type === 'sell' && t.status === 'COMPLETED')
+
+  return {
+    buy: { amount: buyTrades.reduce((sum, t) => sum + t.amount, 0) },
+    sell: { amount: sellTrades.reduce((sum, t) => sum + t.amount, 0) }
+  }
+})
 
 const formatNumber = (num) => {
   return new Intl.NumberFormat('ko-KR').format(num)
-}
-
-const getTypeClass = (type) => {
-  switch (type) {
-    case 'buy': return 'buy'
-    case 'sell': return 'sell'
-    case 'dividend': return 'dividend'
-    default: return ''
-  }
 }
 
 const getTypeLabel = (type) => {
@@ -182,6 +278,12 @@ const getTypeLabel = (type) => {
         <div class="spinner"></div>
         <p class="state-message">거래 내역을 불러오는 중...</p>
       </div>
+
+      <!-- KIS Maintenance (해외 탭 전용) -->
+      <KisMaintenanceNotice
+        v-else-if="isOverseas && overseasKisDown"
+        variant="card"
+      />
 
       <!-- Error State -->
       <div v-else-if="errorMessage" class="state-container error-state">
@@ -241,7 +343,27 @@ const getTypeLabel = (type) => {
           >
             {{ option.label }}
           </button>
+          <!-- 캘린더 직접 기간 선택 -->
+          <button
+            :class="['period-btn', 'period-btn-calendar', { active: selectedPeriod === 'custom' }]"
+            aria-label="기간 직접 선택"
+            @click="openCalendar"
+          >
+            <van-icon name="calendar-o" />
+            <span v-if="selectedPeriod === 'custom'">직접</span>
+          </button>
         </div>
+
+        <!-- 기간 직접 선택 캘린더 (최근 3개월 이내) -->
+        <van-calendar
+          v-model:show="showCalendar"
+          type="range"
+          :min-date="calendarMinDate"
+          :max-date="calendarMaxDate"
+          :allow-same-day="true"
+          color="#8B5CF6"
+          @confirm="onCalendarConfirm"
+        />
 
         <div class="date-range">
           {{ dateRange.start }} - {{ dateRange.end }}
@@ -258,20 +380,22 @@ const getTypeLabel = (type) => {
               <span class="summary-type sell">총 매도</span>
               <span class="summary-amount">{{ formatNumber(summary.sell.amount) }}</span>
             </div>
-            <div class="summary-item">
-              <span class="summary-type other">기타</span>
-              <span class="summary-amount">{{ formatNumber(summary.other.amount) }}</span>
-            </div>
           </div>
         </div>
 
         <!-- History List -->
         <div class="history-list">
-          <div v-for="(item, idx) in history" :key="idx" class="history-item">
+          <div v-for="(item, idx) in filteredHistory" :key="idx" class="history-item">
             <span :class="['history-type', item.type]">{{ getTypeLabel(item.type) }}</span>
-            <span class="history-name">{{ item.name || item.label }}</span>
+            <span class="history-name">
+              {{ item.name || item.label }}
+              <span v-if="item.aiTraded" class="ai-badge">🤖 AI</span>
+            </span>
             <span class="history-amount">{{ formatNumber(item.amount) }}{{ item.currency }}</span>
           </div>
+          <p v-if="filteredHistory.length === 0" class="empty-submessage">
+            선택한 기간의 거래 내역이 없습니다
+          </p>
         </div>
       </section>
       </template>
@@ -564,6 +688,12 @@ const getTypeLabel = (type) => {
   font-weight: var(--font-weight-medium);
 }
 
+.period-btn-calendar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .date-range {
   text-align: center;
   font-size: var(--font-size-sm);
@@ -714,6 +844,18 @@ const getTypeLabel = (type) => {
   flex: 1;
   font-size: var(--font-size-sm);
   color: var(--color-text-primary);
+}
+
+.ai-badge {
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(124, 58, 237, 0.25) 100%);
+  color: #C4B5FD;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  white-space: nowrap;
 }
 
 .history-amount {

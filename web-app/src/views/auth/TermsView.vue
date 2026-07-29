@@ -14,16 +14,12 @@ const handleAgree = () => {
     return
   }
 
-  localStorage.setItem('accessToken', 'mock-token')
+  // 약관 동의는 정보성 게이트일 뿐 인증 경로가 아니므로 토큰을 발급하지 않는다.
   router.push('/home')
 }
 
 const handleDisagree = () => {
   router.push('/welcome')
-}
-
-const handleSendEmail = () => {
-  console.log('Send terms via email')
 }
 </script>
 

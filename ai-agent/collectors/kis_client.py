@@ -14,6 +14,15 @@ from config.constants import KIS_MAX_REQUESTS_PER_SECOND, KIS_REQUEST_DELAY
 logger = logging.getLogger(__name__)
 
 
+class KISUnavailableError(RuntimeError):
+    """
+    KIS API 에 접속조차 하지 못해 시장 개장 여부를 판정할 수 없는 경우.
+
+    점검/네트워크(방화벽·타임아웃) 등으로 응답을 받지 못한 상황을 가리키며,
+    'KIS 가 명시적으로 휴장이라고 답한 것'(opnd_yn='N')과 구분하기 위해 사용한다.
+    """
+
+
 class KISClient:
     """
     KIS Open API client with async support and rate limiting.
@@ -212,8 +221,9 @@ class KISClient:
         Check if market is open for the given date.
 
         Strategy:
-        1. Weekend check (basic)
-        2. Test supply/demand API (real-time data, returns 500 on holidays)
+        1. Weekend check (fast path, avoids the API call for obvious cases)
+        2. KIS domestic holiday-check API (date-aware; works for any date,
+           not just "today" — unlike real-time quote endpoints)
 
         Args:
             trade_date: Date to check (defaults to today if not provided)
@@ -243,43 +253,60 @@ class KISClient:
             logger.info(f"🚫 Market is closed (weekend: {date_str})")
             return False
 
-        # Check 2: Test supply/demand API (real-time, fails on holidays)
-        endpoint = '/uapi/domestic-stock/v1/quotations/inquire-investor'
-        tr_id = 'FHKST01010900'
+        # Check 2: KIS domestic holiday-check API (국내휴장일조회).
+        # Real-time quote APIs (e.g. inquire-investor) only reflect whether the
+        # market is open *right now*, not whether `trade_date` was a market day —
+        # so they can't be used to check a date other than today.
+        bass_dt = check_date.strftime('%Y%m%d')
+        endpoint = '/uapi/domestic-stock/v1/quotations/chk-holiday'
+        tr_id = 'CTCA0903R'
 
         params = {
-            'FID_COND_MRKT_DIV_CODE': 'J',
-            'FID_INPUT_ISCD': '005930'  # Samsung Electronics (most reliable)
+            'BASS_DT': bass_dt,
+            'CTX_AREA_NK': '',
+            'CTX_AREA_FK': ''
         }
 
         try:
             result = await self.request('GET', endpoint, tr_id, params=params)
-            output = result.get('output', {})
+            output = result.get('output', [])
 
+            # API 는 응답했지만 해당 날짜 레코드가 없음 → 개장 여부를 확정할 수 없는 상태.
+            # 이 경우도 '휴장'으로 단정하지 않고 판정 불가로 올린다.
             if not output:
-                logger.info("🚫 Market is closed (no data returned)")
-                return False
+                raise KISUnavailableError(
+                    f"KIS 휴장일 조회 응답에 데이터가 없습니다 (BASS_DT={bass_dt})"
+                )
 
-            # If we got real-time supply/demand data, market is open
-            logger.info(f"✅ Market is open ({check_date.strftime('%Y-%m-%d')})")
-            return True
+            record = next((row for row in output if row.get('bass_dt') == bass_dt), output[0])
+            # opnd_yn 은 KIS 가 명시적으로 알려주는 개장일 여부(Y/N)다.
+            # 여기서의 return False 는 '진짜 휴장일'을 의미한다(연결 실패와 구분).
+            is_open = record.get('opnd_yn') == 'Y'
+
+            if is_open:
+                logger.info(f"✅ Market is open ({check_date.strftime('%Y-%m-%d')})")
+            else:
+                logger.info(f"🚫 Market is closed (holiday: {check_date.strftime('%Y-%m-%d')})")
+
+            return is_open
+
+        except KISUnavailableError:
+            raise
 
         except RuntimeError as e:
             error_str = str(e)
 
-            # Check for OAuth rate limit (403)
+            # OAuth rate limit (403) - weekday check already passed, assume open
             if '403' in error_str or 'Forbidden' in error_str:
                 logger.warning(f"⚠️ OAuth rate limit hit during market check. Assuming market is OPEN (weekday verified).")
-                return True  # Weekday check passed, so likely open despite OAuth issue
+                return True
 
-            # Check for holiday (500 Internal Server Error)
-            if '500' in error_str or 'Internal Server Error' in error_str:
-                logger.info(f"🚫 Market is closed (holiday detected via API: {error_str[:100]})")
-                return False
-
-            # Other errors - assume closed to be safe
-            logger.warning(f"⚠️ Market status unclear: {e}. Assuming closed for safety.")
-            return False
+            # 그 외 모든 오류(타임아웃/연결거부/rt_cd 오류 등)는 개장 여부를 판정할 수
+            # 없는 상태다. '휴장일'로 삼키지 말고 접속 실패로 구분해서 올린다.
+            logger.warning(f"⚠️ KIS 접속 실패로 개장 여부 판정 불가 (점검/네트워크 가능성): {e}")
+            raise KISUnavailableError(
+                f"KIS API 접속 실패로 개장 여부를 확인할 수 없습니다 (점검 또는 네트워크 문제일 수 있음): {e}"
+            ) from e
 
     async def get_supply_demand(self, stock_code: str) -> Dict[str, int]:
         """

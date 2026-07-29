@@ -37,6 +37,16 @@ public class UserKisAccount {
     @Column(name = "app_secret", nullable = false, length = 255)
     private String appSecret;
 
+    // KIS HTS ID — 체결통보(실시간 fill) tr_key. 시세와 무관하며 평문 저장(Jasypt 암호화 안 함).
+    @Column(name = "hts_id", length = 50)
+    private String htsId;
+
+    // KIS 모드 MOCK(모의)/REAL(실전) — 매매/조회/체결통보의 도메인·TR 라우팅 기준(per-user).
+    // 기존 계정은 DB 기본값 'MOCK' 으로 하위호환.
+    @Builder.Default
+    @Column(name = "account_mode", nullable = false, length = 10)
+    private String accountMode = "MOCK";
+
     @Builder.Default
     @Column(name = "is_verified", nullable = false)
     private Boolean isVerified = false;

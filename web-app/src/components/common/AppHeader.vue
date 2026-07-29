@@ -1,7 +1,8 @@
 <script setup>
 import { useRouter } from 'vue-router'
+import KisModeBadge from '@/components/common/KisModeBadge.vue'
 
-const props = defineProps({
+defineProps({
   title: {
     type: String,
     default: ''
@@ -17,6 +18,11 @@ const props = defineProps({
   icon: {
     type: String,
     default: ''
+  },
+  // true면 우측에 KIS 계좌 모드(실전/모의) 배지를 표시 (매매 관련 화면에서 사용)
+  showKisMode: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -84,6 +90,7 @@ const goBack = () => {
 
       <!-- Right Slot -->
       <div class="right-slot">
+        <KisModeBadge v-if="showKisMode" />
         <slot name="right"></slot>
       </div>
     </div>

@@ -5,19 +5,38 @@ AI 주식 자동매매 시스템 데이터베이스 스키마 문서
 ## 개요
 
 - **DBMS**: PostgreSQL 16
-- **총 테이블 수**: 17개 (+ 뷰 2개)
+- **총 테이블 수**: 21개 (+ 뷰 4개)
 - **스키마**: 단일 public 스키마 (MVP 단순화)
-- **실제 적용**: Liquibase (`api-server/src/main/resources/db/changelog/`)
+- **스키마 소스(편집 대상)**: **Liquibase** changelog (`api-server/src/main/resources/db/changelog/`)
 
 ## 파일 구조
 
 ```
 database/
-├── schema.sql   # 통합 DDL (전체 17 테이블 + 2 뷰, 참고용)
-└── README.md    # 이 파일
+├── schema.sql           # 전체 DDL 스냅샷 (자동 생성 — 편집 금지)
+├── generate-schema.sh   # schema.sql 재생성 스크립트
+└── README.md            # 이 파일 (사람·AI용 스키마 참조: 테이블 카탈로그·ERD·흐름)
 ```
 
-> **실제 스키마 관리는 Liquibase**가 담당합니다. `schema.sql`은 전체 구조를 한눈에 보기 위한 참고용 통합 DDL이며, 직접 실행 대신 Liquibase changelog를 수정하세요.
+### 단일 소스 원칙 (Single Source of Truth)
+
+스키마 관리 지점은 **Liquibase changelog 하나**입니다. `database/`는 여러 모듈(api-server·ai-agent 등)이 공유하는 **참조 지점**입니다.
+
+| 파일 | 역할 | 편집 |
+|------|------|------|
+| `api-server/.../db/changelog/` | 스키마 소스 (Liquibase가 부팅 시 적용) | ✅ **여기만 편집** |
+| `database/schema.sql` | 적용된 스키마의 전체 DDL 스냅샷 | ❌ 자동 생성 (`pg_dump`) |
+| `database/README.md` | 사람·AI용 카탈로그/ERD/흐름 | ✅ 설명 보강 |
+
+**스키마 변경 워크플로우**:
+1. `api-server/src/main/resources/db/changelog/`에 changeset 추가/수정
+2. `docker compose up -d --build api-server` (또는 로컬 `./gradlew bootRun`) → Liquibase가 DB에 적용
+3. `./database/generate-schema.sh` → `schema.sql` 재생성 (라이브 DB에서 `pg_dump -s`)
+4. 필요 시 이 README의 테이블 카탈로그 갱신
+
+> `schema.sql`을 직접 실행하거나 손으로 수정하지 마세요. 항상 changelog가 소스입니다.
+
+> ⚠️ **v1.8(`stock_master`/`user_favorites`)·v1.9(해외주식 US `exchange_code`/`currency` 컬럼 + 25개 US 시드)·v1.10(`stock_news` 테이블 + GIN 태그 인덱스) 추가 후 `schema.sql` 스냅샷은 아직 재생성되지 않았습니다.** 라이브 DB에 Liquibase가 v1.8~v1.10을 적용한 뒤 `./database/generate-schema.sh`(내부적으로 `pg_dump -s`)를 실행해 재생성해야 합니다. DB 없이 DDL을 임의로 손으로 작성하지 마세요(스냅샷 위조 금지).
 
 상위 시스템 데이터 흐름은 [`../_docs/ARCHITECTURE.md`](../_docs/ARCHITECTURE.md) 참고.
 
@@ -25,26 +44,32 @@ database/
 
 ## 테이블 목록
 
-### 1. 사용자 & 인증 (5개)
+### 1. 사용자 & 인증 (6개)
 
 | 테이블명 | 설명 | 주요 컬럼 |
 |---------|------|-----------|
 | `users` | 사용자 기본 정보 | username, email, password(BCrypt), name, phone, birth_date |
 | `refresh_tokens` | JWT 리프레시 토큰 | user_id, token, expires_at, revoked_at |
-| `user_kis_accounts` | 사용자별 KIS API 키 (1:1) | user_id, account_number, app_key, app_secret (Jasypt 암호화), is_verified |
+| `user_kis_accounts` | 사용자별 KIS API 키 (1:1) | user_id, account_number, app_key, app_secret (Jasypt 암호화), is_verified, **hts_id**(v1.11, 평문 — 실시간 체결통보 tr_key), **account_mode**(v1.15, MOCK/REAL — 도메인·TR 라우팅 기준, 기본 MOCK) |
 | `user_trade_config` | 자동매매 설정 (1:1) | user_id, order_amount, max_holdings, order_type, **is_active** |
 | `user_settings` | UI 설정 (1:1) | user_id, asset_order(JSONB), dark_mode, auto_login, notifications(JSONB) |
+| `webauthn_credentials` | WebAuthn 생체/패스키 자격증명 (v1.14) | credential_id(Base64URL, unique), user_id FK→users(id), public_key_cose, signature_count, transports, created_at |
 
-### 2. 분석 데이터 (6개)
+> `webauthn_credentials`는 생체/패스키 로그인용 자격증명을 저장한다. `credential_id`↔`user_id` **1:1 매핑**이며, WebAuthn user_handle 은 `user_id`에서 8바이트로 파생한다(별도 컬럼 없음, usernameless 로그인 시 역조회). 등록은 가입 이후 JWT 인증 상태에서(`/auth/webauthn/register/*`), 로그인은 public usernameless(`/auth/webauthn/login/*`)로 수행한다. 상세는 [`../api-server/_docs/AUTHENTICATION_FLOW.md`](../api-server/_docs/AUTHENTICATION_FLOW.md)의 WebAuthn 섹션 참고.
+
+### 2. 분석 데이터 (7개)
 
 | 테이블명 | 설명 | 갱신 주기 | 쓰는 쪽 |
 |---------|------|-----------|---------|
 | `stock_filter_score` | 코스피 100 스코어링 (→ 30 선정) | 매일 (평일 08:50) | ai-agent |
 | `stock_financial` | DART 재무지표 (PER, ROE, 영업이익률) | 분기별 | ai-agent |
-| `news_analysis` | KR-FinBERT 감성 분석 | 매일 | ai-agent |
+| `news_analysis` | KR-FinBERT 감성 분석 (집계) | 매일 | ai-agent |
 | `prophet_forecast` | Prophet D+1~D+5 시계열 예측 | 매일 | ai-agent |
 | `ai_trade_decision` | Gemini AI 매수/매도 판단 (TOP3) | 매일 | ai-agent |
 | `safety_filter_result` | Gemini 판단 사후 검증 (안전망 필터) | 매일 | ai-agent |
+| `stock_news` | 종목별 뉴스 기사 원문 저장 (제목/요약/URL/감성/태그 JSONB) | 매일 | ai-agent |
+
+> `stock_news`는 종목별 뉴스 기사 단건을 저장한다(`news_analysis`는 종목 단위 감성 집계). ai-agent가 `(stock_code, analysis_date)` 기준으로 DELETE 후 INSERT 하므로 unique 제약은 없다. `tags`(JSONB, 문자열 배열)에는 GIN 인덱스(`idx_stock_news_tags`, `jsonb_path_ops`)가 있어 향후 태그 검색에 사용한다. Spring Boot의 `StockNewsController`(`/api/news`)가 읽기 전용으로 중계한다.
 
 ### 3. 웹 표시용 (3개)
 
@@ -62,12 +87,23 @@ database/
 | `feature_threshold_config` | 안전망 필터 임계값 (BUY/SELL 규칙, 동적 조정) | ai-agent (기본값 seed) |
 | `trade_history` | 주문 체결 이력 (KIS 주문번호, 상태, 체결가) | Spring Boot |
 
-### 5. 뷰 (2개)
+### 5. 검색 & 관심종목 (2개)
+
+| 테이블명 | 설명 | 관리 주체 |
+|---------|------|-----------|
+| `stock_master` | 종목 검색 카탈로그 (code/name/market/**exchange_code/currency**). KOSPI + US 종목 seed | Spring Boot (Liquibase seed) |
+| `user_favorites` | 사용자별 관심종목 (user_id, stock_code, stock_name 비정규화) | Spring Boot |
+
+> `stock_master`는 `ai-agent/config/constants.py`의 `STOCK_NAMES`(+`005930` 삼성전자, `055550` 신한지주)를 seed한 검색 카탈로그(`market='KOSPI'`)에 더해, **v1.9에서 해외주식(US) 지원 컬럼·시드를 추가**했다: `exchange_code`(VARCHAR(10), 해외 거래소 NASD/NYSE/AMEX, 국내=NULL), `currency`(VARCHAR(3), 기본 `KRW`). v1.9 시드로 NASDAQ 15 + NYSE 10 = **25개 미국 종목**(`currency='USD'`)을 적재한다. `market=US` 검색은 이 USD 행을 대상으로 한다. `user_favorites`는 `(user_id, stock_code)` unique, `user_id` FK→`users(id)` cascade.
+
+### 6. 뷰 (4개)
 
 | 뷰명 | 설명 |
 |------|------|
 | `v_latest_trade_plan` | 당일 매매 계획 요약 (계획/통과/실행 건수, 예상 금액) |
 | `v_decision_with_filter` | Gemini 판단 + 안전망 필터 결합 결과 (최근 7일) |
+| `v_market_overview` | 시장 일일 요약 (KOSPI 지수·등락·수급·시장감성) + 당일 매수/매도 시그널·필터 통과 집계 |
+| `v_stock_analysis_summary` | 종목별 11개 피처 통합 (스코어·수급·재무·감성·시계열·실시간가 결합) |
 
 ---
 
@@ -114,7 +150,7 @@ trade_history             ← KIS API 체결 결과
 - 각 규칙별 통과 여부 (예: `uncertainty_check`, `foreign_net_buy_check`, `sentiment_check` 등)
 
 ### feature_threshold_config
-- 안전망 필터 임계값을 동적으로 관리. `schema.sql` 실행 시 11개 피처 기본 규칙 seed
+- 안전망 필터 임계값을 동적으로 관리. Liquibase changelog가 11개 피처 기본 규칙을 seed
   (`foreign_net_buy`, `institutional_net_buy`, `sentiment_score`, `prophet_price_trend`,
   `prophet_volume_trend`, `prophet_price_uncertainty`, `per`, `roe`, `operating_margin`,
   `morning_return`, `close_position`)
@@ -140,7 +176,10 @@ api-server/src/main/resources/db/changelog/
 │   ├── v1.4-test-data.yaml           # 테스트 데이터
 │   ├── v1.5-user-settings.yaml       # 사용자 UI 설정
 │   ├── v1.6-stage4-5-enhancements.yaml  # 안전망 필터 + 매매 실행 계획
-│   └── v1.7-web-display-tables.yaml  # 시장 요약 / 실시간 가격 / 보유 종목
+│   ├── v1.7-web-display-tables.yaml  # 시장 요약 / 실시간 가격 / 보유 종목
+│   ├── v1.8-stock-master-favorites.yaml  # 종목 검색 카탈로그 + 관심종목
+│   ├── v1.9-overseas-stock-master.yaml   # 해외주식(US) 컬럼(exchange_code/currency) + US 시드
+│   └── v1.10-stock-news.yaml             # 종목별 뉴스 기사 저장 (stock_news + GIN 태그 인덱스)
 └── product/                          # 프로덕션 context (향후)
 ```
 

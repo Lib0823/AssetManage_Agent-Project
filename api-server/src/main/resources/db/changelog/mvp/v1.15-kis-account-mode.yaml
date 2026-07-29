@@ -1,0 +1,29 @@
+databaseChangeLog:
+  # KIS 계정 모드 (MOCK/REAL) — 사용자별 도메인·TR 라우팅 기준
+
+  # ========================================
+  # user_kis_accounts.account_mode 컬럼 추가 (MOCK 기본, 하위호환)
+  # ========================================
+  - changeSet:
+      id: 1.15.1-add-account-mode
+      author: claude
+      context: mvp
+      comment: "Add account_mode column to user_kis_accounts for per-user MOCK/REAL domain and TR routing"
+      changes:
+        - addColumn:
+            tableName: user_kis_accounts
+            columns:
+              - column:
+                  name: account_mode
+                  type: VARCHAR(10)
+                  defaultValue: MOCK
+                  constraints:
+                    nullable: false
+        - setColumnRemarks:
+            tableName: user_kis_accounts
+            columnName: account_mode
+            remarks: 'KIS 모드 MOCK(모의)/REAL(실전) — 도메인·TR 라우팅 기준'
+      rollback:
+        - dropColumn:
+            tableName: user_kis_accounts
+            columnName: account_mode

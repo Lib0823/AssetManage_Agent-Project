@@ -54,7 +54,7 @@ _docs/             상세 문서 (진입점: _docs/README.md)
 
 ## 작업 전 반드시 알아야 할 사실
 
-- **자동 스케줄은 Stage 1만 실행**한다(`run_stage1_sync`). 전체 파이프라인(Stage 1~6)은 `run_complete_pipeline`이며 `POST /api/pipeline/trigger`로 실행. ([`_docs/STATUS.md`](_docs/STATUS.md) §2-1)
+- **자동 스케줄이 전체 파이프라인(Stage 1~6)을 실행**한다(`scheduler._job_wrapper` → `run_complete_pipeline_sync`). 수동 트리거 `POST /api/pipeline/trigger`(`run_complete_pipeline`)도 동일. ([`_docs/STATUS.md`](_docs/STATUS.md))
 - **Stage 3(matplotlib 차트)는 미구현**. `charts/`·`static/charts/` 없음. ([`_docs/STATUS.md`](_docs/STATUS.md) §2-2)
 - **DataFrame 컬럼명 ≠ DB 컬럼명**: 내부 `final_score`/`volume_ratio`/`institution_net_buy`/`prophet_*`/`decision_type`/`trade_date`는 저장 시 DB 컬럼(`scaler_score`/`vol_avg_multiple`/`institutional_net_buy`/`price_trend` 등/`decision`/`score_date`·`forecast_date`·`decision_date`)으로 매핑된다. 매핑표: [`_docs/API_REFERENCE.md`](_docs/API_REFERENCE.md) §3.
 - **DB 단일 출처**: 루트 [`database/schema.sql`](../database/schema.sql). 스키마를 바꾸지 말고 코드/문서를 스키마에 맞춘다.

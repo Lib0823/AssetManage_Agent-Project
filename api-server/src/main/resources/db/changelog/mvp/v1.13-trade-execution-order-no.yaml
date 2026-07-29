@@ -1,0 +1,36 @@
+databaseChangeLog:
+  # KIS 주문번호(ODNO) 저장 — 거래내역 화면의 "AI 매매" 배지 매칭용.
+  # 봇이 주문하면 KIS 응답의 ODNO 를 기록하고, 거래내역(주문체결조회)의 주문번호와 대조해
+  # 해당 체결이 봇(AI) 주문인지 표시한다.
+
+  - changeSet:
+      id: 1.13.1-add-order-no-to-trade-execution-plan
+      author: claude
+      context: mvp
+      comment: "Add KIS order number (ODNO) to trade_execution_plan for AI-trade tagging in trade history"
+      changes:
+        - addColumn:
+            tableName: trade_execution_plan
+            columns:
+              - column:
+                  name: order_no
+                  type: VARCHAR(30)
+                  constraints:
+                    nullable: true
+        - createIndex:
+            indexName: idx_trade_exec_plan_order_no
+            tableName: trade_execution_plan
+            columns:
+              - column:
+                  name: order_no
+        - setColumnRemarks:
+            tableName: trade_execution_plan
+            columnName: order_no
+            remarks: 'KIS 주문번호(ODNO). 거래내역 AI 매매 표시 매칭용'
+      rollback:
+        - dropIndex:
+            indexName: idx_trade_exec_plan_order_no
+            tableName: trade_execution_plan
+        - dropColumn:
+            tableName: trade_execution_plan
+            columnName: order_no

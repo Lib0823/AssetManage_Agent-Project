@@ -5,14 +5,15 @@ import pandas as pd
 from datetime import date
 from typing import Optional, Dict, List
 
-from collectors import KISClient
+from collectors import KISClient, InternalApiClient, KISUnavailableError
 from collectors.dart_client import DARTAPIClient
 from analysis import StockFilter, QuantitativeAnalyzer, SentimentAnalyzer, TimeSeriesAnalyzer
 from ai import TradingDecisionGenerator
 from filters import SafetyFilter
 from execution import TradeExecutor
 from database import DatabaseRepository
-from config.constants import KOSPI_100
+from config.constants import KOSPI_100, STOCK_NAMES
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,9 @@ class PipelineOrchestrator:
     4. Save results to database
     """
 
-    def __init__(self, api_server_url: str = "http://api-server:7070"):
+    def __init__(self, api_server_url: Optional[str] = None):
+        resolved_url = api_server_url or settings.api_server_url
+
         # Stage 1: Filtering
         self.kis_client = KISClient()  # Single shared instance for OAuth token caching
         self.stock_filter = StockFilter()
@@ -45,11 +48,21 @@ class PipelineOrchestrator:
         # Stage 5: Safety Filter
         self.safety_filter = SafetyFilter()
 
-        # Stage 6: Trade Execution
-        self.trade_executor = TradeExecutor(api_base_url=api_server_url)
+        # Internal api-server channel (multi-user holdings / decisions / execution)
+        self.internal_api = InternalApiClient(
+            base_url=resolved_url, api_key=settings.internal_api_key
+        )
+
+        # Stage 6: Trade Execution (per-user, via internal api-server channel)
+        self.trade_executor = TradeExecutor(internal_api=self.internal_api)
 
         # Database
         self.db_repo = DatabaseRepository()
+
+        # 멀티유저 컨텍스트 (Step 0-1 에서 채워지고 이후 단계가 사용)
+        self.active_users: List[Dict] = []
+        self.user_holdings_map: Dict[int, List[str]] = {}
+        self.user_portfolio_map: Dict[int, Dict] = {}
 
         logger.info("PipelineOrchestrator initialized with full pipeline")
 
@@ -82,7 +95,18 @@ class PipelineOrchestrator:
         try:
             # Step 0: Check if market is open (avoid unnecessary API calls on holidays)
             logger.info("⏳ Checking market status...")
-            is_open = await self.kis_client.is_market_open(trade_date=trade_date)
+            try:
+                is_open = await self.kis_client.is_market_open(trade_date=trade_date)
+            except KISUnavailableError as e:
+                # KIS 접속 실패(점검/네트워크) — 휴장일과 명확히 구분해서 보고한다.
+                logger.error(f"❌ KIS API 접속 실패로 개장 여부 확인 불가: {e}")
+                return {
+                    'success': False,
+                    'trade_date': trade_date.isoformat(),
+                    'error': f'KIS API 접속 실패 (점검 또는 네트워크 문제): {e}',
+                    'is_holiday': False,
+                    'kis_unavailable': True
+                }
 
             if not is_open:
                 logger.warning(f"⚠️ Market is closed on {trade_date} (holiday or non-trading day)")
@@ -93,25 +117,54 @@ class PipelineOrchestrator:
                     'is_holiday': True
                 }
 
-            # Step 0-1: Fetch holdings from KIS API (to always include in final 30)
-            logger.info("Fetching holdings from KIS API...")
-            api_holdings = await self.kis_client.get_holdings()
+            # Step 0-1: 활성 자동매매 유저 + 보유종목 합집합 수집 (멀티유저).
+            # 사용자 KIS 키는 api-server(DB)에만 있고, ai-agent 는 내부 서비스 채널로
+            # 식별자/보유종목만 받는다. 보유종목 합집합을 Top30 분석 유니버스에 강제 포함한다.
+            logger.info("Fetching active auto-trading users and holdings from api-server...")
+            active_users = await self.internal_api.get_active_auto_trading_users()
+            self.active_users = active_users
 
-            # Merge with parameter holdings (if provided)
-            if holdings and api_holdings:
-                holdings = list(set(holdings + api_holdings))  # Remove duplicates
-            elif api_holdings:
-                holdings = api_holdings
-            # If neither exists, holdings remains None
+            # 유저별 포트폴리오 전체(보유상세 + 현금)를 한 번에 조회해 stash.
+            # Step 0-1 의 보유 합집합과 Stage 6 의 유저별 매수/매도 판단이 같은 스냅샷을 재사용.
+            user_portfolio_map: Dict[int, Dict] = {}
+            user_holdings_map: Dict[int, List[str]] = {}
+            if active_users:
+                portfolios = await asyncio.gather(
+                    *[self.internal_api.get_user_portfolio(u['user_id']) for u in active_users],
+                    return_exceptions=True
+                )
+                for user, pf in zip(active_users, portfolios):
+                    if isinstance(pf, Exception):
+                        logger.error(f"Portfolio fetch failed for user {user['user_id']}: {pf}")
+                        pf = {'holdings': [], 'cash': 0.0, 'total_assets': 0.0, 'holding_codes': []}
+                    user_portfolio_map[user['user_id']] = pf
+                    user_holdings_map[user['user_id']] = pf.get('holding_codes', [])
+            self.user_portfolio_map = user_portfolio_map
+            self.user_holdings_map = user_holdings_map
 
+            union_holdings = sorted({code for codes in user_holdings_map.values() for code in codes})
+
+            # Merge with explicit parameter holdings (if provided)
+            merged = set(holdings or []) | set(union_holdings)
+            holdings = sorted(merged) if merged else None
+
+            logger.info(
+                f"Active users: {len(active_users)}, "
+                f"union holdings ({len(union_holdings)}): {union_holdings}"
+            )
             if holdings:
-                logger.info(f"Found {len(holdings)} holdings to always include: {holdings}")
+                logger.info(f"{len(holdings)} holdings will be force-included in analysis universe")
             else:
                 logger.info("No holdings found, will use only Top 30 filtered stocks")
 
-            # Step 1: Fetch KOSPI 100 data from KIS API
-            logger.info(f"Fetching data for {len(KOSPI_100)} KOSPI 100 stocks")
-            stock_data_df = await self.kis_client.fetch_stock_data_parallel(KOSPI_100)
+            # Step 1: Fetch data for KOSPI 100 ∪ holdings (so holdings outside KOSPI100
+            # are also analyzable and force-includable in the final selection)
+            universe = list(dict.fromkeys(KOSPI_100 + (holdings or [])))
+            logger.info(
+                f"Fetching data for {len(universe)} stocks "
+                f"(KOSPI100 {len(KOSPI_100)} + {len(holdings or [])} holdings)"
+            )
+            stock_data_df = await self.kis_client.fetch_stock_data_parallel(universe)
 
             if stock_data_df.empty:
                 error_msg = "Failed to fetch stock data from KIS API"
@@ -358,6 +411,30 @@ class PipelineOrchestrator:
                     sentiment_saved_count += 1
             logger.info(f"Saved {sentiment_saved_count} sentiment records to news_analysis table")
 
+            # 부가 저장: 종목별 뉴스 기사 원문 + 기사별 감성/태그 (stock_news 테이블).
+            # 보조 기능이므로 실패해도 파이프라인을 중단하지 않는다(try/except 내부 격리).
+            try:
+                stock_news_map = self.sentiment_analyzer.last_stock_news
+                news_articles_saved = 0
+                news_stocks_saved = 0
+                for stock_code, news_records in stock_news_map.items():
+                    stock_name = STOCK_NAMES.get(stock_code)
+                    inserted = self.db_repo.save_stock_news(
+                        stock_code=stock_code,
+                        stock_name=stock_name,
+                        analysis_date=trade_date,
+                        articles=news_records
+                    )
+                    if inserted > 0:
+                        news_stocks_saved += 1
+                        news_articles_saved += inserted
+                logger.info(
+                    f"Saved {news_articles_saved} stock_news articles "
+                    f"across {news_stocks_saved} stocks"
+                )
+            except Exception as e:
+                logger.error(f"Failed to persist stock_news (non-critical): {e}")
+
             # Track 1(시장 전반) 영속화: analyze_stocks 가 인스턴스 속성에 저장한 값을 사용
             market_sentiment = self.sentiment_analyzer.last_market_sentiment
             market_news_count = self.sentiment_analyzer.last_market_news_count
@@ -454,11 +531,13 @@ class PipelineOrchestrator:
                 'filter_results': filtered_decisions['filter_results']
             }
 
-            # Stage 6: Trade Execution
-            logger.info("[Stage 6] Trade Execution")
-            execution_results = await self.trade_executor.execute_trades(filtered_decisions)
+            # Stage 6: Per-user decision + execution (multi-user).
+            # 무거운 분석(Stage 1~3)은 공유, Stage 4~5(전역 결정/안전망)는 대시보드용으로 유지.
+            # 여기서 각 활성 유저의 포트폴리오 맥락으로 Gemini 1콜 → 안전망(유저 예산/현금) → 실행.
+            logger.info("[Stage 6] Per-user decision and execution")
+            execution_results = await self._run_per_user_execution(features_df, trade_date)
 
-            logger.info(f"[Stage 6] Execution status: {execution_results['status']}")
+            logger.info(f"[Stage 6] Per-user execution complete: {len(execution_results)} users")
             pipeline_result['stages']['stage6_execution'] = execution_results
 
             # Final success
@@ -472,6 +551,178 @@ class PipelineOrchestrator:
             logger.exception(error_msg)
             pipeline_result['error'] = error_msg
             return pipeline_result
+
+    async def _run_per_user_execution(self, features_df: pd.DataFrame, trade_date: date) -> List[Dict]:
+        """
+        활성 유저별 맞춤 매수/매도 결정 + 실행 (Stage 6, 멀티유저).
+
+        분석(features_df)은 공유. 각 유저의 포트폴리오 맥락으로 Gemini 1콜(throttle 적용),
+        매수는 안전망(SafetyFilter) + 1회 한도/현금으로 수량 산정, 매도는 보유(매도가능) 수량만큼.
+        유저 단위로 격리한다(한 유저의 결정/실행 실패가 다른 유저를 막지 않음).
+
+        Args:
+            features_df: 분석 유니버스 11피처 (매수 후보 풀)
+
+        Returns:
+            유저별 실행 결과 리스트
+        """
+        results: List[Dict] = []
+        if not self.active_users:
+            logger.info("[Stage 6] No active auto-trading users; nothing to execute")
+            return results
+
+        price_cache: Dict[str, int] = {}
+
+        async def get_price(code: str) -> int:
+            if code not in price_cache:
+                try:
+                    data = await self.kis_client.get_current_price(code)
+                    price_cache[code] = int(data.get('current_price') or 0)
+                except Exception as e:
+                    logger.warning(f"Price fetch failed for {code}: {e}")
+                    price_cache[code] = 0
+            return price_cache[code]
+
+        for user in self.active_users:
+            user_id = user['user_id']
+            order_amount = int(user.get('order_amount') or 0)
+            max_holdings = int(user.get('max_holdings') or 0)
+            portfolio = self.user_portfolio_map.get(
+                user_id, {'holdings': [], 'cash': 0.0, 'total_assets': 0.0, 'holding_codes': []}
+            )
+
+            # 1) 유저 맞춤 매수/매도 결정 (Gemini 1콜, throttle/백오프는 클라이언트 내부)
+            try:
+                decision = self.decision_generator.generate_user_decision(
+                    candidate_features=features_df,
+                    portfolio=portfolio,
+                    order_amount=order_amount,
+                    max_holdings=max_holdings,
+                    user_id=user_id,
+                )
+            except Exception as e:
+                logger.error(f"[Stage 6] Decision failed for user {user_id}: {e}")
+                results.append({'user_id': user_id, 'error': f'decision failed: {e}'})
+                continue
+
+            held_codes = set(portfolio.get('holding_codes', []))
+            held_map = {h['stock_code']: h for h in portfolio.get('holdings', [])}
+
+            # 2) 매수 주문: 이미 보유한 종목 제외 → 안전망(SafetyFilter) → 한도/현금으로 수량 산정
+            buy_candidates = [b for b in decision.get('buy', []) if b['stock_code'] not in held_codes]
+            buy_prices = {b['stock_code']: await get_price(b['stock_code']) for b in buy_candidates}
+            filtered = self.safety_filter.filter_decisions(
+                {'buy_top3': buy_candidates, 'sell_top3': []},
+                features_df,
+                stock_prices=buy_prices,
+                order_amount=order_amount,
+            )
+            cash = float(portfolio.get('cash') or 0)
+            buy_orders: List[Dict] = []
+            for b in filtered.get('buy_top3', []):
+                code = b['stock_code']
+                price = buy_prices.get(code, 0)
+                if price <= 0:
+                    continue
+                max_q = int(b.get('max_quantity') or 0)  # order_amount 기반 상한
+                cash_q = int(cash / price)               # 가용 현금 기반 상한
+                # 둘 중 작은 값. 현금 0/조회 실패 시 cash_q<=0 → qty<=0 → 매수 안 함(안전).
+                qty = min(max_q, cash_q)
+                if qty <= 0:
+                    continue
+                cash -= qty * price
+                buy_orders.append({
+                    'stock_code': code,
+                    'stock_name': STOCK_NAMES.get(code, code),
+                    'quantity': qty,
+                    'price': price,
+                    'reason': b.get('reason', ''),
+                })
+
+            # 3) 매도 주문: 보유 종목 중 AI 매도 결정, 매도가능 수량만큼
+            sell_orders: List[Dict] = []
+            for s in decision.get('sell', []):
+                h = held_map.get(s['stock_code'])
+                if not h:
+                    continue
+                qty = int(h.get('available_quantity') or h.get('quantity') or 0)
+                if qty <= 0:
+                    continue
+                sell_orders.append({
+                    'stock_code': s['stock_code'],
+                    'stock_name': h.get('stock_name', s['stock_code']),
+                    'quantity': qty,
+                    'reason': s.get('reason', ''),
+                })
+
+            logger.info(f"[Stage 6] user {user_id}: {len(buy_orders)} buys, {len(sell_orders)} sells planned")
+
+            # 4) 실행 (유저 KIS 키로 api-server 대행)
+            try:
+                exec_result = await self.trade_executor.execute_for_user(user_id, buy_orders, sell_orders)
+            except Exception as e:
+                logger.error(f"[Stage 6] Execution failed for user {user_id}: {e}")
+                exec_result = {'user_id': user_id, 'error': f'execution failed: {e}'}
+
+            # 영속화: 유저별 실행 결과를 trade_execution_plan 에 기록 (비핵심: 실패해도 진행)
+            try:
+                exec_records = self._build_execution_records(buy_orders, sell_orders, exec_result)
+                if exec_records:
+                    self.db_repo.save_trade_execution_plan(user_id, trade_date, exec_records)
+            except Exception as e:
+                logger.error(f"[Stage 6] Failed to persist execution for user {user_id}: {e}")
+
+            results.append(exec_result)
+
+        return results
+
+    @staticmethod
+    def _build_execution_records(buy_orders: List[Dict], sell_orders: List[Dict], exec_result: Dict) -> List[Dict]:
+        """유저별 buy/sell 주문 + 실행결과 → trade_execution_plan 레코드 리스트."""
+        records: List[Dict] = []
+
+        def _odno(result: Dict):
+            """KIS 주문 응답에서 주문번호(ODNO) 추출. 실패 시 None."""
+            data = (result or {}).get('data') or {}
+            output = data.get('output') or {}
+            return output.get('ODNO') or output.get('odno')
+        buy_res = {r['stock_code']: r.get('result', {}) for r in (exec_result.get('buy_results') or [])}
+        for i, o in enumerate(buy_orders, 1):
+            res = buy_res.get(o['stock_code'], {})
+            price = int(o.get('price') or 0)
+            qty = int(o.get('quantity') or 0)
+            records.append({
+                'stock_code': o['stock_code'],
+                'stock_name': o.get('stock_name'),
+                'trade_type': 'BUY',
+                'planned_quantity': qty,
+                'reference_price': price or None,
+                'estimated_amount': (price * qty) or None,
+                'gemini_reason': o.get('reason', ''),
+                'gemini_rank': i,
+                'safety_filter_passed': True,
+                'execution_status': 'EXECUTED' if res.get('success') else 'FAILED',
+                'order_no': _odno(res),
+                'execution_result': res,
+            })
+        sell_res = {r['stock_code']: r.get('result', {}) for r in (exec_result.get('sell_results') or [])}
+        for i, o in enumerate(sell_orders, 1):
+            res = sell_res.get(o['stock_code'], {})
+            records.append({
+                'stock_code': o['stock_code'],
+                'stock_name': o.get('stock_name'),
+                'trade_type': 'SELL',
+                'planned_quantity': int(o.get('quantity') or 0),
+                'reference_price': None,
+                'estimated_amount': None,
+                'gemini_reason': o.get('reason', ''),
+                'gemini_rank': i,
+                'safety_filter_passed': True,
+                'execution_status': 'EXECUTED' if res.get('success') else 'FAILED',
+                'order_no': _odno(res),
+                'execution_result': res,
+            })
+        return records
 
     def run_complete_pipeline_sync(
         self,

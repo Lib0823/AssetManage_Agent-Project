@@ -41,7 +41,7 @@
 | `web-app/` | Vue 3 프론트엔드 (PWA) | [`web-app/_docs/README.md`](../web-app/_docs/README.md) | `SCREENS.md` |
 | `api-server/` | Spring Boot 백엔드 / 매매 실행 | [`api-server/_docs/README.md`](../api-server/_docs/README.md) | `API_DESIGN.md`, `AUTHENTICATION_FLOW.md`, `KIS_API_GUIDE.md` |
 | `ai-agent/` | FastAPI ML 파이프라인 / AI 판단 | [`ai-agent/_docs/README.md`](../ai-agent/_docs/README.md) | `PIPELINE_DESIGN.md`, `API_REFERENCE.md` |
-| `database/` | PostgreSQL 스키마 / ERD | [`database/README.md`](../database/README.md) | `schema.sql` (17 tables + 2 views) |
+| `database/` | PostgreSQL 스키마 / ERD | [`database/README.md`](../database/README.md) | `schema.sql` (17 tables + 4 views) |
 
 ---
 

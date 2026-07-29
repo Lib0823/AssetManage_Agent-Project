@@ -113,11 +113,6 @@ const router = createRouter({
       name: 'market-analysis',
       component: () => import('../views/analysis/MarketAnalysisView.vue')
     },
-    {
-      path: '/transfer',
-      name: 'transfer',
-      component: () => import('../views/detail/TransferView.vue')
-    },
 
     // Settings routes
     {

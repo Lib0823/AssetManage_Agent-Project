@@ -42,6 +42,14 @@ public class AuthService {
     @Value("${kis.base-url}")
     private String kisBaseUrl;
 
+    @Value("${kis.real-base-url}")
+    private String kisRealBaseUrl;
+
+    /** 계정 모드 → OAuth 검증 도메인 (REAL=실전, 그 외=모의). KisAuthService.baseUrlFor 와 동일 규칙. */
+    private String baseUrlFor(String mode) {
+        return "REAL".equalsIgnoreCase(mode) ? kisRealBaseUrl : kisBaseUrl;
+    }
+
     @Transactional
     public RegisterResponse register(RegisterRequest request) {
         // 비밀번호 확인 검증
@@ -70,11 +78,13 @@ public class AuthService {
 
         // KIS Account 생성
         if (request.getKisAccount() != null) {
+            String accountMode = request.getKisAccount().getMode();
             UserKisAccount kisAccount = UserKisAccount.builder()
                     .user(user)
                     .accountNumber(request.getKisAccount().getAccountNumber())
                     .appKey(request.getKisAccount().getAppKey())
                     .appSecret(request.getKisAccount().getAppSecret())
+                    .accountMode("REAL".equalsIgnoreCase(accountMode) ? "REAL" : "MOCK")
                     .isVerified(false)
                     .build();
             kisAccountRepository.save(kisAccount);
@@ -223,7 +233,8 @@ public class AuthService {
      * KIS 계정 검증 (AppKey, AppSecret으로 OAuth 토큰 발급 시도)
      */
     public ValidateKisAccountResponse validateKisAccount(ValidateKisAccountRequest request) {
-        String url = kisBaseUrl + "/oauth2/tokenP";
+        // 요청 모드(MOCK/REAL)의 도메인으로 OAuth 검증 → 그 도메인 키가 유효한지 확인.
+        String url = baseUrlFor(request.getMode()) + "/oauth2/tokenP";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);

@@ -3,7 +3,8 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/services/api'
-import { Toast } from 'vant'
+import { Toast, Dialog } from 'vant'
+import { isPlatformAuthAvailable, registerBiometric } from '@/services/webauthn'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -21,6 +22,16 @@ const brokerForm = ref({
   appKey: '',
   appSecret: ''
 })
+
+// KIS 모드: MOCK(모의) / REAL(실전). 이 도메인으로 키를 인증하고 이후 매매가 라우팅됨.
+const kisMode = ref('MOCK')
+
+// 모드 변경 시 기존 인증 결과 무효화 (도메인이 달라 재인증 필요)
+const selectKisMode = (mode) => {
+  if (kisMode.value === mode) return
+  kisMode.value = mode
+  validationResult.value = null
+}
 
 // Step 1 데이터 확인
 onMounted(() => {
@@ -75,7 +86,8 @@ const handleValidateKis = async () => {
 
     const response = await authApi.validateKisAccount({
       appKey: brokerForm.value.appKey,
-      appSecret: brokerForm.value.appSecret
+      appSecret: brokerForm.value.appSecret,
+      mode: kisMode.value
     })
 
     validationResult.value = response.data
@@ -116,6 +128,36 @@ const handleValidateKis = async () => {
   }
 }
 
+// 가입+자동로그인 직후, 기기가 지원하면 생체 로그인 등록을 권유한다.
+// 등록 실패/취소/미지원 어떤 경우에도 가입 완료 흐름을 막지 않는다(skip 허용).
+const promptBiometricEnrollment = async () => {
+  try {
+    const available = await isPlatformAuthAvailable()
+    if (!available) {
+      return
+    }
+
+    await Dialog.confirm({
+      title: '생체 로그인 등록',
+      message: '이 기기에서 Face ID / 지문으로 로그인하시겠어요?',
+      confirmButtonText: '등록',
+      cancelButtonText: '나중에'
+    })
+
+    // confirm 시에만 도달 (cancel 은 reject → catch 에서 무시)
+    await registerBiometric()
+    Toast.success('생체 로그인이 등록되었습니다')
+  } catch (error) {
+    // 사용자가 '나중에'를 누르면 Dialog 가 reject(문자열 'cancel')하므로 조용히 통과
+    if (error === 'cancel') {
+      return
+    }
+    console.error('Biometric enrollment skipped:', error)
+    // 등록 실패는 안내만 하고 가입 흐름은 계속 진행
+    Toast('생체 로그인 등록을 건너뛰었습니다')
+  }
+}
+
 const handleRegister = async () => {
   // KIS 계좌 정보 검증
   if (stockInvestment.value) {
@@ -149,12 +191,13 @@ const handleRegister = async () => {
       kisAccount: stockInvestment.value ? {
         accountNumber: brokerForm.value.accountNumber,
         appKey: brokerForm.value.appKey,
-        appSecret: brokerForm.value.appSecret
+        appSecret: brokerForm.value.appSecret,
+        mode: kisMode.value
       } : null
     }
 
     // API 호출
-    const response = await authApi.register(registrationData)
+    await authApi.register(registrationData)
 
     Toast.success('회원가입이 완료되었습니다')
 
@@ -174,6 +217,9 @@ const handleRegister = async () => {
 
       // 회원가입 데이터 정리
       authStore.clearRegistrationData()
+
+      // 생체 로그인(패스키) 등록 권유 — 실패/취소해도 가입 흐름은 막지 않음
+      await promptBiometricEnrollment()
 
       // Toast를 보여주고 홈 화면으로 이동
       setTimeout(() => {
@@ -237,6 +283,34 @@ const handleRegister = async () => {
 
           <div v-if="stockInvestment" class="broker-card">
             <h3 class="broker-title">한국 투자 증권</h3>
+
+            <!-- 모의/실전 모드 선택 -->
+            <div class="form-group">
+              <label class="label">투자 모드</label>
+              <div class="mode-toggle">
+                <button
+                  type="button"
+                  class="mode-btn"
+                  :class="{ 'mode-btn-active': kisMode === 'MOCK' }"
+                  @click="selectKisMode('MOCK')"
+                >
+                  모의투자
+                </button>
+                <button
+                  type="button"
+                  class="mode-btn"
+                  :class="{ 'mode-btn-active': kisMode === 'REAL' }"
+                  @click="selectKisMode('REAL')"
+                >
+                  실전투자
+                </button>
+              </div>
+              <p class="mode-hint">
+                {{ kisMode === 'REAL'
+                  ? '실전투자 KIS 앱키로 인증합니다 (실제 주문 체결)'
+                  : '모의투자 KIS 앱키로 인증합니다' }}
+              </p>
+            </div>
 
             <div class="form-group">
               <label class="label">계좌번호</label>
@@ -516,6 +590,38 @@ const handleRegister = async () => {
   cursor: pointer;
   text-align: center;
   width: 100%;
+}
+
+.mode-toggle {
+  display: flex;
+  gap: var(--spacing-xs);
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-md);
+  padding: 3px;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-btn-active {
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+}
+
+.mode-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-top: var(--spacing-xs);
 }
 
 .kis-info-message {

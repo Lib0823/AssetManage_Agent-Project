@@ -25,7 +25,7 @@ docker compose up -d --build
 | 서비스 | 접속 | 비고 |
 |--------|------|------|
 | postgres | localhost:5432 | DB: financemanage / admin / admin1234 |
-| api-server | http://localhost:7070/api | 부팅 시 Liquibase가 스키마(17 테이블 + 2 뷰) 자동 마이그레이션 |
+| api-server | http://localhost:7070/api | 부팅 시 Liquibase가 스키마(17 테이블 + 4 뷰) 자동 마이그레이션 |
 | ai-agent | http://localhost:8000 | 파이프라인 코어 |
 | web-app | http://localhost:3000 | nginx가 `/api`를 api-server로 프록시 |
 
@@ -59,7 +59,7 @@ DB만 도커로 띄우고 세 앱은 로컬에서 실행합니다. 다음 런타
 docker compose up -d postgres   # PostgreSQL 16만 기동 (DB: financemanage / admin / admin1234)
 ```
 
-스키마(17개 테이블 + 2개 뷰)는 **api-server 실행 시 Liquibase가 자동 마이그레이션**합니다(`api-server/src/main/resources/db/changelog/`). 수동 적용 참고용은 [`../database/schema.sql`](../database/schema.sql) ([테이블 목록](../database/README.md)).
+스키마(17개 테이블 + 4개 뷰)는 **api-server 실행 시 Liquibase가 자동 마이그레이션**합니다(`api-server/src/main/resources/db/changelog/`). 수동 적용 참고용은 [`../database/schema.sql`](../database/schema.sql) ([테이블 목록](../database/README.md)).
 
 직접 PostgreSQL을 설치해 쓸 경우 `financemanage` 데이터베이스를 만들고 각 모듈 설정에 접속 정보를 맞춰주세요.
 
@@ -134,7 +134,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 > ⚠️ **반드시 venv 안에서 실행하세요.** 시스템 python3로 직접 실행하면 Prophet 의존성이 깨져 시계열 예측 결과(`prophet_forecast`)가 NULL로 저장됩니다.
 
-분석 파이프라인은 평일 08:50 KST에 자동 실행되며, 수동 트리거는 `POST http://localhost:8000/api/pipeline/trigger`입니다.
+스케줄러는 평일 08:50 KST에 **전체 파이프라인(Stage 1~6)**을 자동 실행합니다. 수동 트리거 `POST http://localhost:8000/api/pipeline/trigger`로도 실행할 수 있습니다.
 
 ---
 

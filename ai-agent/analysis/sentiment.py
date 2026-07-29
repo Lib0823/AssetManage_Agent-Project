@@ -12,7 +12,8 @@ from datetime import datetime
 import logging
 
 from collectors.news_collector import NewsCollector
-from models.kr_finbert import KRFinBERTAnalyzer
+from models.kr_finbert import KRFinBERTAnalyzer, score_to_label
+from analysis.keyword_extractor import extract_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,9 @@ class SentimentAnalyzer:
         # Track 1 결과 보관: analyze_stocks 호출 시 갱신되어 caller가 시장 감성을 영속화할 수 있도록 한다
         self.last_market_sentiment: float = 0.0  # 시장 감성점수 (-1.0 ~ 1.0)
         self.last_market_news_count: int = 0  # 시장 전반 분석에 사용된 기사 수
+        # Track 2 부산물: 종목별 기사 원문 + 기사별 감성/키워드 (stock_news 영속화용).
+        # analyze_stocks 호출마다 초기화되며, 뉴스가 있는 종목만 키로 채워진다.
+        self.last_stock_news: Dict[str, List[Dict]] = {}
         logger.info("SentimentAnalyzer initialized")
 
     async def analyze_stocks(self, stock_codes: List[str]) -> pd.DataFrame:
@@ -43,6 +47,9 @@ class SentimentAnalyzer:
             DataFrame with columns: stock_code, sentiment_score, news_count
         """
         logger.info(f"Starting sentiment analysis for {len(stock_codes)} stocks")
+
+        # 종목별 기사 부산물 초기화 (재실행 시 이전 결과 누수 방지)
+        self.last_stock_news = {}
 
         async with NewsCollector() as collector:
             # Track 1: Market sentiment (계산 후 인스턴스에 보관, fallback 으로도 사용)
@@ -92,9 +99,17 @@ class SentimentAnalyzer:
                     sentiment_score = fallback_sentiment
                     news_count = 0  # 종목 뉴스 없음 → 시장 감성 대체, 기사 수 0
                 else:
-                    # Time-weighted sentiment (newest articles have higher weight)
-                    sentiment_score = self.kr_finbert.analyze_multiple_time_weighted(articles)
+                    # Time-weighted sentiment + per-article scores (single inference pass).
+                    # sentiment_score 는 기존 analyze_multiple_time_weighted 와 동일한 값.
+                    sentiment_score, per_scores = (
+                        self.kr_finbert.analyze_multiple_time_weighted_with_scores(articles)
+                    )
                     news_count = len(articles)  # 실제 분석에 사용된 기사 수
+
+                    # stock_news 영속화용 기사별 레코드 구성 (집계값에는 영향 없음)
+                    self.last_stock_news[stock_code] = self._build_news_records(
+                        articles, per_scores
+                    )
 
                 results.append({
                     'stock_code': stock_code,
@@ -117,6 +132,45 @@ class SentimentAnalyzer:
         logger.info(f"Stock-specific sentiment analysis complete: {len(df)} stocks")
 
         return df
+
+    def _build_news_records(
+        self,
+        articles: List[Dict],
+        per_scores: List[float]
+    ) -> List[Dict]:
+        """
+        Build per-article persistence records for the stock_news table.
+
+        기사별 감성 점수/라벨/키워드를 부착한 레코드 리스트를 만든다. 집계 감성
+        점수에는 영향을 주지 않으며, orchestrator 가 repository.save_stock_news 로
+        영속화하는 입력 형태와 1:1 대응한다.
+
+        Args:
+            articles: collect_stock_news 가 반환한 기사 dict 리스트
+                ({title, content, published, url, source}).
+            per_scores: 각 기사에 대응하는 기사별 감성 점수(-1.0 ~ 1.0).
+                articles 와 동일 순서/길이를 가정한다.
+
+        Returns:
+            List[Dict]: 기사별 레코드 리스트. 각 dict 키는
+            {title, summary, url, source, published_at, sentiment_score,
+             sentiment_label, keywords}.
+        """
+        records = []
+        for article, score in zip(articles, per_scores):
+            title = article.get('title', '')
+            content = article.get('content', '')
+            records.append({
+                'title': title,
+                'summary': content,
+                'url': article.get('url', ''),
+                'source': article.get('source'),
+                'published_at': article.get('published'),
+                'sentiment_score': score,
+                'sentiment_label': score_to_label(score),
+                'keywords': extract_keywords(f"{title} {content}"),
+            })
+        return records
 
     async def _analyze_market_sentiment(self, collector: NewsCollector) -> tuple[float, int]:
         """

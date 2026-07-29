@@ -2,6 +2,14 @@ spring:
   application:
     name: api-server
 
+  # 로컬 실행(IntelliJ/gradlew)에서 공용 시세·DART 키(.env)를 프로퍼티로 로드.
+  # 작업 디렉터리가 api-server/ 든 프로젝트 루트든 잡히도록 두 경로 모두 시도(optional).
+  # docker 등 파일이 없으면 무시되고 env_file 로 주입된다.
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:api-server/.env[.properties]
+
   # Jackson Configuration (LocalDate/LocalDateTime을 한국시간(KST) 기준으로 직렬화)
   jackson:
     time-zone: Asia/Seoul
@@ -61,6 +69,13 @@ jwt:
   access-token-expiration: 3600000    # 1 hour (ms)
   refresh-token-expiration: 86400000  # 24 hours (ms)
 
+# Internal service-to-service API (ai-agent → api-server, /internal/**).
+# X-Internal-Api-Key 헤더로 인증(InternalAuthFilter). 기본값을 두지 않는다(빈 값):
+# INTERNAL_API_KEY 미설정 시 내부 채널은 fail-closed 로 전부 차단되어, 약한 기본 시크릿이
+# 저장소에 노출되는 것을 방지한다. 운영/도커/로컬 모두 INTERNAL_API_KEY 를 주입해야 한다.
+internal:
+  api-key: ${INTERNAL_API_KEY:}
+
 # Jasypt Configuration (Updated to secure algorithm)
 jasypt:
   encryptor:
@@ -80,6 +95,10 @@ kis:
   # - 실전투자: https://openapi.koreainvestment.com:9443
   base-url: https://openapivts.koreainvestment.com:29443
 
+  # 실전(REAL) 매매/잔고 도메인. 계정 account_mode=REAL 인 사용자의 매매/조회/OAuth 가 이 도메인으로 라우팅된다.
+  # (모의는 위 base-url. 도메인 판정은 계정 모드(per-user) 기준 — 전역 flag 아님.)
+  real-base-url: ${KIS_REAL_BASE_URL:https://openapi.koreainvestment.com:9443}
+
   # Access Token 캐시 TTL
   # KIS API Access Token은 24시간 유효
   token-cache-ttl: 86400000  # 24 hours (ms)
@@ -92,11 +111,46 @@ kis:
   quote-app-key: ${KIS_QUOTE_APP_KEY:}
   quote-app-secret: ${KIS_QUOTE_APP_SECRET:}
 
+  # 실시간 시세 WebSocket 브리지 (Phase 1: 호가 + 체결가).
+  # - enabled=false(기본): 상향 연결/엔드포인트 미등록 → 브라우저는 REST 스냅샷 유지(graceful degrade).
+  # - ws-url: 실전 ws://ops.koreainvestment.com:21000, 모의 ws://ops.koreainvestment.com:31000.
+  # - max-symbols: 상향 연결당 구독 상한(MUST-VERIFY ~41). refcount 로 심볼당 1회 등록.
+  # - frame-debug: true 면 TR별 첫 데이터 프레임의 index→value 를 1회 로깅(필드 인덱스 MUST-VERIFY 확정용).
+  realtime:
+    enabled: ${KIS_REALTIME_ENABLED:false}
+    ws-url: ${KIS_REALTIME_WS_URL:ws://ops.koreainvestment.com:21000}
+    max-symbols: ${KIS_REALTIME_MAX_SYMBOLS:40}
+    frame-debug: ${KIS_REALTIME_FRAME_DEBUG:false}
+
+    # 실시간 체결통보(fill notification) — Phase 2 (KR 전용, 사용자 계좌키 + AES 암호 프레임).
+    # - enabled=false(기본): 레지스트리/팩토리 빈 미생성 → 핸들러는 fills 요청에 disabled 안내(graceful degrade). Phase 1 무영향.
+    # - ws-url: 모의 ws://ops.koreainvestment.com:31000 (체결통보=모의 trade 도메인 :31000; 시세 real :21000 과 별개, 교차 금지).
+    # - tr_key = 사용자 HTS ID(user_kis_accounts.hts_id), tr_id = 모의 H0STCNI9 / 실전 H0STCNI0 (ws-url 도메인으로 선택).
+    # - approval/계정키 = 사용자 appkey/secret + kis.base-url(모의). AES key/iv = 구독 ACK output.{key,iv}.
+    # - frame-debug: true 면 첫 복호 체결 프레임의 index→value 를 1회 로깅(필드 인덱스/CNTG_YN/SELN_BYOV_CLS MUST-VERIFY 확정용; 계좌/주문정보 포함 → 운영 false).
+    # - 리스크 #1(MUST-VERIFY): 모의(H0STCNI9)가 체결통보 스트리밍을 지원하는지 불확실. 미지원이면 실계좌 전용.
+    fills:
+      enabled: ${KIS_REALTIME_FILLS_ENABLED:false}
+      ws-url: ${KIS_REALTIME_FILLS_WS_URL:ws://ops.koreainvestment.com:31000}
+      # 실전(REAL) 계정의 체결통보 ws-url (:21000). 계정 account_mode=REAL 인 사용자는 이 도메인 + 실전 TR(H0STCNI0/H0GSCNI0)로 연결.
+      real-ws-url: ${KIS_REALTIME_FILLS_REAL_WS_URL:ws://ops.koreainvestment.com:21000}
+      frame-debug: ${KIS_REALTIME_FILLS_FRAME_DEBUG:false}
+
 # DART (금융감독원 전자공시) Open API Configuration
 dart:
   # 발급키: https://opendart.fss.or.kr (없으면 DART 연동 비활성, DART 필드는 null)
   api-key: ${DART_API_KEY:}
   base-url: https://opendart.fss.or.kr/api
+
+# WebAuthn / Passkey (생체 로그인) Configuration
+# - rp-id : 자격증명이 유효한 도메인. 프론트 origin 의 등록 가능한 부모 도메인이어야 함(로컬=localhost).
+# - rp-name : 인증기 UI 에 표시되는 서비스 이름.
+# - origins : 프론트 실행 origin 목록(콤마 구분). rp-id 와 정확히 일치해야 NotAllowedError 가 안 남.
+# 운영은 HTTPS 도메인으로 교체(WEBAUTHN_RP_ID / WEBAUTHN_ORIGINS).
+webauthn:
+  rp-id: ${WEBAUTHN_RP_ID:localhost}
+  rp-name: ${WEBAUTHN_RP_NAME:FinanceManage}
+  origins: ${WEBAUTHN_ORIGINS:http://localhost:5173}
 
 # CORS Configuration
 cors:
