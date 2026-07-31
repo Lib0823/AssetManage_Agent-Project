@@ -1,0 +1,458 @@
+version: 1
+scope: backend
+entities:
+  - name: User
+    aliases: [사용자, 유저]
+    attributes: [username, email, password, name, phone, birth_date]
+    source_refs:
+      - type: db_table
+        name: users
+    confidence: EXTRACTED
+    manual: false
+  - name: RefreshToken
+    aliases: [리프레시 토큰]
+    attributes: [user_id, token, expires_at, revoked_at]
+    source_refs:
+      - type: db_table
+        name: refresh_tokens
+    confidence: EXTRACTED
+    manual: false
+  - name: UserKisAccount
+    aliases: [KIS 계정, 사용자 KIS 계좌]
+    attributes: [user_id, account_number, app_key, app_secret, is_verified, hts_id, account_mode]
+    source_refs:
+      - type: db_table
+        name: user_kis_accounts
+    confidence: EXTRACTED
+    manual: false
+  - name: UserTradeConfig
+    aliases: [자동매매 설정]
+    attributes: [user_id, order_amount, max_holdings, order_type, is_active]
+    source_refs:
+      - type: db_table
+        name: user_trade_config
+    confidence: EXTRACTED
+    manual: false
+  - name: UserSettings
+    aliases: [사용자 UI 설정]
+    attributes: [user_id, asset_order, dark_mode, auto_login, notifications]
+    source_refs:
+      - type: db_table
+        name: user_settings
+    confidence: EXTRACTED
+    manual: false
+  - name: WebAuthnCredential
+    aliases: [패스키, 생체인증 자격증명]
+    attributes: [credential_id, user_id, public_key_cose, signature_count, transports]
+    source_refs:
+      - type: db_table
+        name: webauthn_credentials
+    confidence: EXTRACTED
+    manual: false
+  - name: StockFilterScore
+    aliases: [종목 필터 스코어, Top30 스코어]
+    attributes: [stock_code, foreign_net_buy, institutional_net_buy, vol_avg_multiple, price_volatility, scaler_score, is_selected]
+    source_refs:
+      - type: db_table
+        name: stock_filter_score
+    confidence: EXTRACTED
+    manual: false
+  - name: StockFinancial
+    aliases: [재무지표]
+    attributes: [per, roe, operating_margin]
+    source_refs:
+      - type: db_table
+        name: stock_financial
+    confidence: EXTRACTED
+    manual: false
+  - name: NewsAnalysis
+    aliases: [뉴스 감성 분석]
+    attributes: [stock_code, sentiment_score, news_count]
+    source_refs:
+      - type: db_table
+        name: news_analysis
+    confidence: EXTRACTED
+    manual: false
+  - name: ProphetForecast
+    aliases: [시계열 예측]
+    attributes: [price_trend, volume_trend, price_uncertainty, yhat_d1_d5]
+    source_refs:
+      - type: db_table
+        name: prophet_forecast
+    confidence: EXTRACTED
+    manual: false
+  - name: AiTradeDecision
+    aliases: [AI 매매 판단, Gemini 판단]
+    attributes: [decision, feature_summary]
+    source_refs:
+      - type: db_table
+        name: ai_trade_decision
+    confidence: EXTRACTED
+    manual: false
+  - name: SafetyFilterResult
+    aliases: [안전망 필터 결과]
+    attributes: [passed, failure_reason, max_quantity, filter_checks]
+    source_refs:
+      - type: db_table
+        name: safety_filter_result
+    confidence: EXTRACTED
+    manual: false
+  - name: StockNews
+    aliases: [종목 뉴스 기사]
+    attributes: [title, summary, url, sentiment, tags]
+    source_refs:
+      - type: db_table
+        name: stock_news
+    confidence: EXTRACTED
+    manual: false
+  - name: MarketDailySummary
+    aliases: [시장 일일 요약]
+    attributes: [kospi_index, market_sentiment_score]
+    source_refs:
+      - type: db_table
+        name: market_daily_summary
+    confidence: EXTRACTED
+    manual: false
+  - name: StockRealtimePrice
+    aliases: [실시간 가격 캐시]
+    source_refs:
+      - type: db_table
+        name: stock_realtime_price
+    confidence: EXTRACTED
+    manual: false
+  - name: UserHolding
+    aliases: [보유 종목]
+    attributes: [profit_loss, profit_loss_rate]
+    source_refs:
+      - type: db_table
+        name: user_holdings
+    confidence: EXTRACTED
+    manual: false
+  - name: TradeExecutionPlan
+    aliases: [매매 실행 계획]
+    source_refs:
+      - type: db_table
+        name: trade_execution_plan
+    confidence: EXTRACTED
+    manual: false
+  - name: FeatureThresholdConfig
+    aliases: [안전망 필터 임계값]
+    source_refs:
+      - type: db_table
+        name: feature_threshold_config
+    confidence: EXTRACTED
+    manual: false
+  - name: TradeHistory
+    aliases: [주문 체결 이력]
+    source_refs:
+      - type: db_table
+        name: trade_history
+    confidence: EXTRACTED
+    manual: false
+  - name: StockMaster
+    aliases: [종목 검색 카탈로그]
+    attributes: [code, name, market, exchange_code, currency]
+    source_refs:
+      - type: db_table
+        name: stock_master
+    confidence: EXTRACTED
+    manual: false
+  - name: UserFavorite
+    aliases: [관심 종목]
+    source_refs:
+      - type: db_table
+        name: user_favorites
+    confidence: EXTRACTED
+    manual: false
+  - name: AuthController
+    aliases: [인증 컨트롤러]
+    attributes: ["/auth/login", "/auth/register", "/auth/refresh", "/auth/logout"]
+    source_refs:
+      - type: java_class
+        path: api-server/src/main/java/com/inbeom/apiserver/controller/AuthController.java
+    confidence: EXTRACTED
+    manual: false
+  - name: UserController
+    attributes: ["/users/me", "/users/settings", "/users/kis-account", "/users/trade-config"]
+    source_refs:
+      - type: java_class
+        path: api-server/src/main/java/com/inbeom/apiserver/controller/UserController.java
+    confidence: EXTRACTED
+    manual: false
+  - name: AssetController
+    attributes: ["/assets/holdings", "/assets/balance"]
+    source_refs:
+      - type: java_class
+        path: api-server/src/main/java/com/inbeom/apiserver/controller/AssetController.java
+    confidence: EXTRACTED
+    manual: false
+  - name: TradingController
+    attributes: ["/trading/buy", "/trading/sell", "/trading/history", "/trading/pending-orders"]
+    source_refs:
+      - type: java_class
+        path: api-server/src/main/java/com/inbeom/apiserver/controller/TradingController.java
+    confidence: EXTRACTED
+    manual: false
+  - name: CompanyController
+    attributes: ["/company/{stockCode}/basic-info", "/company/{stockCode}/financials", "/company/{stockCode}/disclosures"]
+    source_refs:
+      - type: java_class
+        path: api-server/src/main/java/com/inbeom/apiserver/controller/CompanyController.java
+    confidence: EXTRACTED
+    manual: false
+  - name: StockController
+    attributes: ["/stocks/search", "/stocks/{stockCode}/price", "/stocks/{stockCode}/orderbook"]
+    source_refs:
+      - type: java_class
+        path: api-server/src/main/java/com/inbeom/apiserver/controller/StockController.java
+    confidence: EXTRACTED
+    manual: false
+  - name: FavoriteController
+    attributes: ["/favorites"]
+    source_refs:
+      - type: java_class
+        path: api-server/src/main/java/com/inbeom/apiserver/controller/FavoriteController.java
+    confidence: EXTRACTED
+    manual: false
+  - name: OverseasController
+    attributes: ["/overseas/stocks/{symbol}/price", "/overseas/balance", "/overseas/buy", "/overseas/sell"]
+    source_refs:
+      - type: java_class
+        path: api-server/src/main/java/com/inbeom/apiserver/controller/OverseasController.java
+    confidence: EXTRACTED
+    manual: false
+  - name: MarketAnalysisController
+    attributes: ["/market/summary", "/market/sentiment", "/market/decisions", "/market/heatmap"]
+    source_refs:
+      - type: java_class
+        path: api-server/src/main/java/com/inbeom/apiserver/controller/MarketAnalysisController.java
+    confidence: EXTRACTED
+    manual: false
+  - name: MarketDataController
+    attributes: ["/market/indices", "/market/exchange-rates", "/market/news"]
+    source_refs:
+      - type: java_class
+        path: api-server/src/main/java/com/inbeom/apiserver/controller/MarketDataController.java
+    confidence: EXTRACTED
+    manual: false
+  - name: ApiResponse
+    aliases: [응답 래퍼, 공통 응답 포맷]
+    attributes: [success, message, data]
+    confidence: EXTRACTED
+    manual: false
+  - name: GlobalExceptionHandler
+    aliases: [전역 예외 처리기]
+    confidence: EXTRACTED
+    manual: false
+  - name: StockFilter
+    aliases: [종목 필터, Top30 필터]
+    source_refs:
+      - type: python_class
+        path: ai-agent/analysis/filter.py
+    confidence: EXTRACTED
+    manual: false
+  - name: QuantitativeAnalyzer
+    aliases: [정량 분석기]
+    source_refs:
+      - type: python_class
+        path: ai-agent/analysis/quantitative.py
+    confidence: EXTRACTED
+    manual: false
+  - name: SentimentAnalyzer
+    aliases: [감성 분석기]
+    source_refs:
+      - type: python_class
+        path: ai-agent/analysis/sentiment.py
+    confidence: EXTRACTED
+    manual: false
+  - name: TimeSeriesAnalyzer
+    aliases: [시계열 분석기]
+    source_refs:
+      - type: python_class
+        path: ai-agent/analysis/timeseries.py
+    confidence: EXTRACTED
+    manual: false
+  - name: TradingDecisionGenerator
+    aliases: [매매 판단 생성기]
+    source_refs:
+      - type: python_class
+        path: ai-agent/ai/decision_generator.py
+    confidence: EXTRACTED
+    manual: false
+  - name: SafetyFilter
+    aliases: [안전망 필터]
+    source_refs:
+      - type: python_class
+        path: ai-agent/filters/safety_filter.py
+    confidence: EXTRACTED
+    manual: false
+  - name: TradeExecutor
+    aliases: [매매 실행기]
+    source_refs:
+      - type: python_class
+        path: ai-agent/execution/trade_executor.py
+    confidence: EXTRACTED
+    manual: false
+  - name: GeminiClient
+    aliases: [Gemini AI 클라이언트]
+    source_refs:
+      - type: python_class
+        path: ai-agent/ai/gemini_client.py
+    confidence: EXTRACTED
+    manual: false
+  - name: KISClient
+    aliases: [KIS API 클라이언트]
+    source_refs:
+      - type: python_class
+        path: ai-agent/collectors/kis_client.py
+    confidence: EXTRACTED
+    manual: false
+  - name: DARTAPIClient
+    aliases: [DART API 클라이언트]
+    source_refs:
+      - type: python_class
+        path: ai-agent/collectors/dart_client.py
+    confidence: EXTRACTED
+    manual: false
+  - name: NewsCollector
+    aliases: [뉴스 수집기]
+    source_refs:
+      - type: python_class
+        path: ai-agent/collectors/news_collector.py
+    confidence: EXTRACTED
+    manual: false
+  - name: KRFinBERTAnalyzer
+    aliases: [KR-FinBERT 모델]
+    source_refs:
+      - type: python_class
+        path: ai-agent/models/kr_finbert.py
+    confidence: EXTRACTED
+    manual: false
+  - name: ProphetForecaster
+    aliases: [Prophet 예측기]
+    source_refs:
+      - type: python_class
+        path: ai-agent/models/prophet_trainer.py
+    confidence: EXTRACTED
+    manual: false
+  - name: WebApp
+    aliases: [web-app, Vue3 프론트엔드]
+    confidence: EXTRACTED
+    manual: false
+  - name: ApiServer
+    aliases: [api-server, Spring Boot 백엔드]
+    confidence: EXTRACTED
+    manual: false
+  - name: AiAgent
+    aliases: [ai-agent, FastAPI 파이프라인]
+    confidence: EXTRACTED
+    manual: false
+
+relations:
+  - {from: User, to: RefreshToken, type: HAS, confidence: EXTRACTED, manual: false}
+  - {from: User, to: UserKisAccount, type: HAS, confidence: EXTRACTED, manual: false}
+  - {from: User, to: UserTradeConfig, type: HAS, confidence: EXTRACTED, manual: false}
+  - {from: User, to: UserSettings, type: HAS, confidence: EXTRACTED, manual: false}
+  - {from: User, to: WebAuthnCredential, type: HAS, confidence: EXTRACTED, manual: false}
+  - {from: User, to: UserFavorite, type: HAS, confidence: EXTRACTED, manual: false}
+  - {from: User, to: UserHolding, type: HAS, confidence: INFERRED, manual: false}
+  - {from: StockFilterScore, to: StockMaster, type: REFERENCES, confidence: INFERRED, manual: false}
+  - {from: StockFilter, to: StockFilterScore, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: QuantitativeAnalyzer, to: StockFinancial, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: QuantitativeAnalyzer, to: StockFilterScore, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: SentimentAnalyzer, to: NewsAnalysis, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: SentimentAnalyzer, to: KRFinBERTAnalyzer, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: SentimentAnalyzer, to: NewsCollector, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: TimeSeriesAnalyzer, to: ProphetForecast, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: TimeSeriesAnalyzer, to: ProphetForecaster, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: TradingDecisionGenerator, to: AiTradeDecision, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: TradingDecisionGenerator, to: GeminiClient, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: TradingDecisionGenerator, to: StockFilterScore, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: TradingDecisionGenerator, to: StockFinancial, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: TradingDecisionGenerator, to: NewsAnalysis, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: TradingDecisionGenerator, to: ProphetForecast, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: SafetyFilter, to: SafetyFilterResult, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: SafetyFilter, to: AiTradeDecision, type: REFERENCES, confidence: EXTRACTED, manual: false}
+  - {from: SafetyFilter, to: FeatureThresholdConfig, type: REFERENCES, confidence: EXTRACTED, manual: false}
+  - {from: SafetyFilter, to: UserTradeConfig, type: REFERENCES, confidence: EXTRACTED, manual: false}
+  - {from: TradeExecutor, to: TradeExecutionPlan, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: TradeExecutor, to: SafetyFilterResult, type: REFERENCES, confidence: EXTRACTED, manual: false}
+  - {from: TradeExecutor, to: ApiServer, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: TradeHistory, to: TradeExecutionPlan, type: REFERENCES, confidence: INFERRED, manual: false}
+  - {from: AuthController, to: User, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: AuthController, to: RefreshToken, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: AuthController, to: WebAuthnCredential, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: UserController, to: User, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: UserController, to: UserKisAccount, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: UserController, to: UserTradeConfig, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: UserController, to: UserSettings, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: AssetController, to: KISClient, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: AssetController, to: UserHolding, type: REFERENCES, confidence: EXTRACTED, manual: false}
+  - {from: TradingController, to: KISClient, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: TradingController, to: TradeHistory, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: CompanyController, to: DARTAPIClient, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: CompanyController, to: KISClient, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: StockController, to: StockMaster, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: StockController, to: KISClient, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: FavoriteController, to: UserFavorite, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: FavoriteController, to: StockMaster, type: REFERENCES, confidence: EXTRACTED, manual: false}
+  - {from: OverseasController, to: KISClient, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: MarketAnalysisController, to: AiTradeDecision, type: REFERENCES, confidence: EXTRACTED, manual: false}
+  - {from: MarketAnalysisController, to: NewsAnalysis, type: REFERENCES, confidence: EXTRACTED, manual: false}
+  - {from: MarketAnalysisController, to: ProphetForecast, type: REFERENCES, confidence: EXTRACTED, manual: false}
+  - {from: MarketAnalysisController, to: StockFilterScore, type: REFERENCES, confidence: EXTRACTED, manual: false}
+  - {from: MarketDataController, to: KISClient, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: GlobalExceptionHandler, to: ApiResponse, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: WebApp, to: ApiServer, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: ApiServer, to: KISClient, type: REFERENCES, confidence: INFERRED, manual: false}
+  - {from: ApiServer, to: DARTAPIClient, type: REFERENCES, confidence: INFERRED, manual: false}
+  - {from: AiAgent, to: StockFilter, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: AiAgent, to: QuantitativeAnalyzer, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: AiAgent, to: SentimentAnalyzer, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: AiAgent, to: TimeSeriesAnalyzer, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: AiAgent, to: TradingDecisionGenerator, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: AiAgent, to: SafetyFilter, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: AiAgent, to: TradeExecutor, type: USES, confidence: EXTRACTED, manual: false}
+  - {from: AiAgent, to: ApiServer, type: USES, confidence: EXTRACTED, manual: false}
+
+rules:
+  - entity: StockFilter
+    text: "score = |외국인 순매수|*0.3 + |기관 순매수|*0.3 + 거래량 배율*0.3 + 가격 변동성*0.1 — StandardScaler는 매일 당일 100종목 기준으로 새로 fit"
+    confidence: EXTRACTED
+    manual: false
+  - entity: StockFilterScore
+    text: "보유 종목은 매도 분석을 보장하기 위해 최종 Top 30에 무조건 강제 포함된다"
+    confidence: EXTRACTED
+    manual: false
+  - entity: SafetyFilter
+    text: "매수 승인은 11개 규칙(수급 방향, 감성 임계값, PER/ROE/영업이익률, 추세, 종가 위치 등)을 모두 통과해야 한다"
+    confidence: EXTRACTED
+    manual: false
+  - entity: TradeExecutor
+    text: "user_trade_config.is_active가 false면 매매를 실행하지 않고 status:'skipped'로 종료한다"
+    confidence: EXTRACTED
+    manual: false
+  - entity: UserKisAccount
+    text: "app_key/app_secret은 Jasypt(PBEWITHHMACSHA512ANDAES_256)로 암호화되어 저장된다"
+    confidence: EXTRACTED
+    manual: false
+  - entity: User
+    text: "로그인은 KIS 계정 연동이 필수 전제조건이며, 자격증명이 맞아도 KIS 계정이 없으면 로그인할 수 없다"
+    confidence: EXTRACTED
+    manual: false
+  - entity: AiTradeDecision
+    text: "Gemini 응답은 buy_top3/sell_top3 각각 정확히 3개 종목을 포함해야 하며 구조·중복·매수매도 겹침을 검증한다"
+    confidence: EXTRACTED
+    manual: false
+  - entity: TradeExecutionPlan
+    text: "스키마 변경의 단일 소스는 Liquibase changelog이며, database/schema.sql은 자동 생성된 스냅샷으로 직접 편집이 금지된다"
+    confidence: EXTRACTED
+    manual: false
+  - entity: SentimentAnalyzer
+    text: "시장 전반 트랙(RSS)은 전체 기사 단순 평균, 종목별 트랙(네이버 금융)은 최신 5건을 시간 가중 평균(5,4,3,2,1)으로 집계한다"
+    confidence: EXTRACTED
+    manual: false
+  - entity: TimeSeriesAnalyzer
+    text: "Prophet은 종목별 독립 학습이며 매일 새로 fit하고 모델을 저장하지 않는다(DB 저장 없이 KIS 직접 조회)"
+    confidence: EXTRACTED
+    manual: false

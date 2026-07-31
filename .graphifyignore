@@ -1,0 +1,8 @@
+target/          # Maven 빌드 산출물
+build/           # Gradle 빌드 산출물
+.gradle/
+*.class
+node_modules/    # Vue2 프론트 의존성
+dist/
+*.min.js
+.venv/

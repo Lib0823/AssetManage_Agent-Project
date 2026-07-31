@@ -1,3 +1,37 @@
+# === DevKit 라우팅 규칙 (자동 생성) ===
+<!-- setup-all 이 설치된 컴포넌트 블록만 골라 주입. 이미 이 블록이 있으면 교체(중복 주입 금지). -->
+
+## [graphify 설치 시]
+코드베이스 질문은 파일을 열기 전에 먼저 Graphify로 범위를 좁힌다.
+graphify query/path/explain로 관련 노드를 찾고, 근거가 필요한 파일만 연다.
+INFERRED 관계는 소스에서 재확인한다.
+
+## [ontology 설치 시]
+도메인/비즈니스 개념 질문은 devkit/ontology.yaml을 먼저 참조한다.
+개체의 코드 근거가 필요하면 source_refs를 따라간다.
+온톨로지 수정 시 ontology.yaml을 갱신하고 manual: true로 표시한다.
+
+## [harness 설치 시]
+복잡한 다단계 작업은 구축된 Agent Team이 자동 발동한다.
+(실행에는 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 필요)
+
+## [superpowers 설치 시]
+TDD·디버깅·계획 수립 등 범용 작업 패턴은 설치된 superpowers 스킬이 자동 발동한다.
+(이 규칙은 보험 — superpowers 스킬 자체의 pushy description이 1차 트리거, harness와 동일 계층)
+
+# === /DevKit 라우팅 규칙 ===
+
+## 하네스: FinanceManage_Agent 개발/유지보수
+
+**목표:** web-app/api-server/ai-agent 3개 모듈에 걸친 개발·유지보수 작업을 담당 전문가에게 라우팅하고, 경계면(API 계약·DB 컬럼) 정합성을 지속 검증한다.
+
+**트리거:** 기능 추가·버그 수정·리팩토링 등 개발 작업 요청 시 `finance-agent-orchestrator` 스킬을 사용하라. 단순 질문(코드 설명, 문서 조회)은 직접 응답 가능.
+
+**변경 이력:**
+| 날짜 | 변경 내용 | 대상 | 사유 |
+|------|----------|------|------|
+| 2026-08-01 | 초기 구성 (backend-engineer, ai-pipeline-engineer, frontend-engineer, integration-qa + finance-agent-orchestrator) | 전체 | /setup-all harness 최초 구축 |
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -237,3 +271,13 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 
 ### Analysis View Files
 - `web-app/analysis_view/overview.html`, `web-app/analysis_view/stock_detail.html` — Vue3 라우터와 별개의 정적 HTML 분석 화면
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
