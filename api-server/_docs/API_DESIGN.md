@@ -19,7 +19,6 @@
    - [MarketAnalysisController (/market)](#59-marketanalysiscontroller-market)
    - [MarketDataController (/market)](#510-marketdatacontroller-market)
    - [HealthController (/health)](#511-healthcontroller-health)
-   - [TestController (/test)](#512-testcontroller-test)
 6. [관련 문서](#6-관련-문서)
 
 ---
@@ -234,14 +233,6 @@ AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요
 |--------|------|--------------|------|
 | GET | `/health` | `Map{status, timestamp, version}` | 헬스 체크 |
 | GET | `/health/db` | `Map` | PostgreSQL 연결 테스트 |
-
-### 5.12 TestController (/test)
-
-전체 PUBLIC, 개발 전용.
-
-| Method | Path | 응답 data(T) | 설명 |
-|--------|------|--------------|------|
-| GET | `/test/bcrypt/{password}` | `Map` | BCrypt 해시 생성 + 검증. 개발 유틸리티 |
 
 ---
 

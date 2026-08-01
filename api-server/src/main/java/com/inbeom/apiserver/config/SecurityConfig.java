@@ -42,7 +42,7 @@ public class SecurityConfig {
                 // /ws/** : 실시간 WebSocket 핸드셰이크. 인증은 JwtHandshakeInterceptor(?token=)가 수행.
                 // JwtAuthenticationFilter 는 Authorization 헤더만 보므로 WS upgrade 요청엔 무해.
                 // /internal/** : ai-agent 서비스-투-서비스 채널. 인증은 InternalAuthFilter(X-Internal-Api-Key)가 수행.
-                .requestMatchers("/health", "/health/**", "/auth/**", "/actuator/**", "/test/**", "/market/**", "/company/**", "/stocks/**", "/overseas/stocks/**", "/news/**", "/ws/**", "/internal/**").permitAll()
+                .requestMatchers("/health", "/health/**", "/auth/**", "/actuator/**", "/market/**", "/company/**", "/stocks/**", "/overseas/stocks/**", "/news/**", "/ws/**", "/internal/**").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(internalAuthFilter, UsernamePasswordAuthenticationFilter.class)

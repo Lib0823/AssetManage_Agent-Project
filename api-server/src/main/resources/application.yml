@@ -64,8 +64,10 @@ server:
       force: true
 
 # JWT Configuration
+# secret 기본값을 두지 않는다(빈 값): JWT_SECRET 미설정 시 JwtTokenProvider 가 기동을 중단시킨다.
+# 저장소에 공개된 기본 키로 조용히 기동하면 누구나 토큰을 위조할 수 있다. 최소 32바이트(256bit).
 jwt:
-  secret: ${JWT_SECRET:financemanage-secret-key-for-jwt-token-generation-minimum-32-characters-production-ready}
+  secret: ${JWT_SECRET:}
   access-token-expiration: 3600000    # 1 hour (ms)
   refresh-token-expiration: 86400000  # 24 hours (ms)
 
@@ -77,9 +79,11 @@ internal:
   api-key: ${INTERNAL_API_KEY:}
 
 # Jasypt Configuration (Updated to secure algorithm)
+# password 기본값을 두지 않는다(빈 값): JASYPT_PASSWORD 미설정 시 JasyptConfig 가 기동을 중단시킨다.
+# 공개된 기본 키로 기동하면 user_kis_accounts 의 app_key/app_secret 을 누구나 복호화할 수 있다.
 jasypt:
   encryptor:
-    password: ${JASYPT_PASSWORD:default-encryption-key-change-in-production-minimum-32-characters}
+    password: ${JASYPT_PASSWORD:}
     algorithm: PBEWITHHMACSHA512ANDAES_256
     key-obtention-iterations: 1000
     pool-size: 1

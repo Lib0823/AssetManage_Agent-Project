@@ -40,14 +40,20 @@ const realtimeMarket = computed(() => (isOverseas.value ? 'US' : 'KR'))
 // 활성 구독 해제 함수들 (심볼 변경/언마운트 시 정리 → 구독상한 관리)
 let realtimeUnsubs = []
 
+// price/maxQuantity/maxPrice는 조회 성공 시에만 채운다. 기본값을 두면 KIS
+// 점검/서버 다운 상태에서 그 값이 실시세처럼 보이고 그대로 주문이 나간다.
 const orderForm = ref({
   type: 'market',
   time: '09:00 ~ 15:30',
   quantity: 1,
-  maxQuantity: 100,
-  price: 71500,
-  maxPrice: 1000000
+  maxQuantity: null,
+  price: null,
+  maxPrice: null
 })
+
+// 시세/주문가능 조회 진행 여부 (조회 중 vs 조회 실패를 화면에서 구분)
+const quoteLoading = ref(true)
+const orderableLoading = ref(true)
 
 // 실시간 시세
 const currentPrice = ref(null)
@@ -103,6 +109,39 @@ const currentPriceKrw = computed(() => {
   if (!isOverseas.value || usdRate.value == null || currentPrice.value == null) return null
   return Number(currentPrice.value) * Number(usdRate.value)
 })
+
+const quantityValue = computed(() => {
+  const n = parseInt(orderForm.value.quantity, 10)
+  return Number.isFinite(n) ? n : 0
+})
+
+const priceValue = computed(() => {
+  const n = Number(orderForm.value.price)
+  return Number.isFinite(n) ? n : 0
+})
+
+// 시세/주문가능 조회가 아직 진행 중인가 (매수 한도는 국내·해외 모두 조회한다)
+const marketDataLoading = computed(() => quoteLoading.value || orderableLoading.value)
+
+// 주문 제출 차단 사유 (null이면 제출 가능). 시세·주문가능 조회가 실패한 상태에서
+// 추정값으로 주문이 나가는 사고를 막는다.
+const orderBlockReason = computed(() => {
+  if (marketDataLoading.value) return '시세를 불러오는 중입니다.'
+  if (currentPrice.value == null) return '시세를 불러오지 못해 주문할 수 없습니다.'
+  if (quantityValue.value <= 0) return '수량을 입력해 주세요.'
+  if (priceValue.value <= 0) return '가격을 입력해 주세요.'
+  if (activeTab.value === 'buy') {
+    if (orderForm.value.maxQuantity == null) {
+      return '주문 가능 수량을 불러오지 못해 주문할 수 없습니다.'
+    }
+    if (quantityValue.value > orderForm.value.maxQuantity) {
+      return `주문 가능 수량(${formatNumber(orderForm.value.maxQuantity)}주)을 초과했습니다.`
+    }
+  }
+  return null
+})
+
+const canSubmitOrder = computed(() => orderBlockReason.value === null)
 
 // 현재 일시 (ko-KR)
 const currentDateTime = computed(() => {
@@ -170,6 +209,8 @@ const loadPrice = async () => {
   } catch (error) {
     logger.debug('Failed to load price:', error)
     priceNotice.value = '시세 미연동'
+  } finally {
+    quoteLoading.value = false
   }
 }
 
@@ -201,6 +242,8 @@ const loadOverseasPrice = async () => {
     changeAmount.value = null
     changeRate.value = null
     priceNotice.value = '해외 시세 미연동'
+  } finally {
+    quoteLoading.value = false
   }
 }
 
@@ -262,31 +305,42 @@ const loadOrderable = async () => {
     const data = response?.data || {}
     if (data.notice) {
       orderableNotice.value = data.notice
+      orderForm.value.maxQuantity = null
+      orderForm.value.maxPrice = null
       return
     }
     orderableNotice.value = null
     // 국내: maxBuyQuantity, 해외: maxBuyQty
     const maxQty = data.maxBuyQuantity ?? data.maxBuyQty
-    if (maxQty != null) {
-      orderForm.value.maxQuantity = Number(maxQty)
-    }
-    if (data.orderableCash != null) {
-      orderForm.value.maxPrice = Number(data.orderableCash)
-    }
+    orderForm.value.maxQuantity = maxQty != null ? Number(maxQty) : null
+    orderForm.value.maxPrice = data.orderableCash != null ? Number(data.orderableCash) : null
   } catch (error) {
     logger.debug('Failed to load orderable:', error)
     orderableNotice.value = '주문가능 미연동'
+    // 조회 실패 상태에서 이전 값이 남아 유효한 한도처럼 보이면 안 된다.
+    orderForm.value.maxQuantity = null
+    orderForm.value.maxPrice = null
+  } finally {
+    orderableLoading.value = false
   }
 }
 
 // "최대" 선택 시 수량을 주문가능 최대로 (국내 전용)
 const setMaxQuantity = (event) => {
-  if (event.target.checked) {
+  if (event.target.checked && orderForm.value.maxQuantity != null) {
     orderForm.value.quantity = orderForm.value.maxQuantity
   }
 }
 
 const loadMarketData = async () => {
+  // 심볼 전환 시 이전 종목의 시세/한도가 남지 않도록 초기화
+  quoteLoading.value = true
+  orderableLoading.value = true
+  currentPrice.value = null
+  changeAmount.value = null
+  changeRate.value = null
+  orderForm.value.maxQuantity = null
+  orderForm.value.maxPrice = null
   await loadPrice()
   if (isOverseas.value) {
     await Promise.all([loadExchangeRate(), loadOrderbook(), loadOrderable()])
@@ -363,6 +417,11 @@ const stopRealtime = () => {
 
 const placeOrder = async () => {
   if (loading.value) return
+  // 버튼 비활성화와 별개의 최종 가드 (키보드 submit·연타 대비)
+  if (!canSubmitOrder.value) {
+    showError(orderBlockReason.value)
+    return
+  }
 
   try {
     loading.value = true
@@ -801,51 +860,35 @@ const realtimeNotice = computed(() => {
         </div>
       </div>
 
+      <!-- KIS 점검/연동 불가: 가짜 호가 대신 점검 안내 (실제 없는 가격에 주문하는 사고 방지).
+           호가 컬럼(100px) 안에 넣으면 글자가 세로로 흐르므로 폼 위 전체 폭에 배너로 둔다. -->
+      <KisMaintenanceNotice v-if="orderbookKisDown" variant="card" class="orderbook-down-notice" />
+
       <!-- Trading Form -->
       <div class="trading-form">
-        <!-- Price List (Order Book) — 국내 전용 -->
-        <div v-if="!isOverseas" class="price-list">
-          <!-- KIS 점검/연동 불가: 가짜 호가 대신 점검 안내 (실제 없는 가격에 주문하는 사고 방지) -->
-          <KisMaintenanceNotice v-if="orderbookKisDown" variant="card" />
-          <template v-else>
-            <div
-              v-for="(row, idx) in orderbookRows"
-              :key="`${row.side}-${row.price}-${idx}`"
-              :class="[
-                'price-item',
-                row.side,
-                { highlight: nearestPrice != null && row.price === nearestPrice }
-              ]"
-              @click="selectPrice(row.price)"
-            >
-              <span class="price-item-price">{{ formatNumber(row.price) }}</span>
-              <span v-if="row.quantity != null" class="price-item-qty">{{ formatNumber(row.quantity) }}</span>
-            </div>
-            <div v-if="orderbookRows.length === 0" class="price-item empty">호가 없음</div>
-            <p v-if="orderbookNotice" class="notice-text orderbook-notice">{{ orderbookNotice }}</p>
-          </template>
-        </div>
-
-        <!-- 해외 호가 (KIS 해외 1호가 — 매수/매도 각 1단계) -->
-        <div v-else class="price-list overseas-orderbook">
-          <KisMaintenanceNotice v-if="orderbookKisDown" variant="card" />
-          <template v-else>
-            <div
-              v-for="(row, idx) in orderbookRows"
-              :key="`${row.side}-${row.price}-${idx}`"
-              :class="[
-                'price-item',
-                row.side,
-                { highlight: nearestPrice != null && row.price === nearestPrice }
-              ]"
-              @click="selectPrice(row.price)"
-            >
-              <span class="price-item-price">${{ formatUsd(row.price) }}</span>
-              <span v-if="row.quantity != null" class="price-item-qty">{{ formatNumber(row.quantity) }}</span>
-            </div>
-            <div v-if="orderbookRows.length === 0" class="price-item empty">호가 없음</div>
-            <p v-if="orderbookNotice" class="notice-text orderbook-notice">{{ orderbookNotice }}</p>
-          </template>
+        <!-- Price List (Order Book) — 국내는 10호가, 해외(US)는 1호가 -->
+        <div
+          v-if="!orderbookKisDown"
+          :class="['price-list', { 'overseas-orderbook': isOverseas }]"
+        >
+          <div
+            v-for="(row, idx) in orderbookRows"
+            :key="`${row.side}-${row.price}-${idx}`"
+            :class="[
+              'price-item',
+              row.side,
+              { highlight: nearestPrice != null && row.price === nearestPrice }
+            ]"
+            @click="selectPrice(row.price)"
+          >
+            <span class="price-item-price">
+              <template v-if="isOverseas">${{ formatUsd(row.price) }}</template>
+              <template v-else>{{ formatNumber(row.price) }}</template>
+            </span>
+            <span v-if="row.quantity != null" class="price-item-qty">{{ formatNumber(row.quantity) }}</span>
+          </div>
+          <div v-if="orderbookRows.length === 0" class="price-item empty">호가 없음</div>
+          <p v-if="orderbookNotice" class="notice-text orderbook-notice">{{ orderbookNotice }}</p>
         </div>
 
         <!-- Order Form -->
@@ -880,25 +923,51 @@ const realtimeNotice = computed(() => {
               <span class="form-label">수량</span>
               <div class="form-input-group">
                 <input type="text" v-model="orderForm.quantity" class="form-input" />
-                <span v-if="!isOverseas" class="form-hint">
-                  주문 가능 {{ formatNumber(orderForm.maxQuantity) }}주
+                <span
+                  v-if="!isOverseas"
+                  :class="[
+                    'form-hint',
+                    { 'form-hint-error': !orderableLoading && orderForm.maxQuantity == null }
+                  ]"
+                >
+                  <template v-if="orderableLoading">주문 가능 수량 조회 중…</template>
+                  <template v-else-if="orderForm.maxQuantity == null">주문 가능 수량 조회 실패</template>
+                  <template v-else>주문 가능 {{ formatNumber(orderForm.maxQuantity) }}주</template>
                 </span>
                 <label v-if="!isOverseas" class="checkbox-small">
-                  <input type="checkbox" @change="setMaxQuantity" /> 최대
+                  <input type="checkbox" :disabled="orderForm.maxQuantity == null" @change="setMaxQuantity" /> 최대
                 </label>
               </div>
             </div>
             <div class="form-row">
               <span class="form-label">가격</span>
               <div class="form-input-group">
-                <input type="text" v-model="orderForm.price" class="form-input" />
+                <input
+                  type="text"
+                  v-model="orderForm.price"
+                  class="form-input"
+                  :placeholder="quoteLoading ? '시세 조회 중…' : '가격 입력'"
+                />
                 <span v-if="isOverseas" class="form-hint">지정가 전용 (USD)</span>
-                <span v-else class="form-hint">주문 가능 {{ formatNumber(orderForm.maxPrice) }}원</span>
+                <span
+                  v-else
+                  :class="[
+                    'form-hint',
+                    { 'form-hint-error': !orderableLoading && orderForm.maxPrice == null }
+                  ]"
+                >
+                  <template v-if="orderableLoading">주문 가능 금액 조회 중…</template>
+                  <template v-else-if="orderForm.maxPrice == null">주문 가능 금액 조회 실패</template>
+                  <template v-else>주문 가능 {{ formatNumber(orderForm.maxPrice) }}원</template>
+                </span>
               </div>
             </div>
             <div class="form-row total">
               <span class="form-label">총 {{ activeTab === 'buy' ? '매수' : '매도' }} 금액</span>
-              <span class="form-total">{{ formatMoney(totalAmount) }}</span>
+              <span class="form-total">
+                <template v-if="priceValue > 0 && quantityValue > 0">{{ formatMoney(totalAmount) }}</template>
+                <template v-else>—</template>
+              </span>
             </div>
             <!-- 해외 총액 KRW 병기 -->
             <div v-if="isOverseas && totalAmountKrw != null" class="form-row krw-row">
@@ -918,10 +987,11 @@ const realtimeNotice = computed(() => {
             </div>
           </div>
 
-          <!-- Submit Button -->
+          <!-- Submit Button — 시세/주문가능 조회 실패 시 비활성화 (이유 명시) -->
+          <p v-if="orderBlockReason" class="order-block-reason">{{ orderBlockReason }}</p>
           <button
             :class="['submit-btn', activeTab]"
-            :disabled="loading"
+            :disabled="loading || !canSubmitOrder"
             @click="placeOrder"
           >
             {{ activeTab === 'buy' ? '매수' : '매도' }} 주문
@@ -1221,6 +1291,10 @@ const realtimeNotice = computed(() => {
   gap: var(--spacing-md);
 }
 
+.orderbook-down-notice {
+  margin-bottom: var(--spacing-md);
+}
+
 .price-list {
   flex: 0 0 100px;
   display: flex;
@@ -1360,6 +1434,16 @@ const realtimeNotice = computed(() => {
 .form-hint {
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
+}
+
+.form-hint-error {
+  color: var(--color-warning);
+}
+
+.order-block-reason {
+  margin-top: var(--spacing-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-warning);
 }
 
 .checkbox-small {
