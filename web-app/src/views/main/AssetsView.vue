@@ -331,7 +331,7 @@ const handleRefresh = () => {
 </script>
 
 <template>
-  <div class="assets-screen">
+  <div class="assets-screen dark-canvas">
     <AppHeader title="자산 정보" showIcon icon="assets" show-kis-mode />
 
     <div class="header-actions">

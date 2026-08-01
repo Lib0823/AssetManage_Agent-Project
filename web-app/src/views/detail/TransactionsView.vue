@@ -266,7 +266,7 @@ const getTypeLabel = (type) => {
 </script>
 
 <template>
-  <div class="transactions-screen">
+  <div class="transactions-screen dark-canvas">
     <AppHeader title="거래 내역" showIcon icon="news" />
 
     <div class="content">

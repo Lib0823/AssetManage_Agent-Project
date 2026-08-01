@@ -266,7 +266,7 @@ const isStockExpanded = (symbol) => {
 </script>
 
 <template>
-  <div class="bot-screen">
+  <div class="bot-screen dark-canvas">
     <AppHeader title="투자 봇" showIcon icon="bot" show-kis-mode />
 
     <div class="content">

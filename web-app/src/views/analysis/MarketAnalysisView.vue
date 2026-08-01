@@ -617,7 +617,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="market-analysis-screen">
+  <div class="market-analysis-screen dark-canvas">
     <AppHeader title="종합분석" :showBack="true" @back="goBack">
       <template #right>
         <div class="header-meta">

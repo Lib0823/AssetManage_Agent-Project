@@ -181,7 +181,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="favorites-screen">
+  <div class="favorites-screen dark-canvas">
     <AppHeader title="관심 종목" showIcon icon="star" />
 
     <div class="content">
