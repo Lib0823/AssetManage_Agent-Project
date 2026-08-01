@@ -92,24 +92,53 @@
   --nav-height: 54px;
   --bottom-nav-height: 73px;
   --tab-height: 44px;
+
+  /* Dark Surface Palette — consumed by the OS dark theme and by .dark-canvas */
+  --dark-bg-primary: #1F2937;
+  --dark-bg-secondary: #111827;
+  --dark-bg-tertiary: #374151;
+  --dark-bg-card: #1F2937;
+  --dark-bg-highlight: #312E81;
+  --dark-text-primary: #F9FAFB;
+  --dark-text-secondary: #D1D5DB;
+  --dark-text-tertiary: #9CA3AF;
+  --dark-border: #374151;
+  --dark-border-light: #4B5563;
 }
 
 /* Dark Mode */
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-bg-primary: #1F2937;
-    --color-bg-secondary: #111827;
-    --color-bg-tertiary: #374151;
-    --color-bg-card: #1F2937;
-    --color-bg-highlight: #312E81;
+    --color-bg-primary: var(--dark-bg-primary);
+    --color-bg-secondary: var(--dark-bg-secondary);
+    --color-bg-tertiary: var(--dark-bg-tertiary);
+    --color-bg-card: var(--dark-bg-card);
+    --color-bg-highlight: var(--dark-bg-highlight);
 
-    --color-text-primary: #F9FAFB;
-    --color-text-secondary: #D1D5DB;
-    --color-text-tertiary: #9CA3AF;
+    --color-text-primary: var(--dark-text-primary);
+    --color-text-secondary: var(--dark-text-secondary);
+    --color-text-tertiary: var(--dark-text-tertiary);
 
-    --color-border: #374151;
-    --color-border-light: #4B5563;
+    --color-border: var(--dark-border);
+    --color-border-light: var(--dark-border-light);
   }
+}
+
+/* Screens whose canvas is hardcoded dark (#0F172A) regardless of OS theme.
+   Without this, a light OS theme renders #1F2937 text on that canvas (~1.2:1). */
+.dark-canvas {
+  --color-bg-primary: var(--dark-bg-primary);
+  --color-bg-secondary: var(--dark-bg-secondary);
+  --color-bg-tertiary: var(--dark-bg-tertiary);
+  --color-bg-card: var(--dark-bg-card);
+  --color-bg-highlight: var(--dark-bg-highlight);
+
+  --color-text-primary: var(--dark-text-primary);
+  --color-text-secondary: var(--dark-text-secondary);
+  --color-text-tertiary: var(--dark-text-tertiary);
+
+  --color-border: var(--dark-border);
+  --color-border-light: var(--dark-border-light);
 }
 
 /* Reset & Base Styles */

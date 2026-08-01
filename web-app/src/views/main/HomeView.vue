@@ -295,7 +295,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="home-screen">
+  <div class="home-screen dark-canvas">
     <AppHeader title="홈" showIcon icon="home" show-kis-mode />
 
     <div class="content">

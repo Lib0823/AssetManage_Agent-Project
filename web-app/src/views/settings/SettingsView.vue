@@ -132,7 +132,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="settings-screen">
+  <div class="settings-screen dark-canvas">
     <AppHeader title="설정" showBack />
 
     <div class="content">

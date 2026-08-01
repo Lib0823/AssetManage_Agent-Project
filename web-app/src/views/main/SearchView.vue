@@ -277,7 +277,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="search-screen">
+  <div class="search-screen dark-canvas">
     <AppHeader title="종목 검색" showIcon icon="search" />
 
     <div class="content">

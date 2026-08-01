@@ -251,7 +251,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="profile-screen">
+  <div class="profile-screen dark-canvas">
     <AppHeader title="내 정보" showIcon icon="profile">
       <template #right>
         <button class="icon-btn" @click="handleLogout">
