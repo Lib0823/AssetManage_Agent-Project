@@ -17,6 +17,11 @@ public class JasyptConfig {
 
     @Bean("jasyptStringEncryptor")
     public StringEncryptor stringEncryptor() {
+        if (encryptorPassword == null || encryptorPassword.isBlank()) {
+            throw new IllegalStateException(
+                    "JASYPT_PASSWORD 환경변수가 설정되지 않았습니다. KIS 자격증명 암호화 키를 주입하세요.");
+        }
+
         PooledPBEStringEncryptor encryptor = new PooledPBEStringEncryptor();
         SimpleStringPBEConfig config = new SimpleStringPBEConfig();
 

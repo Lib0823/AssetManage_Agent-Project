@@ -49,8 +49,7 @@ com.inbeom.apiserver
 │   ├── OverseasController      /overseas    (price public, 매매/잔고 auth) # 해외주식(US) 지정가
 │   ├── MarketAnalysisController /market     (public)
 │   ├── MarketDataController    /market      (public)
-│   ├── HealthController        /health      (public)
-│   └── TestController          /test        (public, dev-only)
+│   └── HealthController        /health      (public)
 ├── service/      (9)  # 비즈니스 로직
 │   ├── AuthService             # 회원가입/로그인/토큰 lifecycle
 │   ├── UserService             # 프로필·설정·KIS계정·매매설정 CRUD

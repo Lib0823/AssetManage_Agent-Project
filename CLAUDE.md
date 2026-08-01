@@ -172,7 +172,7 @@ ai-agent → Spring Boot         : is_active=true일 때 매매 실행 요청
 ```
 controller/   AuthController, AssetController, TradingController, UserController,
               MarketAnalysisController, MarketDataController, CompanyController,
-              HealthController, TestController
+              HealthController
 service/      AuthService, UserService, TradingService, KisAuthService 등
 domain/       User, RefreshToken, UserKisAccount, UserTradeConfig, UserSettings, TradeHistory
 repository/   Spring Data JPA repositories
