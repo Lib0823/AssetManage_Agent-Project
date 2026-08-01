@@ -13,6 +13,9 @@ scikit-learn==1.4.0
 
 # ML/Time-Series
 prophet==1.1.5
+# prophet 1.1.5는 makefile 없는 최소 CmdStan을 번들하는데, cmdstanpy 1.3.0의
+# validate_cmdstan_path가 makefile을 요구해 Prophet 초기화가 실패한다.
+cmdstanpy==1.2.5
 
 # NLP
 transformers==4.37.0
