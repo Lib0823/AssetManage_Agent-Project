@@ -1,24 +1,33 @@
 """
 pytest tests for Stage 4: Gemini AI Decision Generator
+
+이 모듈의 테스트는 절대 실제 Gemini API 를 호출하지 않는다.
+`tests/conftest.py` 의 autouse fixture(`gemini_no_network`)가
+설정의 API 키를 비우고 `genai` SDK 진입점을 스텁으로 대체한다.
 """
+import json
+
 import pytest
 import pandas as pd
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from ai.decision_generator import TradingDecisionGenerator
 from ai.gemini_client import GeminiClient
 
 
 @pytest.fixture
-def decision_generator():
-    """Create TradingDecisionGenerator instance for testing."""
-    return TradingDecisionGenerator()
+def gemini_client():
+    """Create GeminiClient instance (mock mode, no network)."""
+    client = GeminiClient(api_key=None)  # No API key = mock mode
+    # conftest 의 gemini_no_network 가 설정 폴백까지 차단했는지 확인
+    assert client.model is None, "테스트 클라이언트가 실제 Gemini 모델을 초기화했습니다"
+    return client
 
 
 @pytest.fixture
-def gemini_client():
-    """Create GeminiClient instance (mock mode)."""
-    return GeminiClient(api_key=None)  # No API key = mock mode
+def decision_generator(gemini_client):
+    """Create TradingDecisionGenerator with the mock-mode client injected."""
+    return TradingDecisionGenerator(gemini_client=gemini_client)
 
 
 @pytest.fixture
@@ -93,6 +102,58 @@ class TestGeminiClient:
         assert 'buy_top3' in decision
         assert 'sell_top3' in decision
 
+    def test_generate_decision_with_stubbed_response(self):
+        """키가 있어도 전송 계층을 스텁하면 네트워크 없이 응답을 파싱한다."""
+        canned = json.dumps({
+            'buy_top3': [
+                {'stock_code': '005930', 'reason': 'stub buy 1'},
+                {'stock_code': '000660', 'reason': 'stub buy 2'},
+                {'stock_code': '051910', 'reason': 'stub buy 3'},
+            ],
+            'sell_top3': [
+                {'stock_code': '005380', 'reason': 'stub sell 1'},
+                {'stock_code': '035420', 'reason': 'stub sell 2'},
+                {'stock_code': '068270', 'reason': 'stub sell 3'},
+            ],
+        })
+
+        client = GeminiClient(api_key='stub-key')
+        assert client.model is not None  # conftest 가 넣어준 스텁 모델
+
+        with patch.object(GeminiClient, '_generate_text', return_value=canned) as gen:
+            decision = client.generate_decision('Test prompt')
+
+        gen.assert_called_once_with('Test prompt')
+        assert decision['buy_top3'][0]['stock_code'] == '005930'
+        assert len(decision['sell_top3']) == 3
+
+    def test_generate_user_decision_with_stubbed_response(self):
+        """유저별 결정도 스텁 응답으로 파싱된다 (가변 길이)."""
+        canned = json.dumps({
+            'buy': [{'stock_code': '005930', 'reason': 'stub buy'}],
+            'sell': [],
+        })
+
+        client = GeminiClient(api_key='stub-key')
+
+        with patch.object(GeminiClient, '_generate_text', return_value=canned):
+            decision = client.generate_user_decision('Test prompt')
+
+        assert decision == {'buy': [{'stock_code': '005930', 'reason': 'stub buy'}], 'sell': []}
+
+    def test_real_api_call_is_blocked_in_tests(self, gemini_no_network):
+        """전송 계층을 스텁하지 않은 호출은 네트워크로 나가지 않고 실패한다.
+
+        무료 티어 쿼터 소모·CI 비결정성 방지 가드에 대한 회귀 테스트.
+        """
+        client = GeminiClient(api_key='stub-key')
+
+        with pytest.raises(RuntimeError):
+            client.generate_decision('Test prompt')
+
+        # 실제 SDK 가 아닌 스텁이 호출됐음을 확인
+        gemini_no_network.generate_content.assert_called_once_with('Test prompt')
+
     def test_parse_gemini_response_json(self, gemini_client):
         """Test parsing valid JSON response."""
         valid_json = """
@@ -147,7 +208,7 @@ class TestGeminiClient:
             gemini_client._parse_gemini_response(invalid_json)
 
     def test_parse_gemini_response_missing_fields(self, gemini_client):
-        """Test parsing JSON with missing fields raises error."""
+        """Test parsing JSON with a missing top-level key raises error."""
         missing_fields = """
         {
             "buy_top3": [
@@ -156,8 +217,26 @@ class TestGeminiClient:
         }
         """
 
-        with pytest.raises(ValueError, match="exactly 3 items"):
+        with pytest.raises(ValueError, match="Missing buy_top3 or sell_top3"):
             gemini_client._parse_gemini_response(missing_fields)
+
+    def test_parse_gemini_response_wrong_item_count(self, gemini_client):
+        """Test parsing JSON with fewer than 3 items raises error."""
+        wrong_count = """
+        {
+            "buy_top3": [
+                {"stock_code": "005930", "reason": "Test"}
+            ],
+            "sell_top3": [
+                {"stock_code": "005380", "reason": "Test"},
+                {"stock_code": "035420", "reason": "Test"},
+                {"stock_code": "068270", "reason": "Test"}
+            ]
+        }
+        """
+
+        with pytest.raises(ValueError, match="exactly 3 items"):
+            gemini_client._parse_gemini_response(wrong_count)
 
 
 class TestTradingDecisionGenerator:
@@ -166,6 +245,8 @@ class TestTradingDecisionGenerator:
     def test_init(self, decision_generator):
         """Test TradingDecisionGenerator initialization."""
         assert decision_generator.gemini_client is not None
+        # 주입된 클라이언트가 mock 모드인지 확인 (실 API 호출 없음)
+        assert decision_generator.gemini_client.model is None
 
     def test_merge_all_features(
         self,

@@ -8,7 +8,7 @@ Features:
 - Time-Series (3): prophet_price_trend, prophet_volume_trend, prophet_price_uncertainty
 """
 import pandas as pd
-from typing import Dict, List
+from typing import Dict, List, Optional
 from datetime import datetime
 import logging
 
@@ -20,9 +20,14 @@ logger = logging.getLogger(__name__)
 class TradingDecisionGenerator:
     """Generate AI-powered trading decisions using Gemini."""
 
-    def __init__(self):
-        """Initialize decision generator with Gemini client."""
-        self.gemini_client = GeminiClient()
+    def __init__(self, gemini_client: Optional[GeminiClient] = None):
+        """Initialize decision generator with Gemini client.
+
+        Args:
+            gemini_client: 사용할 GeminiClient. 생략하면 설정 기반으로 새로 만든다.
+                테스트에서 실 API 호출 없이 결정 로직만 검증할 때 스텁을 주입한다.
+        """
+        self.gemini_client = gemini_client or GeminiClient()
         logger.info("TradingDecisionGenerator initialized")
 
     def generate_decisions(
