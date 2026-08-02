@@ -19,6 +19,7 @@ import {
 } from 'chart.js'
 import { assetApi, overseasApi, marketApi } from '@/services/api'
 import { logger } from '@/utils/logger'
+import { normalizeAssetOrder, uiSettings } from '@/utils/uiSettings'
 
 ChartJS.register(
   ArcElement,
@@ -314,6 +315,35 @@ const assetIcons = {
   coins: '🪙'
 }
 
+// 설정 > '관심 자산 순위'(uiSettings.assetOrder)를 이 화면의 카드 배치에 반영한다.
+// 설정 목록의 국내/해외 주식은 이 화면에서 통합 '주식' 카드 하나로 접히고,
+// 현금은 설정 목록에 없는 항목이므로 항상 최상단에 고정한다.
+const SECTION_BY_ASSET_KEY = {
+  stocks_domestic: 'stocks',
+  stocks_overseas: 'stocks',
+  coins: 'coins',
+  bonds: 'bonds'
+}
+const ALL_SECTIONS = ['cash', 'stocks', 'bonds', 'coins']
+
+const orderedSections = computed(() => {
+  const sections = ['cash']
+
+  for (const item of normalizeAssetOrder(uiSettings.value.assetOrder)) {
+    const section = SECTION_BY_ASSET_KEY[item.key]
+    if (section && !sections.includes(section)) {
+      sections.push(section)
+    }
+  }
+
+  // 저장값에 없는 섹션도 빠뜨리지 않는다
+  for (const section of ALL_SECTIONS) {
+    if (!sections.includes(section)) sections.push(section)
+  }
+
+  return sections
+})
+
 const goToDetail = (type) => {
   router.push({
     path: '/assets/detail',
@@ -401,90 +431,92 @@ const handleRefresh = () => {
         </div>
       </section>
 
-      <!-- Asset Cards -->
-      <div v-if="!kisUnavailable" class="asset-cards">
-        <!-- Cash -->
-        <section class="asset-card cash" @click="goToDetail('cash')">
-          <div class="card-header">
-            <div class="card-icon">{{ assetIcons.cash }}</div>
-            <div class="card-title-group">
-              <h3 class="card-title">현금</h3>
-              <span class="card-percentage">{{ calculatePercentage(assetSummary.breakdown.cash.amount, assetSummary.totalAsset) }}%</span>
-            </div>
-            <div class="card-arrow">→</div>
-          </div>
-
-          <div class="card-body">
-            <div class="card-value-section">
-              <div class="value-label">보유 금액</div>
-              <div class="value-amount">{{ formatNumber(assetSummary.breakdown.cash.amount) }}<span class="unit">원</span></div>
-            </div>
-
-            <div class="card-stats">
-              <div class="stat-item">
-                <span class="stat-label">전일 대비</span>
-                <span :class="['stat-value', assetSummary.breakdown.cash.change >= 0 ? 'positive' : 'negative']">
-                  {{ formatChange(assetSummary.breakdown.cash.change) }}
-                </span>
+      <!-- Asset Cards — 순서는 설정 > 관심 자산 순위(orderedSections)를 따른다 -->
+      <div class="asset-cards">
+        <template v-for="section in orderedSections" :key="section">
+          <!-- Cash -->
+          <section v-if="section === 'cash' && !kisUnavailable" class="asset-card cash" @click="goToDetail('cash')">
+            <div class="card-header">
+              <div class="card-icon">{{ assetIcons.cash }}</div>
+              <div class="card-title-group">
+                <h3 class="card-title">현금</h3>
+                <span class="card-percentage">{{ calculatePercentage(assetSummary.breakdown.cash.amount, assetSummary.totalAsset) }}%</span>
               </div>
-              <div class="stat-item">
-                <span class="stat-label">변동률</span>
-                <span :class="['stat-value', assetSummary.breakdown.cash.changePercent >= 0 ? 'positive' : 'negative']">
-                  {{ formatPercent(assetSummary.breakdown.cash.changePercent) }}
-                </span>
+              <div class="card-arrow">→</div>
+            </div>
+
+            <div class="card-body">
+              <div class="card-value-section">
+                <div class="value-label">보유 금액</div>
+                <div class="value-amount">{{ formatNumber(assetSummary.breakdown.cash.amount) }}<span class="unit">원</span></div>
               </div>
-            </div>
-          </div>
 
-          <div class="card-indicator" :style="{ backgroundColor: assetColors.cash }"></div>
-        </section>
-
-        <!-- Stocks -->
-        <section class="asset-card stocks" @click="goToDetail('stocks')">
-          <div class="card-header">
-            <div class="card-icon">{{ assetIcons.stocks }}</div>
-            <div class="card-title-group">
-              <h3 class="card-title">주식</h3>
-              <span class="card-percentage">{{ calculatePercentage(assetSummary.breakdown.stocks.amount, assetSummary.totalAsset) }}%</span>
-            </div>
-            <div class="card-arrow">→</div>
-          </div>
-
-          <div class="card-body">
-            <div class="card-value-section">
-              <div class="value-label">평가 금액</div>
-              <div class="value-amount">{{ formatNumber(assetSummary.breakdown.stocks.amount) }}<span class="unit">원</span></div>
-            </div>
-
-            <div class="card-stats">
-              <div class="stat-item">
-                <span class="stat-label">평가 손익</span>
-                <span :class="['stat-value', assetSummary.breakdown.stocks.change >= 0 ? 'positive' : 'negative']">
-                  {{ formatChange(assetSummary.breakdown.stocks.change) }}
-                </span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">수익률</span>
-                <span :class="['stat-value', assetSummary.breakdown.stocks.changePercent >= 0 ? 'positive' : 'negative']">
-                  {{ formatPercent(assetSummary.breakdown.stocks.changePercent) }}
-                </span>
+              <div class="card-stats">
+                <div class="stat-item">
+                  <span class="stat-label">전일 대비</span>
+                  <span :class="['stat-value', assetSummary.breakdown.cash.change >= 0 ? 'positive' : 'negative']">
+                    {{ formatChange(assetSummary.breakdown.cash.change) }}
+                  </span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">변동률</span>
+                  <span :class="['stat-value', assetSummary.breakdown.cash.changePercent >= 0 ? 'positive' : 'negative']">
+                    {{ formatPercent(assetSummary.breakdown.cash.changePercent) }}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div class="card-indicator" :style="{ backgroundColor: assetColors.stocks }"></div>
-        </section>
+            <div class="card-indicator" :style="{ backgroundColor: assetColors.cash }"></div>
+          </section>
+
+          <!-- Stocks -->
+          <section v-else-if="section === 'stocks' && !kisUnavailable" class="asset-card stocks" @click="goToDetail('stocks')">
+            <div class="card-header">
+              <div class="card-icon">{{ assetIcons.stocks }}</div>
+              <div class="card-title-group">
+                <h3 class="card-title">주식</h3>
+                <span class="card-percentage">{{ calculatePercentage(assetSummary.breakdown.stocks.amount, assetSummary.totalAsset) }}%</span>
+              </div>
+              <div class="card-arrow">→</div>
+            </div>
+
+            <div class="card-body">
+              <div class="card-value-section">
+                <div class="value-label">평가 금액</div>
+                <div class="value-amount">{{ formatNumber(assetSummary.breakdown.stocks.amount) }}<span class="unit">원</span></div>
+              </div>
+
+              <div class="card-stats">
+                <div class="stat-item">
+                  <span class="stat-label">평가 손익</span>
+                  <span :class="['stat-value', assetSummary.breakdown.stocks.change >= 0 ? 'positive' : 'negative']">
+                    {{ formatChange(assetSummary.breakdown.stocks.change) }}
+                  </span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">수익률</span>
+                  <span :class="['stat-value', assetSummary.breakdown.stocks.changePercent >= 0 ? 'positive' : 'negative']">
+                    {{ formatPercent(assetSummary.breakdown.stocks.changePercent) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-indicator" :style="{ backgroundColor: assetColors.stocks }"></div>
+          </section>
+
+          <!-- Bonds (추후 지원) -->
+          <section v-else-if="section === 'bonds'" class="asset-card disabled">
+            <div class="disabled-text">채권 (추후 지원)</div>
+          </section>
+
+          <!-- Coins (추후 지원) -->
+          <section v-else-if="section === 'coins'" class="asset-card disabled">
+            <div class="disabled-text">코인 (추후 지원)</div>
+          </section>
+        </template>
       </div>
-
-      <!-- Bonds (추후 지원) -->
-      <section class="asset-card disabled">
-        <div class="disabled-text">채권 (추후 지원)</div>
-      </section>
-
-      <!-- Coins (추후 지원) -->
-      <section class="asset-card disabled">
-        <div class="disabled-text">코인 (추후 지원)</div>
-      </section>
     </div>
 
     <!-- Spacer for bottom nav -->
@@ -778,11 +810,12 @@ const handleRefresh = () => {
   opacity: 1;
 }
 
+/* 비활성 카드도 .asset-cards(flex, gap 16px) 안에 들어와 순서 배치를 받는다.
+   상단에 올 수도 있어 margin-top 대신 컨테이너 gap 으로 간격을 맞춘다. */
 .asset-card.disabled {
   background: rgba(30, 41, 59, 0.5);
   cursor: default;
   display: flex;
-  margin-top: 10px;
   align-items: center;
   justify-content: center;
   min-height: 80px;

@@ -5,6 +5,10 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import { initUiSettings } from './utils/uiSettings'
+
+// 저장된 다크 모드 설정을 mount 전에 <html data-theme> 로 반영 (첫 페인트 플래시 방지)
+initUiSettings()
 
 // Vant components
 import {
