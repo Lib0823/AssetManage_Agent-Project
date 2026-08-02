@@ -24,8 +24,11 @@ import java.util.Map;
  * 해외주식(미국) 현재가/잔고/매수/매도 REST API.
  *
  * <p>현재가({@code /overseas/stocks/**})는 공개(permitAll)이며 실전 quote 자격증명으로 조회한다.
- * 잔고/매수/매도는 JWT 인증 후 사용자 mock 키로 처리한다. 모든 경로는 graceful degrade 하므로
- * 미연동/실패 시에도 200 으로 notice 를 담아 응답한다(주문은 {@code data.success=false}).
+ * 잔고/매수/매도는 JWT 인증 후 사용자 mock 키로 처리한다.
+ *
+ * <p><b>조회 경로</b>는 graceful degrade 하므로 미연동/실패 시에도 200 + {@code data.notice} 로 응답한다.
+ * <b>주문 경로</b>({@code /buy}, {@code /sell})는 국내 {@link TradingController} 와 동일하게 실패 시
+ * 예외가 전파되어 {@code ApiResponse.success=false} + 4xx/5xx 로 내려간다(200 성공 위장 금지).
  */
 @Slf4j
 @RestController
@@ -71,7 +74,8 @@ public class OverseasController {
 
     /**
      * POST /api/overseas/buy
-     * 해외주식 매수 (JWT, 지정가 전용). 실패 시 data.success=false + notice.
+     * 해외주식 매수 (JWT, 지정가 전용).
+     * 실패 시 예외 전파 → ApiResponse.success=false + ErrorCode 별 HTTP 상태(국내 /trading/buy 와 동일).
      */
     @PostMapping("/buy")
     public ResponseEntity<ApiResponse<Map<String, Object>>> buy(
@@ -83,13 +87,14 @@ public class OverseasController {
 
         Map<String, Object> result = overseasTradingService.buy(userId, request);
         return ResponseEntity.ok(
-                ApiResponse.success("Overseas buy order processed", result)
+                ApiResponse.success("Overseas buy order executed successfully", result)
         );
     }
 
     /**
      * POST /api/overseas/sell
-     * 해외주식 매도 (JWT, 지정가 전용). 실패 시 data.success=false + notice.
+     * 해외주식 매도 (JWT, 지정가 전용).
+     * 실패 시 예외 전파 → ApiResponse.success=false + ErrorCode 별 HTTP 상태(국내 /trading/sell 과 동일).
      */
     @PostMapping("/sell")
     public ResponseEntity<ApiResponse<Map<String, Object>>> sell(
@@ -101,7 +106,7 @@ public class OverseasController {
 
         Map<String, Object> result = overseasTradingService.sell(userId, request);
         return ResponseEntity.ok(
-                ApiResponse.success("Overseas sell order processed", result)
+                ApiResponse.success("Overseas sell order executed successfully", result)
         );
     }
 

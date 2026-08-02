@@ -69,6 +69,9 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    // @SpringBootTest(profile=test) 전용 인메모리 DB. 로컬 PostgreSQL 없이 컨텍스트 기동을
+    // 검증하기 위한 것이며, 운영 스키마(Liquibase/PostgreSQL)를 대체하지 않는다.
+    testRuntimeOnly 'com.h2database:h2'
 }
 
 tasks.named('test') {
