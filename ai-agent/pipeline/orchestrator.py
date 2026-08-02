@@ -45,8 +45,16 @@ class PipelineOrchestrator:
         # Stage 4: AI Decision
         self.decision_generator = TradingDecisionGenerator()
 
+        # Database (Stage 5 임계값 조회를 위해 SafetyFilter 보다 먼저 생성)
+        self.db_repo = DatabaseRepository()
+
         # Stage 5: Safety Filter
-        self.safety_filter = SafetyFilter()
+        # 임계값 단일 출처는 feature_threshold_config 테이블이다. 조회가 실패하거나
+        # 행이 없으면 get_feature_thresholds()가 {} 를 돌려주고 SafetyFilter 는
+        # 기존 하드코딩 기본값으로 폴백한다 (파이프라인 중단 없음).
+        self.safety_filter = SafetyFilter(
+            thresholds=self.db_repo.get_feature_thresholds()
+        )
 
         # Internal api-server channel (multi-user holdings / decisions / execution)
         self.internal_api = InternalApiClient(
@@ -55,9 +63,6 @@ class PipelineOrchestrator:
 
         # Stage 6: Trade Execution (per-user, via internal api-server channel)
         self.trade_executor = TradeExecutor(internal_api=self.internal_api)
-
-        # Database
-        self.db_repo = DatabaseRepository()
 
         # 멀티유저 컨텍스트 (Step 0-1 에서 채워지고 이후 단계가 사용)
         self.active_users: List[Dict] = []

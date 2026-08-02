@@ -883,6 +883,86 @@ class DatabaseRepository:
             logger.error(f"Failed to fetch user order_amount: {e}")
             return 1_000_000  # Fallback to default
 
+    def get_feature_thresholds(self, active_only: bool = True) -> Dict[str, Dict]:
+        """
+        Read safety-filter thresholds from the feature_threshold_config table.
+
+        Stage 5(SafetyFilter)의 임계값 단일 출처를 DB로 옮기기 위한 조회 함수다.
+        조회 실패(테이블 없음/DB 다운/권한 등)나 빈 테이블이면 **빈 dict** 를 반환하며,
+        호출측(SafetyFilter)은 그 경우 코드 기본값을 그대로 사용한다.
+
+        Args:
+            active_only: True 면 is_active=true 행만 반환 (기본값)
+
+        Returns:
+            Dict[feature_name, Dict]: 각 행은 다음 키를 가진다.
+                - buy_enabled (bool)
+                - buy_operator (Optional[str])
+                - buy_threshold (Optional[float])
+                - sell_enabled (bool)
+                - sell_operator (Optional[str])
+                - sell_threshold (Optional[float])
+                - is_active (bool)
+            조회 실패 시 {} (폴백 신호)
+        """
+        sql = """
+            SELECT feature_name,
+                   buy_enabled, buy_operator, buy_threshold,
+                   sell_enabled, sell_operator, sell_threshold,
+                   is_active
+            FROM feature_threshold_config
+        """
+        if active_only:
+            sql += " WHERE is_active = TRUE"
+
+        def _to_float(value):
+            """NUMERIC/Decimal → float, None 은 None 유지."""
+            if value is None:
+                return None
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        session = self.session_factory()
+        try:
+            rows = session.execute(text(sql)).mappings().all()
+
+            thresholds: Dict[str, Dict] = {}
+            for row in rows:
+                thresholds[row['feature_name']] = {
+                    'buy_enabled': bool(row['buy_enabled']) if row['buy_enabled'] is not None else True,
+                    'buy_operator': row['buy_operator'],
+                    'buy_threshold': _to_float(row['buy_threshold']),
+                    'sell_enabled': bool(row['sell_enabled']) if row['sell_enabled'] is not None else True,
+                    'sell_operator': row['sell_operator'],
+                    'sell_threshold': _to_float(row['sell_threshold']),
+                    'is_active': bool(row['is_active']) if row['is_active'] is not None else True,
+                }
+
+            if thresholds:
+                logger.info(
+                    f"Loaded {len(thresholds)} feature thresholds from "
+                    f"feature_threshold_config"
+                )
+            else:
+                logger.warning(
+                    "feature_threshold_config is empty; "
+                    "SafetyFilter will use built-in default thresholds"
+                )
+            return thresholds
+
+        except Exception as e:
+            # 테이블 미존재/DB 접속 실패 등 — 파이프라인을 중단시키지 않고 폴백시킨다.
+            logger.error(
+                f"Failed to load feature_threshold_config ({e}); "
+                f"SafetyFilter will use built-in default thresholds"
+            )
+            return {}
+
+        finally:
+            session.close()
+
     def save_trade_execution_plan(self, user_id, execution_date, records) -> int:
         """
         유저별 매수/매도 실행 결과를 trade_execution_plan 에 기록 (멀티유저, 멱등).

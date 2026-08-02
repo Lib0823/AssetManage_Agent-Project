@@ -294,20 +294,39 @@ stan_backend = CMDSTANPY
 
 **구현**: `SafetyFilter` (`filters/safety_filter.py`)
 
-### 5-1. 기본 임계값 (생성자 기본값)
+### 5-1. 임계값 출처 — `feature_threshold_config` (DB) → 생성자 기본값 (폴백)
 
-| 파라미터 | 기본값 | 용도 |
-| --- | --- | --- |
-| `sentiment_positive_threshold` | 0.3 | 매수 감성 하한 |
-| `sentiment_negative_threshold` | −0.3 | 매도 감성 상한 |
-| `uncertainty_threshold` | 500 | 예측 불확실성 상한 |
-| `per_max_threshold` | 30.0 | 매수 PER 상한 |
-| `roe_min_threshold` | 10.0 | 매수 ROE 하한(%) |
-| `operating_margin_min` | 5.0 | 매수 영업이익률 하한(%) |
-| `close_position_min` | 0.6 | 매수 종가 위치 하한 |
-| `volume_trend_min` | 0.0 | 매수 거래량 추세 하한 |
+임계값의 단일 출처는 DB `feature_threshold_config` 테이블이다.
+`PipelineOrchestrator.__init__`이 `DatabaseRepository.get_feature_thresholds()`로 행을 읽어
+`SafetyFilter(thresholds=...)`로 주입하며, 조회 실패(DB 다운·테이블 미존재)나 빈 테이블이면
+`{}`가 반환되어 아래 생성자 기본값으로 **폴백**한다(파이프라인 중단 없음).
+적용 결과는 초기화 로그(`source=feature_threshold_config|defaults`, `db_overrides=N`)로 확인한다.
 
-> 이 임계값들은 DB `feature_threshold_config` 테이블의 기본 INSERT 값과 일치한다(추후 UI 동적 조정 확장 여지).
+| 파라미터 (기본값) | 값 | `feature_name` (side) | 용도 |
+| --- | --- | --- | --- |
+| `sentiment_positive_threshold` | 0.3 | `sentiment_score` (buy) | 매수 감성 하한 |
+| `sentiment_negative_threshold` | −0.3 | `sentiment_score` (sell) | 매도 감성 상한 |
+| `uncertainty_threshold` | 500 | `prophet_price_uncertainty` (buy) | 예측 불확실성 상한 |
+| `per_max_threshold` | 30.0 | `per` (buy) | 매수 PER 상한 |
+| `roe_min_threshold` | 10.0 | `roe` (buy) | 매수 ROE 하한(%) |
+| `operating_margin_min` | 5.0 | `operating_margin` (buy) | 매수 영업이익률 하한(%) |
+| `close_position_min` | 0.6 | `close_position` (buy) | 매수 종가 위치 하한 |
+| `volume_trend_min` | 0.0 | `prophet_volume_trend` (buy) | 매수 거래량 추세 하한 |
+| `foreign_net_buy_min` | 0.0 | `foreign_net_buy` (buy) | 매수 외국인 순매수 하한 |
+| `institutional_net_buy_min` | 0.0 | `institutional_net_buy` (buy) | 매수 기관 순매수 하한 |
+| `price_trend_min` | 0.0 | `prophet_price_trend` (buy) | 매수 가격 추세 하한 |
+| `morning_return_min` | 0.0 | `morning_return` (buy) | 매수 장초반 수익률 하한 |
+| `foreign_net_buy_sell_max` | 0.0 | `foreign_net_buy` (sell) | 매도 외국인 순매수 상한 |
+| `institutional_net_buy_sell_max` | 0.0 | `institutional_net_buy` (sell) | 매도 기관 순매수 상한 |
+| `price_trend_sell_max` | 0.0 | `prophet_price_trend` (sell) | 매도 가격 추세 상한 |
+
+> 위 기본값은 Liquibase 시드값(`v1.6-stage4-5-enhancements.yaml`)과 일치한다 — 한쪽만 바꾸면 괴리가 생긴다.
+> DB 행이 다음 중 하나에 해당하면 그 임계값만 건너뛰고 코드 기본값을 유지한다:
+> `is_active=false`, 해당 side의 `*_enabled=false`, `*_threshold IS NULL`, 숫자 변환 실패,
+> `*_operator`가 코드 구현 방향과 불일치(예: `per`에 `>=`) — 의미 역전을 막기 위한 가드다.
+> `*_enabled=false`는 **규칙 자체를 끄지 않는다**(임계값 override만 생략).
+> `uncertainty_threshold`는 매수·매도 양쪽 검사에 공용으로 쓰이며 `prophet_price_uncertainty`의
+> **buy_threshold**만 반영한다(시드값은 buy/sell 모두 500으로 동일).
 
 ### 5-2. 매수 필터 (모든 규칙 통과해야 함)
 
