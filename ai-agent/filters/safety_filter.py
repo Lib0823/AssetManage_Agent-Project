@@ -41,7 +41,40 @@ class SafetyFilter:
     1. prophet_price_uncertainty <= 500
     2. (foreign_net_buy < 0 OR institutional_net_buy < 0)
     3. (sentiment_score <= -0.3 OR prophet_price_trend < 0)
+
+    임계값은 생성자 기본값(아래)이 폴백이며, `thresholds` 인자로
+    `feature_threshold_config` DB 행을 넘기면 해당 값이 우선 적용된다.
     """
+
+    # feature_threshold_config.feature_name → 내부 속성 매핑
+    #   {feature_name: {'buy': (attr, expected_operator), 'sell': (attr, expected_operator)}}
+    # expected_operator 는 이 클래스가 실제로 구현한 비교 방향이다. DB operator 가
+    # 이와 다르면 임계값을 적용하면 의미가 뒤집히므로 경고만 남기고 코드 기본값을 유지한다.
+    DB_THRESHOLD_MAP = {
+        'prophet_price_uncertainty': {'buy': ('uncertainty_threshold', '<=')},
+        'foreign_net_buy': {
+            'buy': ('foreign_net_buy_min', '>'),
+            'sell': ('foreign_net_buy_sell_max', '<'),
+        },
+        'institutional_net_buy': {
+            'buy': ('institutional_net_buy_min', '>'),
+            'sell': ('institutional_net_buy_sell_max', '<'),
+        },
+        'sentiment_score': {
+            'buy': ('sentiment_pos_threshold', '>='),
+            'sell': ('sentiment_neg_threshold', '<='),
+        },
+        'prophet_price_trend': {
+            'buy': ('price_trend_min', '>'),
+            'sell': ('price_trend_sell_max', '<'),
+        },
+        'prophet_volume_trend': {'buy': ('volume_trend_min', '>')},
+        'per': {'buy': ('per_max', '<=')},
+        'roe': {'buy': ('roe_min', '>=')},
+        'operating_margin': {'buy': ('operating_margin_min', '>=')},
+        'morning_return': {'buy': ('morning_return_min', '>')},
+        'close_position': {'buy': ('close_position_min', '>=')},
+    }
 
     def __init__(self,
                  # Sentiment thresholds
@@ -58,9 +91,25 @@ class SafetyFilter:
 
                  # NEW: Technical thresholds
                  close_position_min: float = 0.6,          # 종가 위치 하한 (0~1)
-                 volume_trend_min: float = 0.0):           # 거래량 추세 하한
+                 volume_trend_min: float = 0.0,            # 거래량 추세 하한
+
+                 # 수급/모멘텀 부호 임계값 (DB 시드도 0)
+                 foreign_net_buy_min: float = 0.0,         # 매수 시 외국인 순매수 하한
+                 institutional_net_buy_min: float = 0.0,   # 매수 시 기관 순매수 하한
+                 price_trend_min: float = 0.0,             # 매수 시 가격 추세 하한
+                 morning_return_min: float = 0.0,          # 매수 시 장초반 수익률 하한
+                 foreign_net_buy_sell_max: float = 0.0,    # 매도 시 외국인 순매수 상한
+                 institutional_net_buy_sell_max: float = 0.0,  # 매도 시 기관 순매수 상한
+                 price_trend_sell_max: float = 0.0,        # 매도 시 가격 추세 상한
+
+                 # DB(feature_threshold_config) override
+                 thresholds: Optional[Dict[str, Dict]] = None):
         """
         Initialize safety filter with configurable thresholds.
+
+        임계값 우선순위: `thresholds`(DB) > 생성자 인자 > 코드 기본값.
+        `thresholds` 가 None/빈 dict 이거나 특정 피처 행이 없으면 해당 임계값은
+        기존 하드코딩 기본값을 그대로 사용한다(안전 폴백).
 
         Args:
             sentiment_positive_threshold: Minimum sentiment score for buy
@@ -71,6 +120,20 @@ class SafetyFilter:
             operating_margin_min: Minimum operating margin (%) for buy
             close_position_min: Minimum close position (0~1) for buy
             volume_trend_min: Minimum volume trend for buy
+            foreign_net_buy_min: Minimum foreign net buy for buy
+            institutional_net_buy_min: Minimum institutional net buy for buy
+            price_trend_min: Minimum Prophet price trend for buy
+            morning_return_min: Minimum morning return (%) for buy
+            foreign_net_buy_sell_max: Foreign net buy must be below this for sell
+            institutional_net_buy_sell_max: Institutional net buy must be below this for sell
+            price_trend_sell_max: Prophet price trend must be below this for sell
+            thresholds: `DatabaseRepository.get_feature_thresholds()` 결과
+                ({feature_name: {buy_enabled, buy_operator, buy_threshold, ...}}).
+                None 또는 {} 이면 위 기본값만 사용.
+
+        Note:
+            DB 의 `buy_enabled`/`sell_enabled=false` 는 **규칙 자체를 끄지 않는다**
+            (임계값 override 만 건너뛴다). 규칙 on/off 는 별도 과제.
         """
         # Existing thresholds
         self.sentiment_pos_threshold = sentiment_positive_threshold
@@ -86,11 +149,104 @@ class SafetyFilter:
         self.close_position_min = close_position_min
         self.volume_trend_min = volume_trend_min
 
-        logger.info(f"SafetyFilter initialized with enhanced rules: "
+        # 수급/모멘텀 부호 임계값
+        self.foreign_net_buy_min = foreign_net_buy_min
+        self.institutional_net_buy_min = institutional_net_buy_min
+        self.price_trend_min = price_trend_min
+        self.morning_return_min = morning_return_min
+        self.foreign_net_buy_sell_max = foreign_net_buy_sell_max
+        self.institutional_net_buy_sell_max = institutional_net_buy_sell_max
+        self.price_trend_sell_max = price_trend_sell_max
+
+        # DB 값이 있으면 위 기본값 위에 덮어쓴다 (없으면 그대로 폴백)
+        self.threshold_source = 'defaults'
+        applied = self._apply_db_thresholds(thresholds)
+        if applied:
+            self.threshold_source = 'feature_threshold_config'
+
+        logger.info(f"SafetyFilter initialized with enhanced rules "
+                   f"(source={self.threshold_source}, db_overrides={applied}): "
                    f"PER<={self.per_max}, ROE>={self.roe_min}%, "
                    f"OpMargin>={self.operating_margin_min}%, "
                    f"ClosePos>={self.close_position_min}, "
-                   f"VolTrend>{self.volume_trend_min}")
+                   f"VolTrend>{self.volume_trend_min}, "
+                   f"Uncertainty<={self.uncertainty_threshold}, "
+                   f"Sentiment>={self.sentiment_pos_threshold}/<={self.sentiment_neg_threshold}")
+
+    def _apply_db_thresholds(self, thresholds: Optional[Dict[str, Dict]]) -> int:
+        """
+        Override built-in thresholds with feature_threshold_config rows.
+
+        각 행은 다음 조건을 모두 만족해야 적용된다:
+        - `is_active` 가 False 가 아님
+        - 해당 side 의 `*_enabled` 가 False 가 아님
+        - `*_threshold` 가 None 이 아니고 float 로 변환 가능
+        - `*_operator` 가 코드 구현 방향(DB_THRESHOLD_MAP 의 expected_operator)과 일치
+          (None 이면 검증 생략)
+
+        하나라도 어긋나면 그 임계값만 건너뛰고 코드 기본값을 유지한다.
+
+        Args:
+            thresholds: {feature_name: row dict} 또는 None
+
+        Returns:
+            int: 실제로 덮어쓴 임계값 개수 (0 이면 전부 기본값)
+        """
+        if not thresholds:
+            logger.warning(
+                "No feature_threshold_config rows provided; "
+                "using built-in default thresholds"
+            )
+            return 0
+
+        applied = 0
+        for feature_name, sides in self.DB_THRESHOLD_MAP.items():
+            row = thresholds.get(feature_name)
+            if not row:
+                continue
+            if row.get('is_active') is False:
+                logger.debug(f"Threshold '{feature_name}' is inactive; keeping default")
+                continue
+
+            for side, (attr, expected_operator) in sides.items():
+                if row.get(f'{side}_enabled') is False:
+                    logger.debug(
+                        f"Threshold '{feature_name}.{side}' disabled in DB; "
+                        f"keeping default {attr}={getattr(self, attr)}"
+                    )
+                    continue
+
+                raw_value = row.get(f'{side}_threshold')
+                if raw_value is None:
+                    continue
+
+                operator = row.get(f'{side}_operator')
+                if operator is not None and operator.strip() != expected_operator:
+                    logger.warning(
+                        f"Threshold '{feature_name}.{side}' operator mismatch "
+                        f"(DB='{operator}', code='{expected_operator}'); "
+                        f"keeping default {attr}={getattr(self, attr)}"
+                    )
+                    continue
+
+                try:
+                    value = float(raw_value)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        f"Threshold '{feature_name}.{side}' is not numeric "
+                        f"({raw_value!r}); keeping default {attr}={getattr(self, attr)}"
+                    )
+                    continue
+
+                if value != getattr(self, attr):
+                    logger.info(
+                        f"Threshold override from DB: {attr} "
+                        f"{getattr(self, attr)} → {value} ({feature_name}.{side})"
+                    )
+                setattr(self, attr, value)
+                applied += 1
+
+        return applied
 
     def apply_buy_filter(self, features: Dict[str, float]) -> Tuple[bool, Optional[str], Dict]:
         """
@@ -118,21 +274,21 @@ class SafetyFilter:
         # Check 2: Foreign net buy > 0
         foreign_value = features.get('foreign_net_buy', 0)
         check_details['foreign_net_buy_check'] = {
-            'passed': foreign_value > 0,
+            'passed': foreign_value > self.foreign_net_buy_min,
             'value': foreign_value,
-            'threshold': 0
+            'threshold': self.foreign_net_buy_min
         }
-        if foreign_value <= 0:
+        if foreign_value <= self.foreign_net_buy_min:
             conditions.append(f"Foreign net buy not positive: {foreign_value:,}")
 
         # Check 3: Institutional net buy > 0
         institutional_value = features.get('institutional_net_buy', 0)
         check_details['institutional_net_buy_check'] = {
-            'passed': institutional_value > 0,
+            'passed': institutional_value > self.institutional_net_buy_min,
             'value': institutional_value,
-            'threshold': 0
+            'threshold': self.institutional_net_buy_min
         }
-        if institutional_value <= 0:
+        if institutional_value <= self.institutional_net_buy_min:
             conditions.append(f"Institutional net buy not positive: {institutional_value:,}")
 
         # Check 4: Sentiment score >= 0.3
@@ -148,11 +304,11 @@ class SafetyFilter:
         # Check 5: Price trend > 0
         price_trend_value = features.get('prophet_price_trend', 0)
         check_details['price_trend_check'] = {
-            'passed': price_trend_value > 0,
+            'passed': price_trend_value > self.price_trend_min,
             'value': price_trend_value,
-            'threshold': 0
+            'threshold': self.price_trend_min
         }
-        if price_trend_value <= 0:
+        if price_trend_value <= self.price_trend_min:
             conditions.append(f"Price trend not positive: {price_trend_value:.4f}")
 
         # NEW Check 6: Volume trend > 0
@@ -213,11 +369,11 @@ class SafetyFilter:
         # NEW Check 10: Morning return > 0
         morning_return_value = features.get('morning_return', 0)
         check_details['morning_return_check'] = {
-            'passed': morning_return_value > 0,
+            'passed': morning_return_value > self.morning_return_min,
             'value': morning_return_value,
-            'threshold': 0
+            'threshold': self.morning_return_min
         }
-        if morning_return_value <= 0:
+        if morning_return_value <= self.morning_return_min:
             conditions.append(f"Morning return not positive: {morning_return_value:.2f}%")
 
         # NEW Check 11: Close position >= 0.6
@@ -267,17 +423,18 @@ class SafetyFilter:
         institutional_value = features.get('institutional_net_buy', 0)
 
         check_details['foreign_selling_check'] = {
-            'passed': foreign_value < 0,
+            'passed': foreign_value < self.foreign_net_buy_sell_max,
             'value': foreign_value,
-            'threshold': 0
+            'threshold': self.foreign_net_buy_sell_max
         }
         check_details['institutional_selling_check'] = {
-            'passed': institutional_value < 0,
+            'passed': institutional_value < self.institutional_net_buy_sell_max,
             'value': institutional_value,
-            'threshold': 0
+            'threshold': self.institutional_net_buy_sell_max
         }
 
-        supply_condition = foreign_value < 0 or institutional_value < 0
+        supply_condition = (foreign_value < self.foreign_net_buy_sell_max
+                            or institutional_value < self.institutional_net_buy_sell_max)
 
         if not supply_condition:
             conditions.append("No selling pressure from foreign or institutional investors")
@@ -295,11 +452,11 @@ class SafetyFilter:
         # Check 4: Price trend condition
         price_trend_value = features.get('prophet_price_trend', 0)
         check_details['price_trend_check'] = {
-            'passed': price_trend_value < 0,
+            'passed': price_trend_value < self.price_trend_sell_max,
             'value': price_trend_value,
-            'threshold': 0
+            'threshold': self.price_trend_sell_max
         }
-        trend_condition = price_trend_value < 0
+        trend_condition = price_trend_value < self.price_trend_sell_max
 
         if not (sentiment_condition or trend_condition):
             if not sentiment_condition:

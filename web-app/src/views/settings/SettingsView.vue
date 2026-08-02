@@ -1,9 +1,16 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import { userApi } from '@/services/api'
 import toast from '@/utils/toast'
+import {
+  applyTheme,
+  normalizeAssetOrder,
+  readUiSettings,
+  restoreStoredTheme,
+  writeUiSettings
+} from '@/utils/uiSettings'
 
 const router = useRouter()
 
@@ -18,12 +25,13 @@ const settings = ref({
 const loading = ref(false)
 const errorMessage = ref('')
 
-const assetItems = ref([
-  { key: 'stocks_domestic', label: '주식 (국내)', icon: '🏠' },
-  { key: 'stocks_overseas', label: '주식 (해외)', icon: '📈' },
-  { key: 'coins', label: '코인 (추후 지원)', icon: '🪙' },
-  { key: 'bonds', label: '채권 (추후 지원)', icon: '📜' }
-])
+const assetItems = ref(normalizeAssetOrder(readUiSettings().assetOrder))
+
+// 저장하지 않고 화면을 벗어나면 테마를 저장값으로 되돌린다 (미리보기만 되도록)
+const savedInThisVisit = ref(false)
+
+// 토글 즉시 화면에 반영 (저장은 handleSave 에서)
+watch(() => settings.value.darkMode, (darkMode) => applyTheme(darkMode))
 
 const draggedIndex = ref(null)
 const dragOverIndex = ref(null)
@@ -53,9 +61,12 @@ const loadSettings = async () => {
     const response = await userApi.getSettings()
     const settingsData = response?.data
     if (settingsData) {
+      // darkMode/autoLogin/assetOrder 는 localStorage(uiSettings)가 권위 저장소이고
+      // 서버 값은 아직 로컬에 값이 없을 때의 시드로만 쓴다 (utils/uiSettings.js 참고).
+      const stored = readUiSettings()
       settings.value = {
-        darkMode: settingsData.darkMode ?? false,
-        autoLogin: settingsData.autoLogin ?? false,
+        darkMode: stored.darkMode ?? settingsData.darkMode ?? false,
+        autoLogin: stored.autoLogin ?? settingsData.autoLogin ?? false,
         notifications: {
           stocks: {
             news: settingsData.notifications?.stocks?.news ?? true,
@@ -67,12 +78,25 @@ const loadSettings = async () => {
           }
         }
       }
-      if (Array.isArray(settingsData.assetOrder) && settingsData.assetOrder.length) {
-        assetItems.value = settingsData.assetOrder
-      }
+      assetItems.value = normalizeAssetOrder(stored.assetOrder ?? settingsData.assetOrder)
+
+      // 화면 미리보기용으로만 테마를 적용한다. localStorage에는 쓰지 않는다 —
+      // 여기서 writeUiSettings까지 하면, 저장값이 없는 OS-다크 사용자가 화면에
+      // 들어오기만 해도 darkMode:false가 영구 기록되어 OS 설정을 덮어써 버린다.
+      // 실제 저장은 handleSave에서만 한다. 저장 없이 나가면 onBeforeUnmount의
+      // restoreStoredTheme()이 (아직 건드리지 않은) 원래 저장값으로 되돌린다.
+      applyTheme(settings.value.darkMode)
     }
   } catch (error) {
     console.error('Failed to load settings:', error)
+    // 서버 조회 실패 시에도 로컬 저장값으로 화면을 채운다 (graceful degrade)
+    const stored = readUiSettings()
+    settings.value = {
+      ...settings.value,
+      darkMode: stored.darkMode ?? settings.value.darkMode,
+      autoLogin: stored.autoLogin ?? settings.value.autoLogin
+    }
+    assetItems.value = normalizeAssetOrder(stored.assetOrder)
     errorMessage.value = '설정을 불러오는데 실패했습니다'
     toast.error('설정을 불러올 수 없습니다')
   } finally {
@@ -92,6 +116,16 @@ const handleSave = async () => {
       notifications: settings.value.notifications,
       assetOrder: assetItems.value
     })
+
+    // 실제로 화면에 적용되는 값들은 localStorage 미러에 함께 저장한다.
+    // (부팅 시 테마 적용 · LoginView 자동 로그인 · AssetsView 섹션 순서가 이 값을 읽는다)
+    writeUiSettings({
+      darkMode: settings.value.darkMode,
+      autoLogin: settings.value.autoLogin,
+      assetOrder: assetItems.value
+    })
+    applyTheme(settings.value.darkMode)
+    savedInThisVisit.value = true
 
     toast.success('설정이 저장되었습니다')
     router.back()
@@ -128,6 +162,13 @@ const handleWithdraw = async () => {
 
 onMounted(() => {
   loadSettings()
+})
+
+onBeforeUnmount(() => {
+  // 저장하지 않고 나갔다면 토글 미리보기를 취소하고 저장된 테마로 복원
+  if (!savedInThisVisit.value) {
+    restoreStoredTheme()
+  }
 })
 </script>
 

@@ -11,7 +11,8 @@ const router = useRouter()
 const tabs = ref({ main: 'stocks', sub: 'domestic' })
 const newTabList = [
   { key: 'stocks', label: '주식', disabled: false },
-  { key: 'coins', label: '코인', disabled: false }
+  // 코인은 미지원 — AssetTabs/InvestmentTabs 기본값과 동일하게 비활성으로 노출한다.
+  { key: 'coins', label: '코인', disabled: true }
 ]
 const dateFilters = [
   { key: 'today', label: '오늘' },
@@ -20,8 +21,15 @@ const dateFilters = [
   { key: 'month', label: '1개월' }
 ]
 const selectedDateFilter = ref('today')
-const sortOrders = ['최신순', '조회순', '추천순']
+// 정렬 옵션은 응답(StockNewsResponse)에 실제로 존재하는 필드만 사용한다.
+// 조회수/추천수 필드가 없어 '조회순'·'추천순'은 구현 불가 → 발행시각·감성점수 기준으로 대체.
+const sortOrders = [
+  { key: 'latest', label: '최신순' },
+  { key: 'oldest', label: '오래된순' },
+  { key: 'positive', label: '긍정순' }
+]
 const sortOrderIndex = ref(0)
+const currentSort = computed(() => sortOrders[sortOrderIndex.value])
 const searchQuery = ref('')
 const searchActive = ref(false)
 const newsList = ref([])
@@ -29,16 +37,109 @@ const loading = ref(false)
 
 const symbol = computed(() => route.query.symbol || '')
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// 국내 종목코드는 6자리 숫자, 해외는 영문 심볼 (SearchView/FavoritesView 와 동일 규칙)
+const isDomesticCode = (code) => /^\d{6}$/.test(String(code || ''))
+
+// 뉴스 1건의 기준 시각(ms). 발행시각 우선, 없으면 분석 기준일. 파싱 불가면 null.
+const newsTimestamp = (item) => {
+  const raw = item?.published_at || item?.analysis_date
+  if (!raw) return null
+  const t = new Date(raw).getTime()
+  return Number.isNaN(t) ? null : t
+}
+
+const startOfDay = (ts) => {
+  const d = new Date(ts)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+// 날짜 필터의 기준일.
+// 파이프라인이 평일 08:50에만 돌아 주말·휴장일에는 최신 뉴스가 며칠 전일 수 있다.
+// 벽시계 기준으로 자르면 '오늘'이 항상 비어 보이므로 "목록에서 가장 최신 뉴스의 날짜"를 기준일로 삼는다.
+const anchorDay = computed(() => {
+  const stamps = newsList.value.map(newsTimestamp).filter((t) => t !== null)
+  return startOfDay(stamps.length > 0 ? Math.max(...stamps) : Date.now())
+})
+
+// 기준일로부터 며칠 전인지 (0 = 기준일 당일)
+const daysBeforeAnchor = (item) => {
+  const ts = newsTimestamp(item)
+  if (ts === null) return null
+  return Math.round((anchorDay.value - startOfDay(ts)) / DAY_MS)
+}
+
+const matchesDateFilter = (item) => {
+  const diff = daysBeforeAnchor(item)
+  // 날짜를 알 수 없는 항목은 숨기지 않는다 (데이터가 조용히 사라지는 편보다 낫다)
+  if (diff === null) return true
+  switch (selectedDateFilter.value) {
+    case 'today':
+      return diff === 0
+    case 'yesterday':
+      return diff === 1
+    case 'week':
+      return diff >= 0 && diff < 7
+    case 'month':
+      return diff >= 0 && diff < 30
+    default:
+      return true
+  }
+}
+
+const sortNews = (list) => {
+  const sorted = [...list]
+  const sortKey = currentSort.value.key
+  if (sortKey === 'positive') {
+    // 감성점수 내림차순. 점수 없는 항목은 뒤로.
+    return sorted.sort((a, b) => {
+      const sa = Number(a.sentiment_score)
+      const sb = Number(b.sentiment_score)
+      const va = Number.isNaN(sa) ? -Infinity : sa
+      const vb = Number.isNaN(sb) ? -Infinity : sb
+      return vb - va
+    })
+  }
+  // latest / oldest. 시각 없는 항목은 항상 뒤로.
+  return sorted.sort((a, b) => {
+    const ta = newsTimestamp(a)
+    const tb = newsTimestamp(b)
+    if (ta === null && tb === null) return 0
+    if (ta === null) return 1
+    if (tb === null) return -1
+    return sortKey === 'oldest' ? ta - tb : tb - ta
+  })
+}
+
+// 탭(주식/코인 · 국내/해외) → 날짜 → 검색어 순으로 걸러낸 뒤 정렬한다.
 // Client-side title search over the server-filtered list.
 // Only filters once the user actively edits the box, so a symbol-prefill
 // (which just reflects the searched state) never hides server results.
 const filteredNews = computed(() => {
+  // 코인 탭은 비활성이라 선택될 수 없지만, 선택되더라도 주식 뉴스를 보여주지 않도록 방어한다.
+  if (tabs.value.main !== 'stocks') return []
+
+  const wantDomestic = tabs.value.sub === 'domestic'
+  let list = newsList.value.filter((n) => isDomesticCode(n.stock_code) === wantDomestic)
+
+  list = list.filter(matchesDateFilter)
+
   const q = searchQuery.value.trim().toLowerCase()
-  if (!searchActive.value || !q) return newsList.value
-  return newsList.value.filter((n) => (n.title || '').toLowerCase().includes(q))
+  if (searchActive.value && q) {
+    list = list.filter((n) => (n.title || '').toLowerCase().includes(q))
+  }
+
+  return sortNews(list)
 })
 
 const onSearchInput = () => {
+  searchActive.value = true
+}
+
+// 돋보기 버튼 / 엔터: 입력값을 검색어로 확정 적용
+const applySearch = () => {
   searchActive.value = true
 }
 
@@ -61,6 +162,9 @@ const sentimentLabel = (label) => {
   return map[label] || ''
 }
 
+// 날짜 필터는 클라이언트 필터링으로 처리한다.
+// (백엔드 GET /news 의 date 파라미터는 단일 날짜만 받고 symbol 지정 시에만 적용돼
+//  '일주일'·'1개월' 같은 구간 조회를 서버에서 표현할 수 없다.)
 const selectDateFilter = (key) => {
   selectedDateFilter.value = key
 }
@@ -95,6 +199,11 @@ const loadNews = async () => {
 }
 
 onMounted(() => {
+  // 종목 지정 진입(/news?symbol=AAPL)은 해당 종목의 시장에 맞춰 국내/해외 탭을 맞춘다.
+  // (기본값 '국내' 그대로 두면 해외 종목 뉴스가 탭 필터에 걸려 통째로 사라진다.)
+  if (symbol.value) {
+    tabs.value = { ...tabs.value, sub: isDomesticCode(symbol.value) ? 'domestic' : 'overseas' }
+  }
   loadNews()
 })
 </script>
@@ -122,7 +231,7 @@ onMounted(() => {
       <!-- Search and Sort -->
       <div class="filter-bar">
         <button class="sort-btn" @click="toggleSortOrder">
-          {{ sortOrders[sortOrderIndex] }}
+          {{ currentSort.label }}
         </button>
         <div class="search-input-wrapper">
           <input
@@ -131,8 +240,9 @@ onMounted(() => {
             placeholder="제목 / 내용"
             class="search-input"
             @input="onSearchInput"
+            @keyup.enter="applySearch"
           />
-          <button class="search-btn">
+          <button class="search-btn" aria-label="뉴스 검색" @click="applySearch">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
               <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
               <path d="M21 21L16.5 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -168,7 +278,7 @@ onMounted(() => {
         </div>
 
         <div v-if="!loading && filteredNews.length === 0" class="news-empty">
-          뉴스가 없습니다
+          {{ newsList.length > 0 ? '조건에 맞는 뉴스가 없습니다' : '뉴스가 없습니다' }}
         </div>
       </div>
     </div>

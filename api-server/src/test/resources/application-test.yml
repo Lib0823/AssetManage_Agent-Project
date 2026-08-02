@@ -1,0 +1,73 @@
+# 테스트 전용 프로파일 (@ActiveProfiles("test")).
+#
+# 이 파일이 없으면 @SpringBootTest 가 운영 application.yml 을 그대로 써서
+# localhost:5432 의 실제 PostgreSQL 에 직결되고, 로컬에 DB 가 떠 있지 않으면
+# contextLoads() 가 환경 탓으로 실패한다(코드 회귀와 구분 불가).
+#
+# 여기서는 H2 인메모리 DB 로 갈아끼워 "DB 없이도" 컨텍스트 기동을 검증한다.
+# 검증 대상은 스키마가 아니라 빈 와이어링/엔티티 매핑이다.
+spring:
+  # 운영 yml 의 optional:file:.env import 를 무력화한다.
+  # 개발자 로컬 .env 값이 새어 들어오면 테스트 결과가 머신마다 달라진다.
+  config:
+    import: []
+
+  datasource:
+    # DB_CLOSE_DELAY=-1: 마지막 커넥션이 닫혀도 JVM 종료까지 DB 유지.
+    url: jdbc:h2:mem:apiserver-test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+    hikari:
+      maximum-pool-size: 2
+      minimum-idle: 0
+      # 운영값(60s 재시도)을 그대로 쓰면 실패 시 테스트가 1분간 멈춘다.
+      initialization-fail-timeout: -1
+      connection-timeout: 5000
+      keepalive-time: 0
+
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      # none: 스키마를 만들지 않는다. user_settings.asset_order 등이 PostgreSQL 전용
+      # jsonb columnDefinition 을 쓰고 있어 H2 로는 DDL 생성이 불가능하다.
+      # contextLoads() 는 테이블이 아니라 컨텍스트 기동을 검증하므로 none 으로 충분하다.
+      ddl-auto: none
+    show-sql: false
+    open-in-view: false
+
+  # Liquibase changelog 는 PostgreSQL 전용이므로 테스트에서는 돌리지 않는다.
+  liquibase:
+    enabled: false
+
+# 기동 시 fail-fast 하는 시크릿들 — 테스트 전용 더미값.
+# 실제 값이 아니며 어떤 운영 데이터도 복호화하지 못한다.
+jwt:
+  secret: test-only-jwt-secret-key-not-used-in-any-real-environment-0123456789
+  access-token-expiration: 3600000
+  refresh-token-expiration: 86400000
+
+jasypt:
+  encryptor:
+    password: test-only-jasypt-password
+
+internal:
+  api-key: test-only-internal-api-key
+
+# 외부 연동은 전부 비활성 (테스트가 네트워크를 타면 안 된다).
+kis:
+  quote-app-key: ""
+  quote-app-secret: ""
+  realtime:
+    enabled: false
+    fills:
+      enabled: false
+
+dart:
+  api-key: ""
+
+logging:
+  level:
+    root: WARN
+    com.inbeom.apiserver: INFO
+    org.hibernate.SQL: WARN

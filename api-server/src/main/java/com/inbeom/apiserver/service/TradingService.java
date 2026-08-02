@@ -13,6 +13,8 @@ import com.inbeom.apiserver.dto.trade.RecentTradeResponse;
 import com.inbeom.apiserver.dto.trade.ReservedOrderResponse;
 import com.inbeom.apiserver.dto.trade.ReservedOrderResultResponse;
 import com.inbeom.apiserver.dto.trade.TradeHistoryResponse;
+import com.inbeom.apiserver.exception.BusinessException;
+import com.inbeom.apiserver.exception.ErrorCode;
 import com.inbeom.apiserver.exception.KisApiException;
 import com.inbeom.apiserver.exception.UserNotFoundException;
 import com.inbeom.apiserver.repository.TradeExecutionPlanRepository;
@@ -76,9 +78,16 @@ public class TradingService {
     /**
      * Execute buy order via KIS API (VTTC0802U)
      * Note: Trade history is fetched from KIS API directly, not stored in DB
+     *
+     * @throws BusinessException 수량이 1 미만/누락이면 {@link ErrorCode#INVALID_TRADE_QUANTITY}(5002),
+     *         KIS 매수가능조회로 확인된 최대매수수량을 초과하면 {@link ErrorCode#INSUFFICIENT_BALANCE}(5001)
      */
     public Map<String, Object> executeBuy(Long userId, Long kisAccountId, String stockCode, String stockName,
                                            Integer quantity, BigDecimal orderPrice) {
+        // 0. Pre-flight 검증 (주문은 부작용이 있으므로 KIS 로 보내기 전에 막는다)
+        validateOrderQuantity(quantity);
+        verifyBuyingPower(userId, stockCode, quantity, orderPrice);
+
         // 1. Get KIS credentials and token
         String kisToken = kisAuthService.getKisAccessToken(kisAccountId);
         KisCredentials credentials = kisAuthService.getKisCredentials(kisAccountId);
@@ -114,9 +123,14 @@ public class TradingService {
     /**
      * Execute sell order via KIS API (VTTC0801U)
      * Note: Trade history is fetched from KIS API directly, not stored in DB
+     *
+     * @throws BusinessException 수량이 1 미만/누락이면 {@link ErrorCode#INVALID_TRADE_QUANTITY}(5002).
+     *         보유수량 초과 여부는 KIS 가 판정한다(rt_cd != 0 → KIS_API_SERVER_ERROR).
      */
     public Map<String, Object> executeSell(Long userId, Long kisAccountId, String stockCode, String stockName,
                                             Integer quantity, BigDecimal orderPrice) {
+        validateOrderQuantity(quantity);
+
         String kisToken = kisAuthService.getKisAccessToken(kisAccountId);
         KisCredentials credentials = kisAuthService.getKisCredentials(kisAccountId);
 
@@ -580,6 +594,55 @@ public class TradingService {
         if (!"0".equals(String.valueOf(rtCd))) {
             String msg = String.valueOf(kisResponse.getOrDefault("msg1", "KIS 주문이 거부되었습니다."));
             throw KisApiException.serverError("KIS order rejected: " + msg.trim() + " (rt_cd=" + rtCd + ")");
+        }
+    }
+
+    /**
+     * 주문 수량 검증 → {@link ErrorCode#INVALID_TRADE_QUANTITY}(5002).
+     *
+     * <p>web-app 경로는 {@code @Valid TradeRequest}(@Min(1))가 걸러주지만, ai-agent 내부 경로
+     * ({@code InternalService#executeBuy})는 수량을 그대로 위임하므로 서비스 계층에서도 막아야 한다.
+     * 검증이 없으면 잘못된 수량이 KIS 까지 가서 generic 500 으로 사유가 가려진다.
+     */
+    private void validateOrderQuantity(Integer quantity) {
+        if (quantity == null || quantity < 1) {
+            throw new BusinessException(ErrorCode.INVALID_TRADE_QUANTITY,
+                    "주문 수량은 1주 이상이어야 합니다 (요청 수량: " + quantity + ")");
+        }
+    }
+
+    /**
+     * 매수 주문 전 매수여력 검증 → {@link ErrorCode#INSUFFICIENT_BALANCE}(5001).
+     *
+     * <p>KIS 매수가능조회(VTTC8908R)의 {@code max_buy_qty} 와 요청 수량을 비교한다.
+     * 프런트가 이미 orderable 을 조회하지만 클라이언트 검증은 신뢰할 수 없고, ai-agent 경로에는
+     * 아예 없다.
+     *
+     * <p><b>fail-open</b>: 조회가 degrade 된 경우({@code notice != null} — KIS 장애/모의 미지원/
+     * 계좌 미해석)에는 검증을 건너뛴다. 조회 실패를 잔고 부족으로 오인해 정상 주문을 막으면
+     * 안 되기 때문이다. 최종 판정은 언제나 KIS 가 한다.
+     *
+     * <p><b>시장가 주문 스킵</b>: {@code orderPrice}가 null/0이면(=시장가, 실제 주문도
+     * {@code ORD_DVSN="01"}+{@code ORD_UNPR="0"}으로 나간다) 이 조회를 건너뛴다. {@link #getOrderable}은
+     * 항상 {@code ORD_DVSN="00"}(지정가) 기준으로 조회하므로, price=0으로 호출하면 "0원 지정가"라는
+     * 실제 주문과 무관한 조합을 KIS에 묻게 되고 {@code max_buy_qty=0}이 정상 응답으로 돌아와
+     * fail-open을 우회한 채 모든 시장가 매수(ai-agent Stage 6 포함, price=0으로 전송)를 차단할 수 있다.
+     */
+    private void verifyBuyingPower(Long userId, String stockCode, Integer quantity, BigDecimal orderPrice) {
+        if (orderPrice == null || orderPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            log.debug("Skip buying-power check (market order, price unset) for userId={}, stockCode={}", userId, stockCode);
+            return;
+        }
+        OrderableResponse orderable = getOrderable(userId, stockCode, orderPrice);
+        if (orderable == null || orderable.getNotice() != null || orderable.getMaxBuyQuantity() == null) {
+            log.debug("Skip buying-power check (orderable unavailable) for userId={}, stockCode={}", userId, stockCode);
+            return;
+        }
+        if (orderable.getMaxBuyQuantity() < quantity) {
+            throw new BusinessException(ErrorCode.INSUFFICIENT_BALANCE,
+                    "주문가능금액이 부족합니다 (요청 " + quantity + "주 / 최대매수 "
+                            + orderable.getMaxBuyQuantity() + "주, 주문가능현금 "
+                            + orderable.getOrderableCash() + "원)");
         }
     }
 

@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/services/api'
+import { readUiSettings, writeUiSettings } from '@/utils/uiSettings'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -16,14 +17,11 @@ const autoLogin = ref(true)
 const loading = ref(false)
 const errorMessage = ref('')
 
-// Load auto-login preference from localStorage
+// 자동 로그인 값은 설정 화면과 같은 저장소를 쓴다 (utils/uiSettings.js)
 onMounted(() => {
-  const savedUiSettings = localStorage.getItem('uiSettings')
-  if (savedUiSettings) {
-    const uiSettings = JSON.parse(savedUiSettings)
-    if (uiSettings.autoLogin !== undefined) {
-      autoLogin.value = uiSettings.autoLogin
-    }
+  const stored = readUiSettings()
+  if (typeof stored.autoLogin === 'boolean') {
+    autoLogin.value = stored.autoLogin
   }
 })
 
@@ -47,10 +45,8 @@ const handleLogin = async (event) => {
       password: form.value.password
     })
 
-    // Save auto-login preference
-    const uiSettings = JSON.parse(localStorage.getItem('uiSettings') || '{}')
-    uiSettings.autoLogin = autoLogin.value
-    localStorage.setItem('uiSettings', JSON.stringify(uiSettings))
+    // Save auto-login preference (설정 화면이 읽는 것과 동일한 저장소)
+    writeUiSettings({ autoLogin: autoLogin.value })
 
     // Use auth store to manage authentication state
     // api.js interceptor가 response.data를 반환하므로

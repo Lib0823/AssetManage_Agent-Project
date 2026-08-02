@@ -5,6 +5,7 @@ import AppHeader from '@/components/common/AppHeader.vue'
 import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { marketAnalysisApi, companyApi } from '@/services/api'
 import { logger } from '@/utils/logger'
+import { isKisOutageError } from '@/utils/kisStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,6 +22,8 @@ const isFavorite = ref(false)
 // AI 분석 API 상태
 const aiLoading = ref(true)
 const aiError = ref(false)
+// 서버/네트워크 장애 여부. true 면 "AI 분석 데이터가 없습니다"(무데이터) 대신 장애 안내를 띄운다.
+const aiOutage = ref(false)
 const stockDetail = ref(null)
 const hasAnalysis = computed(() => !!stockDetail.value && stockDetail.value.has_analysis === true)
 
@@ -55,18 +58,23 @@ const basicError = ref(false)
 const basicLoaded = ref(false)
 // 데이터 미연동 등 사유 안내 (백엔드 data.notice). null/빈 문자열이면 미표시
 const basicNotice = ref(null)
+// *Outage: 5xx/네트워크/타임아웃 등 "서버 장애" 여부.
+// *Error 는 "요청은 닿았지만 데이터를 못 받음"까지 포함하므로 장애를 따로 구분해 안내 문구를 바꾼다.
+const basicOutage = ref(false)
 
 const financials = ref(null)
 const financialLoading = ref(false)
 const financialError = ref(false)
 const financialLoaded = ref(false)
 const financialNotice = ref(null)
+const financialOutage = ref(false)
 
 const disclosureData = ref(null)
 const disclosureLoading = ref(false)
 const disclosureError = ref(false)
 const disclosureLoaded = ref(false)
 const disclosureNotice = ref(null)
+const disclosureOutage = ref(false)
 
 const formatNumber = (num) => {
   if (num === null || num === undefined || Number.isNaN(Number(num))) return '-'
@@ -525,6 +533,7 @@ const loadBasicInfo = async () => {
   if (basicLoaded.value || basicLoading.value) return
   basicLoading.value = true
   basicError.value = false
+  basicOutage.value = false
   try {
     const res = await companyApi.getBasicInfo(symbol.value)
     if (res && res.success && res.data) {
@@ -537,6 +546,7 @@ const loadBasicInfo = async () => {
   } catch (error) {
     logger.debug('기업 기본정보 조회 실패:', error)
     basicError.value = true
+    basicOutage.value = isKisOutageError(error)
   } finally {
     basicLoading.value = false
   }
@@ -546,6 +556,7 @@ const loadFinancials = async () => {
   if (financialLoaded.value || financialLoading.value) return
   financialLoading.value = true
   financialError.value = false
+  financialOutage.value = false
   try {
     const res = await companyApi.getFinancials(symbol.value)
     if (res && res.success && res.data) {
@@ -558,6 +569,7 @@ const loadFinancials = async () => {
   } catch (error) {
     logger.debug('재무제표 조회 실패:', error)
     financialError.value = true
+    financialOutage.value = isKisOutageError(error)
   } finally {
     financialLoading.value = false
   }
@@ -567,6 +579,7 @@ const loadDisclosures = async () => {
   if (disclosureLoaded.value || disclosureLoading.value) return
   disclosureLoading.value = true
   disclosureError.value = false
+  disclosureOutage.value = false
   try {
     const res = await companyApi.getDisclosures(symbol.value)
     if (res && res.success && res.data) {
@@ -579,6 +592,7 @@ const loadDisclosures = async () => {
   } catch (error) {
     logger.debug('공시정보 조회 실패:', error)
     disclosureError.value = true
+    disclosureOutage.value = isKisOutageError(error)
   } finally {
     disclosureLoading.value = false
   }
@@ -590,14 +604,17 @@ const resetDetailTabs = () => {
   basicLoaded.value = false
   basicError.value = false
   basicNotice.value = null
+  basicOutage.value = false
   financials.value = null
   financialLoaded.value = false
   financialError.value = false
   financialNotice.value = null
+  financialOutage.value = false
   disclosureData.value = null
   disclosureLoaded.value = false
   disclosureError.value = false
   disclosureNotice.value = null
+  disclosureOutage.value = false
 }
 
 // 활성 탭에 맞는 데이터를 lazy 로드
@@ -613,6 +630,7 @@ watch(activeTab, (tab) => ensureTabData(tab))
 const loadStockDetail = async () => {
   aiLoading.value = true
   aiError.value = false
+  aiOutage.value = false
   stockDetail.value = null
   // 헤더 정체성(종목명/코드)은 항상 실제 종목을 반영한다.
   // 코드는 언제나 route symbol, 이름은 로딩/에러/무분석 동안 route symbol 로 폴백 ("아마존" 금지)
@@ -637,6 +655,7 @@ const loadStockDetail = async () => {
   } catch (error) {
     logger.debug('종목 상세 분석 조회 실패:', error)
     aiError.value = true
+    aiOutage.value = isKisOutageError(error)
   } finally {
     aiLoading.value = false
   }
@@ -721,6 +740,15 @@ watch(
 
         <!-- 로딩 -->
         <div v-if="basicLoading" class="ai-state-message">불러오는 중...</div>
+
+        <!-- 서버 장애: 데이터 없음과 구분해 안내 배너로 표시 (다른 탭과 문구 통일) -->
+        <KisMaintenanceNotice
+          v-else-if="basicOutage"
+          variant="card"
+          title="서버 연결 오류"
+          message="일시적인 서버 오류로 기업 기본정보를 불러올 수 없어요. 잠시 후 다시 시도해 주세요."
+          class="tab-outage-notice"
+        />
 
         <!-- 에러 -->
         <div v-else-if="basicError" class="ai-state-message">
@@ -808,7 +836,21 @@ watch(
         <!-- 로딩 상태 -->
         <div v-if="aiLoading" class="ai-state-message">불러오는 중...</div>
 
-        <!-- 분석 데이터 없음 / 에러 상태 -->
+        <!-- 서버 장애: "분석 데이터 없음"과 구분 -->
+        <KisMaintenanceNotice
+          v-else-if="aiOutage"
+          variant="card"
+          title="서버 연결 오류"
+          message="일시적인 서버 오류로 AI 분석 정보를 불러올 수 없어요. 잠시 후 다시 시도해 주세요."
+          class="tab-outage-notice"
+        />
+
+        <!-- 응답은 받았지만 분석 결과를 못 얻은 경우 -->
+        <div v-else-if="aiError" class="ai-state-message">
+          AI 분석 정보를 불러올 수 없습니다.
+        </div>
+
+        <!-- 분석 데이터 없음 (정상 응답 + has_analysis=false) -->
         <div v-else-if="!hasAnalysis" class="ai-state-message">
           이 종목은 AI 분석 데이터가 없습니다.
         </div>
@@ -1173,6 +1215,15 @@ watch(
         <!-- 로딩 -->
         <div v-if="financialLoading" class="ai-state-message">불러오는 중...</div>
 
+        <!-- 서버 장애: 데이터 없음과 구분 -->
+        <KisMaintenanceNotice
+          v-else-if="financialOutage"
+          variant="card"
+          title="서버 연결 오류"
+          message="일시적인 서버 오류로 재무 데이터를 불러올 수 없어요. 잠시 후 다시 시도해 주세요."
+          class="tab-outage-notice"
+        />
+
         <!-- 에러 -->
         <div v-else-if="financialError" class="ai-state-message">
           재무 데이터를 불러올 수 없습니다.
@@ -1245,6 +1296,15 @@ watch(
 
         <!-- 로딩 -->
         <div v-if="disclosureLoading" class="ai-state-message">불러오는 중...</div>
+
+        <!-- 서버 장애: "최근 공시가 없습니다"(무데이터)와 구분 -->
+        <KisMaintenanceNotice
+          v-else-if="disclosureOutage"
+          variant="card"
+          title="서버 연결 오류"
+          message="일시적인 서버 오류로 공시정보를 불러올 수 없어요. 잠시 후 다시 시도해 주세요."
+          class="tab-outage-notice"
+        />
 
         <!-- 에러 -->
         <div v-else-if="disclosureError" class="ai-state-message">
@@ -1999,6 +2059,11 @@ watch(
   display: flex;
   flex-direction: column;
   gap: var(--spacing-lg);
+}
+
+/* 탭 콘텐츠 자리를 대체하는 장애 안내 카드 (ai-state-message 와 같은 위치에 노출) */
+.tab-outage-notice {
+  margin: var(--spacing-lg) 0;
 }
 
 .ai-state-message {

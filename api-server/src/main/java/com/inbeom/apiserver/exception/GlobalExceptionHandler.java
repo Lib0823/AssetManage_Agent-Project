@@ -2,7 +2,6 @@ package com.inbeom.apiserver.exception;
 
 import com.inbeom.apiserver.dto.common.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.FieldError;
@@ -19,14 +18,18 @@ import java.util.Map;
 public class GlobalExceptionHandler {
 
     /**
-     * BusinessException 처리
+     * BusinessException 처리.
+     *
+     * <p>HTTP 상태와 함께 {@link ErrorCode} 의 숫자 대역을 {@code ApiResponse.code} 로 실어 보낸다.
+     * 같은 400 이라도 5001(잔고 부족)과 5002(수량 오류)를 프런트가 구분할 수 있어야 하기 때문이다.
      */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
-        log.error("BusinessException occurred: {}", e.getDetailMessage(), e);
+        ErrorCode errorCode = e.getErrorCode();
+        log.error("BusinessException occurred [{}]: {}", errorCode.getCode(), e.getDetailMessage(), e);
         return ResponseEntity
-                .status(e.getErrorCode().getHttpStatus())
-                .body(ApiResponse.error(e.getDetailMessage()));
+                .status(errorCode.getHttpStatus())
+                .body(ApiResponse.error(errorCode, e.getDetailMessage()));
     }
 
     /**
@@ -36,8 +39,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBadCredentialsException(BadCredentialsException e) {
         log.error("BadCredentialsException occurred: {}", e.getMessage());
         return ResponseEntity
-                .status(HttpStatus.UNAUTHORIZED)
-                .body(ApiResponse.error("Invalid username or password"));
+                .status(ErrorCode.INVALID_CREDENTIALS.getHttpStatus())
+                .body(ApiResponse.error(ErrorCode.INVALID_CREDENTIALS, "Invalid username or password"));
     }
 
     /**
@@ -57,8 +60,8 @@ public class GlobalExceptionHandler {
         });
 
         return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error("Validation failed", errors));
+                .status(ErrorCode.INVALID_INPUT_VALUE.getHttpStatus())
+                .body(ApiResponse.error(ErrorCode.INVALID_INPUT_VALUE, "Validation failed", errors));
     }
 
     /**
@@ -68,8 +71,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleIllegalArgumentException(IllegalArgumentException e) {
         log.error("IllegalArgumentException occurred: {}", e.getMessage());
         return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error(e.getMessage()));
+                .status(ErrorCode.INVALID_INPUT_VALUE.getHttpStatus())
+                .body(ApiResponse.error(ErrorCode.INVALID_INPUT_VALUE, e.getMessage()));
     }
 
     /**
@@ -83,8 +86,8 @@ public class GlobalExceptionHandler {
         String message = String.format("Invalid value '%s' for parameter '%s'",
                 e.getValue(), e.getName());
         return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error(message));
+                .status(ErrorCode.INVALID_INPUT_VALUE.getHttpStatus())
+                .body(ApiResponse.error(ErrorCode.INVALID_INPUT_VALUE, message));
     }
 
     /**
@@ -94,7 +97,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
         log.error("Unexpected exception occurred", e);
         return ResponseEntity
-                .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("An unexpected error occurred. Please try again later."));
+                .status(ErrorCode.INTERNAL_SERVER_ERROR.getHttpStatus())
+                .body(ApiResponse.error(ErrorCode.INTERNAL_SERVER_ERROR,
+                        "An unexpected error occurred. Please try again later."));
     }
 }

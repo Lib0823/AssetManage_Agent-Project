@@ -459,7 +459,9 @@ const placeOrder = async () => {
   }
 }
 
-// 해외 주문: 지정가 전용. {success:false, notice} 형태로 graceful degrade 가능.
+// 해외 주문: 지정가 전용.
+// 실패 계약(국내 즉시주문과 동일): HTTP 400/404/503 + 최상위 success=false, data=null.
+// → 여기서 throw 되어 placeOrder()의 외곽 catch가 error.response.data.message 를 표시한다.
 const placeOverseasOrder = async () => {
   const qty = parseInt(orderForm.value.quantity)
   const price = Number(orderForm.value.price)
@@ -483,18 +485,10 @@ const placeOverseasOrder = async () => {
     price: price
   }
 
-  const response =
-    activeTab.value === 'buy'
-      ? await overseasApi.buy(order)
-      : await overseasApi.sell(order)
-
-  // 백엔드 graceful degrade: { success:false, notice:"..." }
-  const data = response?.data || {}
-  if (response?.success === false || data.success === false) {
-    const notice = data.notice || response?.message || '해외 주문에 실패했습니다'
-    errorMessage.value = notice
-    alert(notice)
-    return
+  if (activeTab.value === 'buy') {
+    await overseasApi.buy(order)
+  } else {
+    await overseasApi.sell(order)
   }
 
   alert(`${activeTab.value === 'buy' ? '매수' : '매도'} 주문이 완료되었습니다.`)
@@ -651,7 +645,7 @@ const placeReservedOrder = async () => {
 
   try {
     reservedLoading.value = true
-    await tradingApi.placeReservedOrder({
+    const response = await tradingApi.placeReservedOrder({
       stockCode: symbol.value,
       quantity: qty,
       price: priceType === 'market' ? 0 : price,
@@ -659,6 +653,16 @@ const placeReservedOrder = async () => {
       priceType,
       endDate
     })
+
+    // 예약주문은 nested 실패 계약: HTTP 200 + 최상위 success=true 라도
+    // KIS rt_cd != 0 이면 data.success=false + data.message(msg1) 로 내려온다.
+    // (즉시주문/해외주문은 최상위 success=false + 4xx/5xx 이므로 catch 로 간다)
+    const result = response?.data
+    if (result && result.success === false) {
+      showError(result.message || '예약주문 접수에 실패했습니다')
+      return
+    }
+
     showSuccess('예약주문이 접수되었습니다')
     await loadReservedOrders()
   } catch (error) {
@@ -671,10 +675,18 @@ const placeReservedOrder = async () => {
 
 const cancelReservedOrder = async (order) => {
   try {
-    await tradingApi.cancelReservedOrder(order.seq, {
+    const response = await tradingApi.cancelReservedOrder(order.seq, {
       orgNo: order.orgNo,
       orderDate: order.orderDate
     })
+
+    // 접수와 동일한 nested 실패 계약 (data.success / data.message)
+    const result = response?.data
+    if (result && result.success === false) {
+      showError(result.message || '예약주문 취소에 실패했습니다')
+      return
+    }
+
     showSuccess('예약주문이 취소되었습니다')
     await loadReservedOrders()
   } catch (error) {

@@ -7,6 +7,11 @@ import com.inbeom.apiserver.dto.overseas.OverseasOrderRequest;
 import com.inbeom.apiserver.dto.overseas.OverseasOrderableResponse;
 import com.inbeom.apiserver.dto.overseas.OverseasPendingOrderResponse;
 import com.inbeom.apiserver.dto.overseas.OverseasTradeHistoryResponse;
+import com.inbeom.apiserver.exception.BusinessException;
+import com.inbeom.apiserver.exception.ErrorCode;
+import com.inbeom.apiserver.exception.KisAccountNotFoundException;
+import com.inbeom.apiserver.exception.KisApiException;
+import com.inbeom.apiserver.exception.UserNotFoundException;
 import com.inbeom.apiserver.repository.UserRepository;
 import com.inbeom.apiserver.service.KisAuthService.KisCredentials;
 import lombok.RequiredArgsConstructor;
@@ -30,8 +35,13 @@ import java.util.Map;
  * ({@link TradingService} 패턴 미러). 해외 TR 은 모의 V변형 상수를 직접 전송하며
  * {@link KisApiClient#convertTrId}에 의존하지 않는다(VTTS/VTTT 는 변환 대상이 아님).
  *
- * <p>모의 해외매매 미지원·rt_cd != 0·예외 시 절대 예외를 전파하지 않는다:
- * 잔고는 빈 목록 + notice, 주문은 {@code {success:false, notice:"..."}} 로 graceful degrade 한다.
+ * <p><b>조회</b>(잔고/거래내역/미체결/매수가능)는 모의 미지원·rt_cd != 0·예외 시 예외를 전파하지 않고
+ * 빈 결과 + {@code notice} 로 graceful degrade 한다(화면이 깨지지 않아야 하므로).
+ *
+ * <p><b>주문</b>(매수/매도)은 국내({@link TradingService#executeBuy})와 동일하게 실패를 삼키지 않고
+ * {@link com.inbeom.apiserver.exception.BusinessException} 을 던진다 → {@code GlobalExceptionHandler} 가
+ * {@code ApiResponse.success=false} + ErrorCode 별 HTTP 상태로 변환한다. 주문은 부작용이 있는 명령이므로
+ * 실패가 200 으로 내려가면 안 된다.
  */
 @Slf4j
 @Service
@@ -435,110 +445,124 @@ public class OverseasTradingService {
     }
 
     /**
-     * 해외주식 매수 (VTTT1002U, 모의). 지정가(ORD_DVSN="00")만. 실패 시 {@code {success:false, notice}}.
+     * 해외주식 매수 (VTTT1002U, 모의). 지정가(ORD_DVSN="00")만.
+     * 실패 시 {@link com.inbeom.apiserver.exception.BusinessException} 전파(국내와 동일).
      */
     public Map<String, Object> buy(Long userId, OverseasOrderRequest request) {
         return order(userId, request, true);
     }
 
     /**
-     * 해외주식 매도 (VTTT1006U, 모의). 지정가(ORD_DVSN="00")만. 실패 시 {@code {success:false, notice}}.
+     * 해외주식 매도 (VTTT1006U, 모의). 지정가(ORD_DVSN="00")만.
+     * 실패 시 {@link com.inbeom.apiserver.exception.BusinessException} 전파(국내와 동일).
      */
     public Map<String, Object> sell(Long userId, OverseasOrderRequest request) {
         return order(userId, request, false);
     }
 
+    /**
+     * 해외 주문 실행. 조회 메서드와 달리 실패를 삼키지 않는다 —
+     * 국내 {@link TradingService#executeBuy}/{@link TradingService#executeSell} 와 같은 계약이다.
+     *
+     * @throws com.inbeom.apiserver.exception.BusinessException 수량 오류(INVALID_TRADE_QUANTITY),
+     *         단가 누락(INVALID_TRADE_PRICE),
+     *         사용자/KIS 계정 미등록(USER_NOT_FOUND / KIS_ACCOUNT_NOT_FOUND),
+     *         KIS 호출 실패 또는 rt_cd != 0 (KIS_API_* )
+     */
     @SuppressWarnings("unchecked")
     private Map<String, Object> order(Long userId, OverseasOrderRequest request, boolean isBuy) {
-        try {
-            BigDecimal price = request.getPrice();
-            if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
-                // 모의 해외 주문은 지정가 전용 → 단가 필수
-                return orderFailure("해외 주문은 지정가만 지원합니다 (단가 필수)");
-            }
+        String side = isBuy ? "buy" : "sell";
 
-            User user = userRepository.findById(userId).orElse(null);
-            if (user == null || user.getKisAccount() == null) {
-                log.warn("Overseas order: no KIS account for userId={}", userId);
-                return orderFailure(NOTICE_ORDER_FAILED);
-            }
-
-            Long kisAccountId = user.getKisAccount().getId();
-            String kisToken = kisAuthService.getKisAccessToken(kisAccountId);
-            KisCredentials credentials = kisAuthService.getKisCredentials(kisAccountId);
-
-            OverseasExchange ex = OverseasExchange.fromCode(request.getExchange());
-
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("CANO", credentials.accountNumber());
-            requestBody.put("ACNT_PRDT_CD", credentials.accountProductCode());
-            requestBody.put("OVRS_EXCG_CD", ex.balanceCode());
-            requestBody.put("PDNO", request.getSymbol());
-            requestBody.put("ORD_QTY", String.valueOf(request.getQuantity()));
-            requestBody.put("OVRS_ORD_UNPR", price.toPlainString());
-            requestBody.put("CTAC_TLNO", "");
-            requestBody.put("MGCO_APTM_ODNO", "");
-            requestBody.put("SLL_TYPE", isBuy ? "" : "00");
-            requestBody.put("ORD_SVR_DVSN_CD", "0");
-            requestBody.put("ORD_DVSN", "00");  // 지정가 전용
-
-            String trId = overseasTr(isBuy ? TR_BUY : TR_SELL, credentials);
-
-            Map<String, Object> body;
-            try {
-                ResponseEntity<Map> response = kisApiClient.post(
-                        credentials.baseUrl(),
-                        ORDER_ENDPOINT,
-                        trId,
-                        kisToken,
-                        credentials.appKey(),
-                        credentials.appSecret(),
-                        requestBody,
-                        Map.class
-                );
-                body = response.getBody();
-            } catch (Exception e) {
-                log.warn("Overseas {} order call failed for userId={} symbol={}: {}",
-                        isBuy ? "buy" : "sell", userId, request.getSymbol(), e.getMessage());
-                return orderFailure(NOTICE_ORDER_FAILED);
-            }
-
-            if (!isRtOk(body)) {
-                String msg = body != null ? String.valueOf(body.get("msg1")) : "null body";
-                log.warn("Overseas {} order rt_cd!=0 for userId={} symbol={}: {}",
-                        isBuy ? "buy" : "sell", userId, request.getSymbol(), msg);
-                return orderFailure(NOTICE_ORDER_FAILED);
-            }
-
-            String orderNumber = null;
-            Object output = body.get("output");
-            if (output instanceof Map) {
-                orderNumber = asString(((Map<String, Object>) output).get("ODNO"));
-            }
-
-            log.info("Overseas {} order executed for userId={}, symbol={}, qty={}, orderNumber={}",
-                    isBuy ? "buy" : "sell", userId, request.getSymbol(), request.getQuantity(), orderNumber);
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", true);
-            result.put("orderNumber", orderNumber);
-            result.put("symbol", request.getSymbol());
-            result.put("exchange", ex.balanceCode());
-            result.put("quantity", request.getQuantity());
-            result.put("price", price);
-            result.put("orderType", isBuy ? "BUY" : "SELL");
-            return result;
-        } catch (Exception e) {
-            log.warn("Overseas order failed for userId={}: {}", userId, e.getMessage());
-            return orderFailure(NOTICE_ORDER_FAILED);
+        Integer quantity = request.getQuantity();
+        if (quantity == null || quantity < 1) {
+            throw new BusinessException(ErrorCode.INVALID_TRADE_QUANTITY,
+                    "주문 수량은 1주 이상이어야 합니다 (요청 수량: " + quantity + ")");
         }
+
+        BigDecimal price = request.getPrice();
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+            // 모의 해외 주문은 지정가 전용 → 단가 필수
+            throw new BusinessException(ErrorCode.INVALID_TRADE_PRICE,
+                    "해외 주문은 지정가만 지원합니다 (단가 필수)");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+        if (user.getKisAccount() == null) {
+            throw new KisAccountNotFoundException("KIS account not registered for userId: " + userId);
+        }
+
+        Long kisAccountId = user.getKisAccount().getId();
+        String kisToken = kisAuthService.getKisAccessToken(kisAccountId);
+        KisCredentials credentials = kisAuthService.getKisCredentials(kisAccountId);
+
+        OverseasExchange ex = OverseasExchange.fromCode(request.getExchange());
+
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("CANO", credentials.accountNumber());
+        requestBody.put("ACNT_PRDT_CD", credentials.accountProductCode());
+        requestBody.put("OVRS_EXCG_CD", ex.balanceCode());
+        requestBody.put("PDNO", request.getSymbol());
+        requestBody.put("ORD_QTY", String.valueOf(request.getQuantity()));
+        requestBody.put("OVRS_ORD_UNPR", price.toPlainString());
+        requestBody.put("CTAC_TLNO", "");
+        requestBody.put("MGCO_APTM_ODNO", "");
+        requestBody.put("SLL_TYPE", isBuy ? "" : "00");
+        requestBody.put("ORD_SVR_DVSN_CD", "0");
+        requestBody.put("ORD_DVSN", "00");  // 지정가 전용
+
+        String trId = overseasTr(isBuy ? TR_BUY : TR_SELL, credentials);
+
+        // HTTP/네트워크 실패는 KisApiClient 가 KisApiException 으로 던진다 → 그대로 전파(국내와 동일)
+        ResponseEntity<Map> response = kisApiClient.post(
+                credentials.baseUrl(),
+                ORDER_ENDPOINT,
+                trId,
+                kisToken,
+                credentials.appKey(),
+                credentials.appSecret(),
+                requestBody,
+                Map.class
+        );
+        Map<String, Object> body = response.getBody();
+
+        verifyOverseasOrderSuccess(body, side, userId, request.getSymbol());
+
+        String orderNumber = null;
+        Object output = body.get("output");
+        if (output instanceof Map) {
+            orderNumber = asString(((Map<String, Object>) output).get("ODNO"));
+        }
+
+        log.info("Overseas {} order executed for userId={}, symbol={}, qty={}, orderNumber={}",
+                side, userId, request.getSymbol(), request.getQuantity(), orderNumber);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("orderNumber", orderNumber);
+        result.put("symbol", request.getSymbol());
+        result.put("exchange", ex.balanceCode());
+        result.put("quantity", request.getQuantity());
+        result.put("price", price);
+        result.put("orderType", isBuy ? "BUY" : "SELL");
+        return result;
     }
 
-    private Map<String, Object> orderFailure(String notice) {
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", false);
-        result.put("notice", notice);
-        return result;
+    /**
+     * 해외 주문 응답 검증. 국내 {@code TradingService#verifyKisOrderSuccess} 와 동일한 계약으로
+     * rt_cd != 0 또는 빈 응답이면 예외를 던진다(모의 해외매매 미지원도 이 경로로 4002 로 내려간다).
+     */
+    private void verifyOverseasOrderSuccess(Map<String, Object> body, String side, Long userId, String symbol) {
+        if (body == null) {
+            log.warn("Overseas {} order empty response for userId={} symbol={}", side, userId, symbol);
+            throw KisApiException.serverError(NOTICE_ORDER_FAILED + " (KIS 주문 응답이 비어 있습니다)");
+        }
+        Object rtCd = body.get("rt_cd");
+        if (!"0".equals(String.valueOf(rtCd))) {
+            String msg = String.valueOf(body.getOrDefault("msg1", "KIS 해외 주문이 거부되었습니다")).trim();
+            log.warn("Overseas {} order rt_cd!=0 for userId={} symbol={}: {}", side, userId, symbol, msg);
+            throw KisApiException.serverError(NOTICE_ORDER_FAILED + " (" + msg + ", rt_cd=" + rtCd + ")");
+        }
     }
 
     private OverseasBalanceResponse emptyBalance(String notice) {

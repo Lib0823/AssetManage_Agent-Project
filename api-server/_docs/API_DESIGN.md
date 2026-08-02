@@ -56,32 +56,54 @@
 | `success` | boolean | 성공 여부 |
 | `message` | String | 처리 결과 메시지 |
 | `data` | T | 실제 응답 데이터 (제네릭) |
+| `code` | Integer | **실패 응답 전용, 선택.** `ErrorCode`의 숫자 대역(§3). 성공 응답과 코드 미상 실패 응답에는 **키 자체가 나타나지 않음** |
 
 `data` 컬럼의 타입(T)은 각 엔드포인트 표의 "응답 data(T)" 항목을 참고하세요.
+
+> `code`는 `@JsonInclude(NON_NULL)`이 **필드 단위로만** 걸려 있어, 값이 없으면 직렬화에서 생략됩니다. 성공 응답과 `data: null` 실패 응답의 JSON은 종전과 동일하므로 기존 클라이언트는 영향을 받지 않습니다.
 
 ---
 
 ## 3. 에러 처리
 
-에러도 동일한 `ApiResponse` 구조를 사용하며, `GlobalExceptionHandler`가 처리합니다. 실패 시 `success=false`, `message`에 에러 메시지가 담깁니다.
+에러도 동일한 `ApiResponse` 구조를 사용하며, `GlobalExceptionHandler`가 처리합니다. 실패 시 `success=false`, `message`에 에러 메시지가 담기고, `ErrorCode`를 아는 경우 `code`에 숫자 대역이 실립니다.
 
 ```json
 {
   "success": false,
-  "message": "에러 메시지",
-  "data": null
+  "message": "주문가능금액이 부족합니다 (요청 100주 / 최대매수 12주, 주문가능현금 840000원)",
+  "data": null,
+  "code": 5001
 }
 ```
+
+`code`가 필요한 이유: HTTP 상태만으로는 같은 400인 `INSUFFICIENT_BALANCE`(5001)와 `INVALID_TRADE_QUANTITY`(5002)를 구분할 수 없어 클라이언트가 분기할 수 없습니다. 다만 `code`는 **선택 필드**이므로, 클라이언트는 여전히 `success`/HTTP 상태를 1차 판단 기준으로 쓰고 `code`는 세분화가 필요할 때만 보면 됩니다.
 
 ErrorCode 대역 구분:
 
 | 대역 | 도메인 | 예시 |
 |------|--------|------|
-| 1000s | 공통(common) | - |
-| 2000s | 인증(auth) | `INVALID_TOKEN=2002`, `REFRESH_TOKEN_REVOKED=2004` |
+| 1000s | 공통(common) | `INTERNAL_SERVER_ERROR=1000`, `INVALID_INPUT_VALUE=1001`(validation 실패) |
+| 2000s | 인증(auth) | `INVALID_CREDENTIALS=2001`, `INVALID_TOKEN=2002`, `REFRESH_TOKEN_REVOKED=2004` |
 | 3000s | 사용자(user) | `USERNAME_DUPLICATE=3002`, `EMAIL_DUPLICATE=3003`, `PASSWORD_MISMATCH=3004`, `PHONE_MISMATCH=3005` |
-| 4000s | KIS | `KIS_ACCOUNT_NOT_FOUND=4000`, `KIS_OAUTH_FAILED=4004` |
-| 5000s | 거래(trade) | - |
+| 4000s | KIS | `KIS_ACCOUNT_NOT_FOUND=4000`, `KIS_API_SERVER_ERROR=4002`, `KIS_OAUTH_FAILED=4004` |
+| 5000s | 거래(trade) | `INSUFFICIENT_BALANCE=5001`, `INVALID_TRADE_QUANTITY=5002`, `INVALID_TRADE_PRICE=5003` |
+
+### 3.1 거래 사전 검증 (5000s)
+
+주문은 부작용이 있으므로 KIS로 보내기 **전에** 서비스 계층에서 막습니다. `@Valid` DTO 검증은 web-app 경로만 커버하고, ai-agent 내부 경로(`POST /api/internal/trade/buy`)는 우회하기 때문에 서비스 계층 검증이 필요합니다.
+
+| 검증 | 적용 대상 | ErrorCode | HTTP |
+|------|-----------|-----------|------|
+| 주문 수량 < 1 또는 null | `/trading/buy`·`/trading/sell`·`/overseas/buy`·`/overseas/sell`·내부 매매 API | `INVALID_TRADE_QUANTITY`(5002) | 400 |
+| 매수여력 부족 (KIS `VTTC8908R`의 `max_buy_qty` < 요청 수량, **지정가 주문만**) | `/trading/buy` | `INSUFFICIENT_BALANCE`(5001) | 400 |
+| 단가 누락/0 이하 (해외는 지정가 전용) | `/overseas/buy`·`/overseas/sell` | `INVALID_TRADE_PRICE`(5003) | 400 |
+
+> **매수여력 검증은 지정가 주문에만 적용됩니다.** `orderPrice`가 null/0(=시장가 — 실제 주문도 `ORD_DVSN="01"`+`ORD_UNPR="0"`으로 나감)이면 검증 자체를 건너뜁니다. 매수가능조회(`VTTC8908R`)는 항상 `ORD_DVSN="00"`(지정가) 기준으로 조회하므로, price=0으로 그대로 호출하면 "0원 지정가"라는 실제 주문과 무관한 조합을 KIS에 묻게 되고 `max_buy_qty=0`이 정상 응답으로 돌아와 모든 시장가 매수를 차단할 수 있습니다. 내부 매매 API(`POST /api/internal/trade/buy`, ai-agent Stage 6)는 항상 시장가(price=0)로 호출하므로 이 검증의 실질 적용 대상이 아닙니다 — 최종 판정은 KIS 주문 시점에 이루어집니다.
+>
+> **지정가 주문 매수여력 검증은 fail-open**입니다. 매수가능조회가 degrade된 경우(`notice != null` — KIS 장애/모의 미지원)에는 검증을 건너뜁니다. 조회 실패를 잔고 부족으로 오인해 정상 주문을 막으면 안 되기 때문이며, 최종 판정은 언제나 KIS가 합니다.
+>
+> **매도 수량**은 보유수량 초과 여부를 KIS가 판정합니다(`rt_cd != 0` → `KIS_API_SERVER_ERROR`).
 
 ---
 
@@ -156,6 +178,8 @@ AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요
 
 > `PendingOrderResponse{orderNumber, stockCode, stockName, orderType(BUY/SELL), orderQuantity, remainQuantity, orderPrice, orderedAt}`.
 
+> **주문 실패 계약**: `/trading/buy`·`/trading/sell`은 KIS `rt_cd != 0`(주문 거부)이나 빈 응답 시 `KisApiException`을 던지므로 실패가 최상위 `success=false` + 4xx/5xx로 내려갑니다. 클라이언트는 **최상위 `success`/HTTP 상태**로 판단하면 되고, `data` 안의 성공 플래그를 볼 필요가 없습니다. 해외 주문(§5.8)도 동일한 계약입니다. (예외: 예약주문 `/trading/reserved-orders` POST/DELETE는 KIS `rt_cd != 0`도 200 + `data.success=false`로 graceful 반환합니다.)
+
 ### 5.5 CompanyController (/company)
 
 전체 PUBLIC, 읽기 전용. KIS 시세(real domain) + DART 데이터를 사용합니다.
@@ -188,16 +212,46 @@ AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요
 
 ### 5.8 OverseasController (/overseas)
 
-해외주식(미국) 현재가/잔고/매수/매도. `/overseas/stocks/**`(현재가)는 PUBLIC, 나머지는 AUTH 필요(토큰의 `userId`). 모든 경로는 graceful degrade — 미연동/실패 시에도 200 + `notice`(주문은 `data.success=false`). 모의 지정가 전용, 해외 호가·실시간 시세 미지원, 미국 외 타국가 미지원. 현재가는 real quote 도메인 사용.
+해외주식(미국) 현재가/잔고/매수/매도. `/overseas/stocks/**`(현재가)는 PUBLIC, 나머지는 AUTH 필요(토큰의 `userId`). 모의 지정가 전용, 해외 호가는 1호가만, 미국 외 타국가 미지원. 현재가는 real quote 도메인 사용.
+
+**조회 경로는 graceful degrade** — 미연동/모의 미지원/실패 시에도 HTTP 200 + `success=true` + 빈 결과 + `data.notice`. **주문 경로(`/overseas/buy`, `/overseas/sell`)는 graceful degrade 대상이 아니다** — 국내 `/trading/buy`·`/trading/sell`과 동일하게 실패 시 예외가 전파되어 `success=false` + 4xx/5xx로 내려간다(§3 에러 처리 참고).
 
 | Method | Path | 요청 Body / Param | 응답 data(T) | 설명 | 인증 |
 |--------|------|-------------------|--------------|------|------|
 | GET | `/overseas/stocks/{symbol}/price?exchange=` | path `symbol`, query `exchange`(opt, 예 `NASD`) | `OverseasPriceResponse` | 해외 현재가상세. KIS `HHDFS76200200`(현재가 `HHDFS00000300`), quote real 도메인. 미연동 시 가격 null + notice | PUBLIC |
+| GET | `/overseas/stocks/{symbol}/orderbook?exchange=` | path `symbol`, query `exchange`(opt) | `OverseasOrderbookResponse` | 해외 1호가(asks/bids 각 1단계) + 현재가. 미연동/실패 시 빈 호가 + notice | PUBLIC |
 | GET | `/overseas/balance` | - | `OverseasBalanceResponse` | 해외 잔고/보유. KIS `VTTS3012R`(모의 trading 도메인). 미지원/실패 시 빈 목록 + notice | AUTH |
-| POST | `/overseas/buy` | `OverseasOrderRequest` | `Map` | 미국 매수(지정가 전용). KIS `VTTT1002U`. 실패 시 `data.success=false` + notice | AUTH |
-| POST | `/overseas/sell` | `OverseasOrderRequest` | `Map` | 미국 매도(지정가 전용). KIS `VTTT1006U`. 실패 시 `data.success=false` + notice | AUTH |
+| GET | `/overseas/history?exchange=` | query `exchange`(opt) | `OverseasTradeHistoryResponse` | 해외 주문체결내역. KIS `VTTS3035R`. 미지원/실패 시 빈 목록 + notice | AUTH |
+| GET | `/overseas/pending-orders?exchange=` | query `exchange`(opt) | `OverseasPendingOrderResponse` | 해외 미체결. KIS `VTTS3018R`. 미지원/실패 시 빈 목록 + notice | AUTH |
+| GET | `/overseas/orderable?symbol=&exchange=&price=` | query `symbol`, `exchange`(opt), `price`(opt) | `OverseasOrderableResponse` | 해외 매수가능금액. KIS `VTTS3007R`. 미지원/실패 시 0 + notice | AUTH |
+| POST | `/overseas/buy` | `OverseasOrderRequest{symbol, exchange, quantity, price}` | `Map{success:true, orderNumber, symbol, exchange, quantity, price, orderType:"BUY"}` | 미국 매수(지정가 전용). KIS `VTTT1002U`. **실패 시 `success=false` + 에러 상태** | AUTH |
+| POST | `/overseas/sell` | `OverseasOrderRequest{symbol, exchange, quantity, price}` | `Map{success:true, orderNumber, symbol, exchange, quantity, price, orderType:"SELL"}` | 미국 매도(지정가 전용). KIS `VTTT1006U`. **실패 시 `success=false` + 에러 상태** | AUTH |
 
 > `convertTrId`는 국내 `VTTC`↔`TTTC`만 교체하므로 해외 모의 TR은 V 변형(`VTTS3012R`/`VTTT1002U`/`VTTT1006U`)을 직접 사용합니다. 상세는 [KIS_API_GUIDE.md](KIS_API_GUIDE.md).
+
+#### 주문 실패 응답 (buy/sell 공통)
+
+클라이언트는 **최상위 `success`**(및 HTTP 상태)만 보면 되고, `data`는 실패 시 `null`이므로 `data.success`를 볼 필요가 없다.
+
+```json
+{
+  "success": false,
+  "message": "해외 주문에 실패했습니다 (모의투자 해외매매 미지원일 수 있습니다) (msg1..., rt_cd=1)",
+  "data": null,
+  "code": 4002
+}
+```
+
+| 실패 원인 | ErrorCode | HTTP |
+|-----------|-----------|------|
+| `quantity` 누락/1주 미만 | `INVALID_TRADE_QUANTITY`(5002) | 400 |
+| `price` 누락/0 이하 (해외는 지정가 전용) | `INVALID_TRADE_PRICE`(5003) | 400 |
+| 요청 바디 validation 실패 | - (`MethodArgumentNotValidException`) | 400 |
+| 사용자 없음 | `USER_NOT_FOUND` | 404 |
+| KIS 계정 미등록 | `KIS_ACCOUNT_NOT_FOUND`(4000) | 404 |
+| KIS 4xx (자격증명/파라미터 오류) | `KIS_API_CLIENT_ERROR`(4001) | 400 |
+| KIS `rt_cd != 0`, 빈 응답, 모의 해외매매 미지원, KIS 5xx | `KIS_API_SERVER_ERROR`(4002) | 503 |
+| KIS 네트워크 오류/타임아웃 | `KIS_API_NETWORK_ERROR`(4003) | 503 |
 
 ### 5.9 MarketAnalysisController (/market)
 

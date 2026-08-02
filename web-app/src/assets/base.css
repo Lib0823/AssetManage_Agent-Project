@@ -93,6 +93,18 @@
   --bottom-nav-height: 73px;
   --tab-height: 44px;
 
+  /* Light Surface Palette — consumed by :root[data-theme="light"] (user override of OS dark) */
+  --light-bg-primary: #FFFFFF;
+  --light-bg-secondary: #F8F9FA;
+  --light-bg-tertiary: #F3F4F6;
+  --light-bg-card: #FFFFFF;
+  --light-bg-highlight: #EEF2FF;
+  --light-text-primary: #1F2937;
+  --light-text-secondary: #6B7280;
+  --light-text-tertiary: #9CA3AF;
+  --light-border: #E5E7EB;
+  --light-border-light: #F3F4F6;
+
   /* Dark Surface Palette — consumed by the OS dark theme and by .dark-canvas */
   --dark-bg-primary: #1F2937;
   --dark-bg-secondary: #111827;
@@ -122,6 +134,45 @@
     --color-border: var(--dark-border);
     --color-border-light: var(--dark-border-light);
   }
+}
+
+/* User theme override (설정 > 다크 모드).
+   utils/uiSettings.js 가 <html data-theme="dark|light"> 를 붙인다.
+   `:root[data-theme=...]`(0,2,0)는 위 @media 안의 `:root`(0,1,0)보다 특이도가 높아
+   선언 순서와 무관하게 OS 설정을 덮어쓴다. data-theme 이 없으면 다시 OS 설정을 따른다.
+   .dark-canvas 는 :root 가 아닌 하위 요소에 변수를 재정의하므로 여기 규칙보다 여전히 우선한다. */
+:root[data-theme='dark'] {
+  --color-bg-primary: var(--dark-bg-primary);
+  --color-bg-secondary: var(--dark-bg-secondary);
+  --color-bg-tertiary: var(--dark-bg-tertiary);
+  --color-bg-card: var(--dark-bg-card);
+  --color-bg-highlight: var(--dark-bg-highlight);
+
+  --color-text-primary: var(--dark-text-primary);
+  --color-text-secondary: var(--dark-text-secondary);
+  --color-text-tertiary: var(--dark-text-tertiary);
+
+  --color-border: var(--dark-border);
+  --color-border-light: var(--dark-border-light);
+
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --color-bg-primary: var(--light-bg-primary);
+  --color-bg-secondary: var(--light-bg-secondary);
+  --color-bg-tertiary: var(--light-bg-tertiary);
+  --color-bg-card: var(--light-bg-card);
+  --color-bg-highlight: var(--light-bg-highlight);
+
+  --color-text-primary: var(--light-text-primary);
+  --color-text-secondary: var(--light-text-secondary);
+  --color-text-tertiary: var(--light-text-tertiary);
+
+  --color-border: var(--light-border);
+  --color-border-light: var(--light-border-light);
+
+  color-scheme: light;
 }
 
 /* Screens whose canvas is hardcoded dark (#0F172A) regardless of OS theme.

@@ -3,8 +3,10 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import InvestmentTabs from '@/components/common/InvestmentTabs.vue'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { stockApi, overseasApi, marketApi, favoriteApi } from '@/services/api'
 import { logger } from '@/utils/logger'
+import { isKisOutageError, isKisUnavailableNotice } from '@/utils/kisStatus'
 
 const router = useRouter()
 
@@ -13,6 +15,9 @@ const searchQuery = ref('')
 const results = ref([])
 const searching = ref(false)
 const searchError = ref('')
+// 서버/네트워크 장애 여부. true 면 "검색 결과가 없습니다" 대신 장애 안내를 띄운다
+// (백엔드 다운을 무데이터로 오인하게 만들지 않기 위함).
+const searchOutage = ref(false)
 
 // 종목코드별 현재가 캐시 (lazy 로딩)
 const priceMap = ref({})
@@ -76,6 +81,7 @@ const normalizeResults = (data) => {
 // 화면 진입 기본 목록: 국내=코스피 상위, 해외=S&P500 상위. 검색어가 비면 이 목록으로 복귀.
 const loadTopStocks = async () => {
   searchError.value = ''
+  searchOutage.value = false
   searching.value = true
   try {
     const res = await stockApi.getTop(isDomestic.value ? undefined : 'US')
@@ -83,6 +89,11 @@ const loadTopStocks = async () => {
   } catch (error) {
     logger.debug('상위 종목 조회 실패:', error)
     results.value = []
+    // 서버 장애(5xx/네트워크/타임아웃)와 "결과 없음"을 화면에서 구분한다.
+    searchOutage.value = isKisOutageError(error)
+    if (!searchOutage.value) {
+      searchError.value = '상위 종목을 불러오지 못했습니다'
+    }
   } finally {
     searching.value = false
   }
@@ -91,6 +102,7 @@ const loadTopStocks = async () => {
 const handleSearch = async () => {
   const query = searchQuery.value.trim()
   searchError.value = ''
+  searchOutage.value = false
 
   if (!query) {
     // 검색어가 없으면 기본 상위 종목 목록으로 복귀
@@ -107,7 +119,11 @@ const handleSearch = async () => {
   } catch (error) {
     logger.debug('종목 검색 실패:', error)
     results.value = []
-    searchError.value = '검색 중 오류가 발생했습니다'
+    // 서버 장애면 배너로, 그 외(400 등)는 문구로 안내 — 무데이터와 섞이지 않게.
+    searchOutage.value = isKisOutageError(error)
+    if (!searchOutage.value) {
+      searchError.value = '검색 중 오류가 발생했습니다'
+    }
   } finally {
     searching.value = false
   }
@@ -167,13 +183,31 @@ const loadPrice = async (item) => {
         currentPrice: null,
         changeAmount: null,
         changeRate: null,
-        notice: '—'
+        notice: null,
+        // 하드 실패(5xx/네트워크)는 시세 미제공이 아니라 KIS 연동 장애로 표기한다.
+        kisDown: isKisOutageError(error)
       }
     }
   }
 }
 
 const getPriceInfo = (stockCode) => priceMap.value[stockCode] || null
+
+// 시세 자리에 '—' 대신 "점검중" 배지를 띄울지 판단.
+// (1) 하드 실패 = catch 에서 세운 kisDown, (2) 소프트 degrade = 200 이지만 값 null + notice.
+const priceKisDown = (stockCode) => {
+  const info = getPriceInfo(stockCode)
+  if (!info || info.loading) {
+    return false
+  }
+  if (info.kisDown === true) {
+    return true
+  }
+  return (
+    (info.currentPrice === null || info.currentPrice === undefined) &&
+    isKisUnavailableNotice(info.notice)
+  )
+}
 
 const hasPrice = (stockCode) => {
   const info = getPriceInfo(stockCode)
@@ -209,6 +243,7 @@ watch(isDomestic, () => {
   results.value = []
   priceMap.value = {}
   searchError.value = ''
+  searchOutage.value = false
   loadTopStocks()
 })
 
@@ -307,7 +342,16 @@ onMounted(() => {
           {{ isDomestic ? '코스피 상위 종목' : 'S&P500 상위 종목' }}
         </div>
 
-        <div v-if="filteredResults.length === 0" class="empty-state">
+        <!-- 서버 장애: "검색 결과가 없습니다" 로 오인되지 않도록 별도 안내 -->
+        <KisMaintenanceNotice
+          v-if="searchOutage && !searching"
+          variant="card"
+          title="서버 연결 오류"
+          message="일시적인 서버 오류로 종목 목록을 불러올 수 없어요. 잠시 후 다시 시도해 주세요."
+          class="list-notice"
+        />
+
+        <div v-else-if="filteredResults.length === 0" class="empty-state">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
             <circle cx="11" cy="11" r="7" stroke="var(--color-text-tertiary)" stroke-width="2"/>
             <path d="M21 21L16.5 16.5" stroke="var(--color-text-tertiary)" stroke-width="2" stroke-linecap="round"/>
@@ -352,6 +396,8 @@ onMounted(() => {
                   {{ Number(getPriceInfo(item.stockCode).changeRate) >= 0 ? '+' : '' }}{{ getPriceInfo(item.stockCode).changeRate }}%
                 </div>
               </template>
+              <!-- KIS 연동 실패는 값 없음('—')과 구분해 배지로 표시 -->
+              <KisMaintenanceNotice v-else-if="priceKisDown(item.stockCode)" variant="inline" />
               <div v-else class="item-price">—</div>
             </div>
             <button class="star-btn" @click.stop="toggleFavorite(item)">
@@ -453,6 +499,12 @@ onMounted(() => {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+}
+
+/* 장애 안내 카드 (관심종목 화면과 동일한 배치 규칙) */
+.list-notice {
+  margin-bottom: var(--spacing-md);
+  flex-shrink: 0;
 }
 
 .list-caption {
