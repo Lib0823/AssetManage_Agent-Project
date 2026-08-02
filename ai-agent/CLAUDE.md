@@ -57,7 +57,7 @@ _docs/             상세 문서 (진입점: _docs/README.md)
 - **자동 스케줄이 전체 파이프라인(Stage 1~6)을 실행**한다(`scheduler._job_wrapper` → `run_complete_pipeline_sync`). 수동 트리거 `POST /api/pipeline/trigger`(`run_complete_pipeline`)도 동일. ([`_docs/STATUS.md`](_docs/STATUS.md))
 - **Stage 3(matplotlib 차트)는 미구현**. `charts/`·`static/charts/` 없음. ([`_docs/STATUS.md`](_docs/STATUS.md) §2-2)
 - **DataFrame 컬럼명 ≠ DB 컬럼명**: 내부 `final_score`/`volume_ratio`/`institution_net_buy`/`prophet_*`/`decision_type`/`trade_date`는 저장 시 DB 컬럼(`scaler_score`/`vol_avg_multiple`/`institutional_net_buy`/`price_trend` 등/`decision`/`score_date`·`forecast_date`·`decision_date`)으로 매핑된다. 매핑표: [`_docs/API_REFERENCE.md`](_docs/API_REFERENCE.md) §3.
-- **DB 단일 출처**: 루트 [`database/schema.sql`](../database/schema.sql). 스키마를 바꾸지 말고 코드/문서를 스키마에 맞춘다.
+- **DB 단일 출처는 Liquibase changelog**: [`api-server/src/main/resources/db/changelog/`](../api-server/src/main/resources/db/changelog/). 루트 [`database/schema.sql`](../database/schema.sql)은 `database/generate-schema.sh`가 라이브 DB에서 뽑는 **참고용 스냅샷**이므로, 재생성이 밀리면 실제 스키마보다 낡을 수 있다. 컬럼 존재 여부는 changelog(또는 실제 DB)로 확인하고, schema.sql에 없다는 이유만으로 정상 동작하는 코드의 컬럼 사용을 지우지 않는다. ai-agent는 스키마를 직접 바꾸지 않는다 — 변경이 필요하면 backend에 changeset 추가를 요청한다.
 - **PER**: DART만으로 산출 불가 → Stage 2-1-A에서 KIS 시세로 보강.
 
 ## 개발 명령

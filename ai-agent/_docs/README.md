@@ -36,5 +36,5 @@ ai-agent는 매 거래일 KOSPI 100 종목을 분석해 11개 피처를 산출�
 - **트리거**: 자동 스케줄(평일 08:50)이 **전체 파이프라인(Stage 1~6)**을 실행. 수동 트리거 `POST /api/pipeline/trigger`도 동일. ([STATUS.md](STATUS.md))
 - **11개 피처**: 정량 7 + 감성 1 + 시계열 3 → Gemini(`models/gemini-2.5-flash`) 입력.
 - **Stage 3(차트 생성)은 미구현**. `static/charts/` 출력 없음. ([STATUS.md](STATUS.md) §2-2)
-- **DB 단일 출처**: 루트 [`database/schema.sql`](../../database/schema.sql). 내부 DataFrame 컬럼명과 DB 컬럼명이 다르므로 조회 시 [API_REFERENCE.md](API_REFERENCE.md) §3 표 참고.
+- **DB 단일 출처는 Liquibase changelog**(`api-server/src/main/resources/db/changelog/`). 루트 [`database/schema.sql`](../../database/schema.sql)은 참고용 생성 스냅샷이라 낡을 수 있다. 내부 DataFrame 컬럼명과 DB 컬럼명이 다르므로 조회 시 [API_REFERENCE.md](API_REFERENCE.md) §3 표 참고.
 - **실행 환경**: Prophet 때문에 반드시 **venv**에서 실행.

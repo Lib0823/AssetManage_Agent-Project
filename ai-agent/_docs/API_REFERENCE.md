@@ -155,7 +155,7 @@ CREATE TABLE safety_filter_result (
 );
 ```
 
-> 전체 스키마(users/refresh_tokens/trade_history/trade_execution_plan/feature_threshold_config/뷰 등)는 루트 [`database/schema.sql`](../../database/schema.sql)이 단일 출처(source of truth)다.
+> 전체 스키마(users/refresh_tokens/trade_history/trade_execution_plan/feature_threshold_config/뷰 등)의 단일 출처(source of truth)는 Liquibase changelog(`api-server/src/main/resources/db/changelog/`)다. 루트 [`database/schema.sql`](../../database/schema.sql)은 이를 적용한 DB에서 뽑은 참고용 스냅샷이므로, 컬럼 존재 여부가 문제될 때는 changelog를 확인한다.
 
 ---
 
