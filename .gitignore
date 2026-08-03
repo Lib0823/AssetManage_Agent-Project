@@ -22,6 +22,9 @@ Thumbs.db
 *.swp
 *~
 
+# Browser automation artifacts (chrome-devtools/playwright MCP scratch output)
+.playwright-mcp/
+
 # === DevKit ===
 # 스캔 입력 (자료 성격에 따라 커밋 여부는 사용자 판단 — 기본은 커밋 허용)
 # ontology_temp/       # 도메인 소스 자료. 팀 공유하려면 커밋, 민감하면 무시

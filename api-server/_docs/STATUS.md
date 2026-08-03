@@ -117,14 +117,14 @@ KIS WebSocket을 중계하는 브라우저용 엔드포인트. REST 폴링과 �
 
 ## 5d. 해외주식 (OverseasController / OverseasTradingService · OverseasQuoteService)
 
-미국 종목 현재가/잔고/매수/매도. `/overseas/stocks/**`(현재가) PUBLIC, 나머지 AUTH. 모든 경로 graceful degrade(미연동/실패 시 200 + notice). 모의 지정가 전용, 해외 호가·실시간 시세·미국 외 타국가 미지원. `convertTrId`가 해외 TR을 변환하지 않으므로 V 변형 직접 사용.
+미국 종목 현재가/잔고/매수/매도. `/overseas/stocks/**`(현재가) PUBLIC, 나머지 AUTH. 조회(현재가/잔고/미체결 등)는 graceful degrade(미연동/실패 시 200 + notice)를 유지하지만, **매수/매도는 국내 주문과 동일하게 실패 시 예외를 던져 4xx/5xx + 최상위 `success=false`, `data=null`로 응답한다**(과거엔 200 + `data.success=false`였으나 국내 패턴에 맞춰 정렬됨 — 상세: `API_DESIGN.md` §3.1, §5.8). 모의 지정가 전용, 해외 호가·실시간 시세·미국 외 타국가 미지원. `convertTrId`가 해외 TR을 변환하지 않으므로 V 변형 직접 사용.
 
 | 기능 | 엔드포인트 | 상태 | 비고 |
 |------|-----------|------|------|
 | 해외 현재가 | `GET /overseas/stocks/{symbol}/price?exchange=` | 완료 | KIS `HHDFS76200200`(현재가 `HHDFS00000300`), real quote 도메인. 미연동 시 가격 null + notice |
 | 해외 잔고 | `GET /overseas/balance` | 완료 | KIS `VTTS3012R`(모의 trading 도메인) → `OverseasBalanceResponse` |
-| 해외 매수 | `POST /overseas/buy` | 완료 | KIS `VTTT1002U` 지정가. 실패 시 `data.success=false` + notice |
-| 해외 매도 | `POST /overseas/sell` | 완료 | KIS `VTTT1006U` 지정가. 실패 시 `data.success=false` + notice |
+| 해외 매수 | `POST /overseas/buy` | 완료 | KIS `VTTT1002U` 지정가. 실패 시 예외 전파 → 4xx/5xx + `success=false`(`data=null`) |
+| 해외 매도 | `POST /overseas/sell` | 완료 | KIS `VTTT1006U` 지정가. 실패 시 예외 전파 → 4xx/5xx + `success=false`(`data=null`) |
 
 > TradingView 해외(US) 지정가 매매, AssetDetailView 해외탭, SearchView 해외 검색이 위 엔드포인트로 실데이터 연동됨.
 
