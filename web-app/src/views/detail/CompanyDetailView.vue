@@ -1463,7 +1463,7 @@ watch(
   background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
   border-radius: var(--radius-xl);
   padding: var(--spacing-xl);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--canvas-hairline-soft);
 }
 
 .info-row {
@@ -1715,7 +1715,7 @@ watch(
   padding: var(--spacing-md);
   background: rgba(255, 255, 255, 0.02);
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--canvas-hairline-soft);
   margin-top: var(--spacing-xl);
 }
 
@@ -1854,7 +1854,7 @@ watch(
   border-radius: var(--radius-lg);
   padding: var(--spacing-md);
   text-align: center;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--canvas-hairline-soft);
   transition: all 0.3s ease;
 }
 
@@ -1888,7 +1888,7 @@ watch(
   background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--canvas-hairline-soft);
 }
 
 .table-header {
@@ -1963,7 +1963,7 @@ watch(
   background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
   border-radius: var(--radius-lg);
   padding: var(--spacing-md);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--canvas-hairline-soft);
   transition: all 0.3s ease;
   cursor: pointer;
 }
@@ -2104,7 +2104,7 @@ watch(
 
 .analysis-card {
   background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--canvas-hairline-soft);
   border-radius: var(--radius-lg);
   padding: var(--spacing-md);
 }
@@ -2172,8 +2172,8 @@ watch(
 }
 
 .stat-item {
-  background: rgba(30, 41, 59, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: color-mix(in srgb, var(--canvas-card-start) 50%, transparent);
+  border: 1px solid var(--canvas-hairline-soft);
   border-radius: var(--radius-md);
   padding: var(--spacing-sm) 4px;
   text-align: center;
@@ -2394,7 +2394,7 @@ watch(
   justify-content: space-between;
   align-items: center;
   padding: var(--spacing-md);
-  background: rgba(30, 41, 59, 0.5);
+  background: color-mix(in srgb, var(--canvas-card-start) 50%, transparent);
   margin-top: var(--spacing-md);
   border-radius: var(--radius-md);
 }
@@ -2485,8 +2485,8 @@ watch(
 }
 
 .meta-box {
-  background: rgba(30, 41, 59, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: color-mix(in srgb, var(--canvas-card-start) 50%, transparent);
+  border: 1px solid var(--canvas-hairline-soft);
   border-radius: var(--radius-md);
   padding: var(--spacing-sm);
   min-width: 0;
