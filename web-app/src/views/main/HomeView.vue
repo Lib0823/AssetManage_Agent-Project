@@ -295,7 +295,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="home-screen dark-canvas">
+  <div class="home-screen">
     <AppHeader title="홈" showIcon icon="home" show-kis-mode />
 
     <div class="content">
@@ -581,14 +581,14 @@ onMounted(() => {
 <style scoped>
 .home-screen {
   min-height: 100vh;
-  background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
+  background: linear-gradient(180deg, var(--canvas-gradient-start) 0%, var(--canvas-gradient-end) 100%);
   padding-bottom: var(--bottom-nav-height);
 }
 
 /* Header Override */
 .home-screen :deep(.app-header) {
-  background: #0F172A;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-gradient-start);
+  border-bottom: 1px solid var(--canvas-hairline);
 }
 
 .content {
@@ -600,17 +600,17 @@ onMounted(() => {
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: 16px;
   margin-bottom: var(--spacing-lg);
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px var(--canvas-card-shadow);
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .notification-banner:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 6px 20px var(--canvas-card-shadow);
 }
 
 .notification-banner:active {
@@ -873,7 +873,7 @@ onMounted(() => {
   padding: var(--spacing-lg);
   font-size: var(--font-size-sm);
   color: var(--color-text-tertiary);
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: 12px;
 }
 
@@ -1007,7 +1007,7 @@ onMounted(() => {
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-sm) var(--spacing-md);
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: 12px;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
@@ -1069,7 +1069,7 @@ onMounted(() => {
   word-break: keep-all;
   word-wrap: break-word;
   overflow: visible;
-  background: linear-gradient(135deg, #334155 0%, #475569 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   z-index: 10;
   padding: 6px 8px;
@@ -1123,7 +1123,7 @@ onMounted(() => {
 }
 
 .exchange-card {
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: 16px;
   padding: var(--spacing-md);
   flex: 0 0 84%;
@@ -1201,13 +1201,13 @@ onMounted(() => {
 
 .ai-card {
   position: relative;
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: 16px;
   overflow: hidden;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--canvas-hairline-soft);
 }
 
 .ai-card::before {
@@ -1351,7 +1351,7 @@ onMounted(() => {
 
 .ai-desc {
   font-size: var(--font-size-xs);
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--color-text-secondary);
   line-height: 1.4;
   margin: 0;
   display: -webkit-box;
@@ -1367,7 +1367,7 @@ onMounted(() => {
   justify-content: space-between;
   padding-top: var(--spacing-xs);
   margin-top: auto;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--canvas-hairline-soft);
   opacity: 0;
   transform: translateY(4px);
   transition: all 0.3s ease;

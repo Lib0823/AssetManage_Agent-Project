@@ -173,7 +173,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="settings-screen dark-canvas">
+  <div class="settings-screen">
     <AppHeader title="설정" showBack />
 
     <div class="content">
@@ -334,14 +334,14 @@ onBeforeUnmount(() => {
 <style scoped>
 .settings-screen {
   min-height: 100vh;
-  background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
+  background: linear-gradient(180deg, var(--canvas-gradient-start) 0%, var(--canvas-gradient-end) 100%);
   padding-bottom: var(--bottom-nav-height);
 }
 
 /* Header Override */
 .settings-screen :deep(.app-header) {
-  background: #0F172A;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-gradient-start);
+  border-bottom: 1px solid var(--canvas-hairline);
 }
 
 .content {
@@ -353,11 +353,11 @@ onBeforeUnmount(() => {
 }
 
 .card {
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: var(--radius-xl);
   padding: var(--spacing-lg);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 16px var(--canvas-card-shadow);
+  border: 1px solid var(--canvas-hairline-soft);
 }
 
 .section-title {
@@ -369,7 +369,7 @@ onBeforeUnmount(() => {
   color: var(--color-text-primary);
   margin-bottom: var(--spacing-xs);
   padding-bottom: var(--spacing-sm);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--canvas-hairline);
 }
 
 .section-title svg {
@@ -393,8 +393,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-md);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-hairline-soft);
+  border: 1px solid var(--canvas-hairline);
   border-radius: var(--radius-lg);
   cursor: move;
   transition: all 0.2s;
@@ -402,7 +402,7 @@ onBeforeUnmount(() => {
 }
 
 .asset-order-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--canvas-hairline-soft);
   border-color: rgba(245, 158, 11, 0.3);
   transform: translateX(4px);
 }
@@ -512,8 +512,8 @@ onBeforeUnmount(() => {
 .setting-select {
   width: 100%;
   padding: var(--spacing-sm) var(--spacing-md);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-hairline-soft);
+  border: 1px solid var(--canvas-hairline);
   border-radius: var(--radius-md);
   font-size: var(--font-size-base);
   color: var(--color-text-primary);
@@ -524,7 +524,7 @@ onBeforeUnmount(() => {
 .setting-select:focus {
   outline: none;
   border-color: var(--color-primary);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--canvas-hairline-soft);
 }
 
 .setting-select {
@@ -533,7 +533,7 @@ onBeforeUnmount(() => {
 
 .setting-divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-soft);
   margin: var(--spacing-md) 0;
 }
 
@@ -622,13 +622,13 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   padding: var(--spacing-xs) var(--spacing-md);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--canvas-hairline-faint);
   border-radius: var(--radius-md);
   transition: all 0.2s;
 }
 
 .notification-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-soft);
 }
 
 .notification-label {

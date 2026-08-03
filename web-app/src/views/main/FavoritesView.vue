@@ -181,7 +181,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="favorites-screen dark-canvas">
+  <div class="favorites-screen">
     <AppHeader title="관심 종목" showIcon icon="star" />
 
     <div class="content">
@@ -266,13 +266,13 @@ onMounted(() => {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
+  background: linear-gradient(180deg, var(--canvas-gradient-start) 0%, var(--canvas-gradient-end) 100%);
   overflow: hidden;
 }
 
 .favorites-screen :deep(.app-header) {
-  background: #0F172A;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-gradient-start);
+  border-bottom: 1px solid var(--canvas-hairline);
   flex-shrink: 0;
 }
 
@@ -294,7 +294,7 @@ onMounted(() => {
   margin-top: var(--spacing-md);
   margin-bottom: var(--spacing-md);
   background: rgba(30, 41, 59, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--canvas-hairline-soft);
   border-radius: 12px;
   padding: var(--spacing-md);
   flex: 1;
@@ -336,15 +336,15 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-faint);
+  border: 1px solid var(--canvas-hairline-soft);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .item-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--canvas-hairline-soft);
   border-color: rgba(139, 92, 246, 0.3);
   transform: translateX(2px);
 }
@@ -359,7 +359,7 @@ onMounted(() => {
 .item-thumb {
   width: 40px;
   height: 40px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-soft);
   border-radius: 8px;
   overflow: hidden;
   display: flex;

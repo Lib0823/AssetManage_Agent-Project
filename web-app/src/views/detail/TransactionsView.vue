@@ -266,7 +266,7 @@ const getTypeLabel = (type) => {
 </script>
 
 <template>
-  <div class="transactions-screen dark-canvas">
+  <div class="transactions-screen">
     <AppHeader title="거래 내역" showIcon icon="news" />
 
     <div class="content">
@@ -409,7 +409,7 @@ const getTypeLabel = (type) => {
 <style scoped>
 .transactions-screen {
   min-height: 100vh;
-  background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
+  background: linear-gradient(180deg, var(--canvas-gradient-start) 0%, var(--canvas-gradient-end) 100%);
   padding-bottom: var(--bottom-nav-height);
 }
 
@@ -497,13 +497,13 @@ const getTypeLabel = (type) => {
 }
 
 .action-button.secondary {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--canvas-hairline);
   color: var(--color-text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--canvas-hairline-strong);
 }
 
 .action-button.secondary:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--canvas-hairline-strong);
 }
 
 /* Empty State */
@@ -534,7 +534,7 @@ const getTypeLabel = (type) => {
 /* Pending Orders Section */
 .pending-section {
   background: rgba(30, 41, 59, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--canvas-hairline-soft);
   border-radius: 12px;
   padding: var(--spacing-lg);
   margin-bottom: var(--spacing-xl);
@@ -561,7 +561,7 @@ const getTypeLabel = (type) => {
 }
 
 .order-list::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-soft);
   border-radius: 2px;
 }
 
@@ -579,15 +579,15 @@ const getTypeLabel = (type) => {
   align-items: center;
   justify-content: space-between;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-faint);
+  border: 1px solid var(--canvas-hairline-soft);
   border-radius: 8px;
   transition: all 0.2s;
   cursor: pointer;
 }
 
 .order-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--canvas-hairline-soft);
   border-color: rgba(139, 92, 246, 0.3);
   transform: translateX(2px);
 }
@@ -636,7 +636,7 @@ const getTypeLabel = (type) => {
 /* Period Transaction Section */
 .period-section {
   background: rgba(30, 41, 59, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--canvas-hairline-soft);
   border-radius: 12px;
   padding: var(--spacing-lg);
 }
@@ -666,8 +666,8 @@ const getTypeLabel = (type) => {
 .period-btn {
   flex-shrink: 0;
   padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-hairline-soft);
+  border: 1px solid var(--canvas-hairline);
   border-radius: 8px;
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
@@ -677,8 +677,8 @@ const getTypeLabel = (type) => {
 }
 
 .period-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--canvas-hairline-soft);
+  border-color: var(--canvas-hairline-strong);
 }
 
 .period-btn.active {
@@ -699,7 +699,7 @@ const getTypeLabel = (type) => {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   padding: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--canvas-hairline-faint);
   border-radius: 8px;
   margin-bottom: var(--spacing-lg);
 }
@@ -747,7 +747,7 @@ const getTypeLabel = (type) => {
 }
 
 .summary-type.other {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--canvas-hairline);
   color: var(--color-text-secondary);
 }
 
@@ -786,7 +786,7 @@ const getTypeLabel = (type) => {
 }
 
 .history-list::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-soft);
   border-radius: 2px;
 }
 
@@ -804,15 +804,15 @@ const getTypeLabel = (type) => {
   align-items: center;
   gap: var(--spacing-md);
   padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-faint);
+  border: 1px solid var(--canvas-hairline-soft);
   border-radius: 8px;
   transition: all 0.2s;
   flex-shrink: 0;
 }
 
 .history-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--canvas-hairline-soft);
   border-color: rgba(139, 92, 246, 0.3);
 }
 
@@ -836,7 +836,7 @@ const getTypeLabel = (type) => {
 }
 
 .history-type.dividend {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--canvas-hairline);
   color: var(--color-text-secondary);
 }
 

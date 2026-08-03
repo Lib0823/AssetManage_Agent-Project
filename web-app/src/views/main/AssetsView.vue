@@ -361,7 +361,7 @@ const handleRefresh = () => {
 </script>
 
 <template>
-  <div class="assets-screen dark-canvas">
+  <div class="assets-screen">
     <AppHeader title="자산 정보" showIcon icon="assets" show-kis-mode />
 
     <div class="header-actions">
@@ -527,14 +527,14 @@ const handleRefresh = () => {
 <style scoped>
 .assets-screen {
   min-height: 100vh;
-  background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
+  background: linear-gradient(180deg, var(--canvas-gradient-start) 0%, var(--canvas-gradient-end) 100%);
   padding-bottom: var(--bottom-nav-height);
 }
 
 /* Header Override */
 .assets-screen :deep(.app-header) {
-  background: #0F172A;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-gradient-start);
+  border-bottom: 1px solid var(--canvas-hairline);
 }
 
 .content {
@@ -559,13 +559,13 @@ const handleRefresh = () => {
   background: transparent;
   border: none;
   padding: 0;
-  color: #94A3B8;
+  color: var(--color-text-secondary);
   cursor: pointer;
   transition: all 0.3s;
 }
 
 .refresh-button:hover {
-  color: #F1F5F9;
+  color: var(--color-text-primary);
   transform: rotate(180deg);
 }
 
@@ -575,17 +575,17 @@ const handleRefresh = () => {
 
 .update-time {
   font-size: 11px;
-  color: #94A3B8;
+  color: var(--color-text-secondary);
   font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
 .total-section {
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: 24px;
   padding: 24px;
   margin-bottom: var(--spacing-xl);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 32px var(--canvas-card-shadow);
 }
 
 .total-header {
@@ -598,7 +598,7 @@ const handleRefresh = () => {
 .total-label {
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
-  color: #F1F5F9;
+  color: var(--color-text-primary);
 }
 
 .total-badge {
@@ -612,7 +612,7 @@ const handleRefresh = () => {
   font-weight: var(--font-weight-semibold);
   padding: 4px 12px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-soft);
 }
 
 .badge-change.positive, .badge-percent.positive {
@@ -628,7 +628,7 @@ const handleRefresh = () => {
 .total-value {
   font-size: 36px;
   font-weight: var(--font-weight-bold);
-  color: #F1F5F9;
+  color: var(--color-text-primary);
   margin-bottom: 24px;
   letter-spacing: -0.02em;
 }
@@ -636,7 +636,7 @@ const handleRefresh = () => {
 .currency {
   font-size: 24px;
   font-weight: var(--font-weight-normal);
-  color: #94A3B8;
+  color: var(--color-text-secondary);
   margin-left: 4px;
 }
 
@@ -667,14 +667,14 @@ const handleRefresh = () => {
 
 .center-label {
   font-size: 12px;
-  color: #94A3B8;
+  color: var(--color-text-secondary);
   margin-bottom: 4px;
 }
 
 .center-value {
   font-size: 20px;
   font-weight: var(--font-weight-bold);
-  color: #F1F5F9;
+  color: var(--color-text-primary);
 }
 
 .legend-list {
@@ -688,7 +688,7 @@ const handleRefresh = () => {
   align-items: center;
   gap: 12px;
   padding: 8px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--canvas-hairline-faint);
   border-radius: 12px;
 }
 
@@ -708,31 +708,31 @@ const handleRefresh = () => {
 
 .legend-name {
   font-size: 14px;
-  color: #F1F5F9;
+  color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
 }
 
 .legend-percent {
   font-size: 12px;
-  color: #94A3B8;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-secondary);
+  background: var(--canvas-hairline-soft);
   padding: 2px 8px;
   border-radius: 8px;
 }
 
 .legend-value {
   font-size: 14px;
-  color: #F1F5F9;
+  color: var(--color-text-primary);
   font-weight: var(--font-weight-semibold);
 }
 
 /* Asset Trend Section */
 .trend-section {
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: 24px;
   padding: 24px;
   margin-bottom: var(--spacing-xl);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 32px var(--canvas-card-shadow);
 }
 
 .trend-header {
@@ -745,12 +745,12 @@ const handleRefresh = () => {
 .trend-label {
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
-  color: #F1F5F9;
+  color: var(--color-text-primary);
 }
 
 .trend-sub {
   font-size: 12px;
-  color: #94A3B8;
+  color: var(--color-text-secondary);
   font-weight: var(--font-weight-medium);
 }
 
@@ -767,7 +767,7 @@ const handleRefresh = () => {
   min-height: 120px;
   text-align: center;
   font-size: var(--font-size-sm);
-  color: #64748B;
+  color: var(--color-text-tertiary);
   font-weight: var(--font-weight-medium);
 }
 
@@ -780,13 +780,13 @@ const handleRefresh = () => {
 
 .asset-card {
   position: relative;
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: 20px;
   padding: 20px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px var(--canvas-card-shadow);
 }
 
 .asset-card::before {
@@ -796,7 +796,7 @@ const handleRefresh = () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.05) 100%);
+  background: linear-gradient(135deg, transparent 0%, var(--canvas-hairline-soft) 100%);
   opacity: 0;
   transition: opacity 0.3s;
 }
@@ -813,7 +813,7 @@ const handleRefresh = () => {
 /* 비활성 카드도 .asset-cards(flex, gap 16px) 안에 들어와 순서 배치를 받는다.
    상단에 올 수도 있어 margin-top 대신 컨테이너 gap 으로 간격을 맞춘다. */
 .asset-card.disabled {
-  background: rgba(30, 41, 59, 0.5);
+  background: color-mix(in srgb, var(--canvas-card-start) 50%, transparent);
   cursor: default;
   display: flex;
   align-items: center;
@@ -823,12 +823,12 @@ const handleRefresh = () => {
 
 .asset-card.disabled:hover {
   transform: none;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px var(--canvas-card-shadow);
 }
 
 .disabled-text {
   font-size: var(--font-size-base);
-  color: #64748B;
+  color: var(--color-text-tertiary);
   font-weight: var(--font-weight-medium);
 }
 
@@ -854,13 +854,13 @@ const handleRefresh = () => {
 .card-title {
   font-size: 18px;
   font-weight: var(--font-weight-bold);
-  color: #F1F5F9;
+  color: var(--color-text-primary);
 }
 
 .card-percentage {
   font-size: 12px;
-  color: #94A3B8;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-secondary);
+  background: var(--canvas-hairline-soft);
   padding: 4px 10px;
   border-radius: 10px;
   font-weight: var(--font-weight-semibold);
@@ -868,13 +868,13 @@ const handleRefresh = () => {
 
 .card-arrow {
   font-size: 20px;
-  color: #64748B;
+  color: var(--color-text-tertiary);
   transition: transform 0.3s;
 }
 
 .asset-card:hover .card-arrow {
   transform: translateX(4px);
-  color: #94A3B8;
+  color: var(--color-text-secondary);
 }
 
 .card-body {
@@ -891,20 +891,20 @@ const handleRefresh = () => {
 
 .value-label {
   font-size: 12px;
-  color: #94A3B8;
+  color: var(--color-text-secondary);
   font-weight: var(--font-weight-medium);
 }
 
 .value-amount {
   font-size: 28px;
   font-weight: var(--font-weight-bold);
-  color: #F1F5F9;
+  color: var(--color-text-primary);
   letter-spacing: -0.02em;
 }
 
 .unit {
   font-size: 18px;
-  color: #94A3B8;
+  color: var(--color-text-secondary);
   margin-left: 4px;
 }
 
@@ -919,13 +919,13 @@ const handleRefresh = () => {
   flex-direction: column;
   gap: 4px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--canvas-hairline-faint);
   border-radius: 12px;
 }
 
 .stat-label {
   font-size: 11px;
-  color: #94A3B8;
+  color: var(--color-text-secondary);
   font-weight: var(--font-weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.05em;

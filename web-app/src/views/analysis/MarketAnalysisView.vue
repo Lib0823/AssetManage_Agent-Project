@@ -617,7 +617,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="market-analysis-screen dark-canvas">
+  <div class="market-analysis-screen">
     <AppHeader title="종합분석" :showBack="true" @back="goBack">
       <template #right>
         <div class="header-meta">
@@ -1249,14 +1249,14 @@ onMounted(() => {
 <style scoped>
 .market-analysis-screen {
   min-height: 100vh;
-  background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
+  background: linear-gradient(180deg, var(--canvas-gradient-start) 0%, var(--canvas-gradient-end) 100%);
   padding-bottom: var(--bottom-nav-height);
 }
 
 /* Header Override */
 .market-analysis-screen :deep(.app-header) {
-  background: #0F172A;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-gradient-start);
+  border-bottom: 1px solid var(--canvas-hairline);
 }
 
 .header-meta {
@@ -1573,7 +1573,7 @@ onMounted(() => {
 .insights-section {
   padding: var(--spacing-md);
   padding-top: var(--spacing-sm);
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.5) 0%, rgba(30, 41, 59, 0.5) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--canvas-card-start) 50%, transparent) 0%, color-mix(in srgb, var(--canvas-card-end) 50%, transparent) 100%);
   border-top: 1px solid var(--color-border);
 }
 
@@ -1582,7 +1582,7 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--canvas-hairline-soft);
 }
 
 .insight-row:last-child {

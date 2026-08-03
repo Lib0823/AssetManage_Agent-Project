@@ -105,7 +105,7 @@
   --light-border: #E5E7EB;
   --light-border-light: #F3F4F6;
 
-  /* Dark Surface Palette — consumed by the OS dark theme and by .dark-canvas */
+  /* Dark Surface Palette — consumed by the OS dark theme */
   --dark-bg-primary: #1F2937;
   --dark-bg-secondary: #111827;
   --dark-bg-tertiary: #374151;
@@ -116,6 +116,47 @@
   --dark-text-tertiary: #9CA3AF;
   --dark-border: #374151;
   --dark-border-light: #4B5563;
+
+  /* Canvas surface — hero gradient background + its cards, used by Home/Assets/Bot/
+     Search/Favorites/MarketAnalysis/Settings/Profile/Transactions. Follows theme like
+     --color-bg-* above (previously hardcoded dark via .dark-canvas regardless of
+     theme, which blocked the dark-mode toggle from reaching these 9 screens). */
+  --light-canvas-start: var(--light-bg-secondary);
+  --light-canvas-end: var(--light-bg-tertiary);
+  --light-canvas-card-start: var(--light-bg-card);
+  --light-canvas-card-end: var(--light-bg-secondary);
+  --light-canvas-card-border: rgba(0, 0, 0, 0.06);
+  --light-canvas-card-shadow: rgba(0, 0, 0, 0.08);
+
+  --dark-canvas-start: #0F172A;
+  --dark-canvas-end: #1E293B;
+  --dark-canvas-card-start: #1E293B;
+  --dark-canvas-card-end: #334155;
+  --dark-canvas-card-border: rgba(255, 255, 255, 0.05);
+  --dark-canvas-card-shadow: rgba(0, 0, 0, 0.2);
+
+  /* Faint hairline borders/highlights scattered through the 9 canvas screens
+     (list separators, subtle hover fills) — were rgba(255,255,255,*) assuming an
+     always-dark backdrop. */
+  --light-canvas-hairline-strong: rgba(0, 0, 0, 0.2);
+  --light-canvas-hairline: rgba(0, 0, 0, 0.08);
+  --light-canvas-hairline-soft: rgba(0, 0, 0, 0.05);
+  --light-canvas-hairline-faint: rgba(0, 0, 0, 0.03);
+  --dark-canvas-hairline-strong: rgba(255, 255, 255, 0.2);
+  --dark-canvas-hairline: rgba(255, 255, 255, 0.1);
+  --dark-canvas-hairline-soft: rgba(255, 255, 255, 0.05);
+  --dark-canvas-hairline-faint: rgba(255, 255, 255, 0.03);
+
+  --canvas-gradient-start: var(--light-canvas-start);
+  --canvas-gradient-end: var(--light-canvas-end);
+  --canvas-card-start: var(--light-canvas-card-start);
+  --canvas-card-end: var(--light-canvas-card-end);
+  --canvas-card-border: var(--light-canvas-card-border);
+  --canvas-card-shadow: var(--light-canvas-card-shadow);
+  --canvas-hairline: var(--light-canvas-hairline);
+  --canvas-hairline-soft: var(--light-canvas-hairline-soft);
+  --canvas-hairline-faint: var(--light-canvas-hairline-faint);
+  --canvas-hairline-strong: var(--light-canvas-hairline-strong);
 }
 
 /* Dark Mode */
@@ -133,14 +174,24 @@
 
     --color-border: var(--dark-border);
     --color-border-light: var(--dark-border-light);
+
+    --canvas-gradient-start: var(--dark-canvas-start);
+    --canvas-gradient-end: var(--dark-canvas-end);
+    --canvas-card-start: var(--dark-canvas-card-start);
+    --canvas-card-end: var(--dark-canvas-card-end);
+    --canvas-card-border: var(--dark-canvas-card-border);
+    --canvas-card-shadow: var(--dark-canvas-card-shadow);
+    --canvas-hairline: var(--dark-canvas-hairline);
+    --canvas-hairline-soft: var(--dark-canvas-hairline-soft);
+    --canvas-hairline-faint: var(--dark-canvas-hairline-faint);
+    --canvas-hairline-strong: var(--dark-canvas-hairline-strong);
   }
 }
 
 /* User theme override (설정 > 다크 모드).
    utils/uiSettings.js 가 <html data-theme="dark|light"> 를 붙인다.
    `:root[data-theme=...]`(0,2,0)는 위 @media 안의 `:root`(0,1,0)보다 특이도가 높아
-   선언 순서와 무관하게 OS 설정을 덮어쓴다. data-theme 이 없으면 다시 OS 설정을 따른다.
-   .dark-canvas 는 :root 가 아닌 하위 요소에 변수를 재정의하므로 여기 규칙보다 여전히 우선한다. */
+   선언 순서와 무관하게 OS 설정을 덮어쓴다. data-theme 이 없으면 다시 OS 설정을 따른다. */
 :root[data-theme='dark'] {
   --color-bg-primary: var(--dark-bg-primary);
   --color-bg-secondary: var(--dark-bg-secondary);
@@ -154,6 +205,17 @@
 
   --color-border: var(--dark-border);
   --color-border-light: var(--dark-border-light);
+
+  --canvas-gradient-start: var(--dark-canvas-start);
+  --canvas-gradient-end: var(--dark-canvas-end);
+  --canvas-card-start: var(--dark-canvas-card-start);
+  --canvas-card-end: var(--dark-canvas-card-end);
+  --canvas-card-border: var(--dark-canvas-card-border);
+  --canvas-card-shadow: var(--dark-canvas-card-shadow);
+  --canvas-hairline: var(--dark-canvas-hairline);
+  --canvas-hairline-soft: var(--dark-canvas-hairline-soft);
+  --canvas-hairline-faint: var(--dark-canvas-hairline-faint);
+  --canvas-hairline-strong: var(--dark-canvas-hairline-strong);
 
   color-scheme: dark;
 }
@@ -172,24 +234,18 @@
   --color-border: var(--light-border);
   --color-border-light: var(--light-border-light);
 
+  --canvas-gradient-start: var(--light-canvas-start);
+  --canvas-gradient-end: var(--light-canvas-end);
+  --canvas-card-start: var(--light-canvas-card-start);
+  --canvas-card-end: var(--light-canvas-card-end);
+  --canvas-card-border: var(--light-canvas-card-border);
+  --canvas-card-shadow: var(--light-canvas-card-shadow);
+  --canvas-hairline: var(--light-canvas-hairline);
+  --canvas-hairline-soft: var(--light-canvas-hairline-soft);
+  --canvas-hairline-faint: var(--light-canvas-hairline-faint);
+  --canvas-hairline-strong: var(--light-canvas-hairline-strong);
+
   color-scheme: light;
-}
-
-/* Screens whose canvas is hardcoded dark (#0F172A) regardless of OS theme.
-   Without this, a light OS theme renders #1F2937 text on that canvas (~1.2:1). */
-.dark-canvas {
-  --color-bg-primary: var(--dark-bg-primary);
-  --color-bg-secondary: var(--dark-bg-secondary);
-  --color-bg-tertiary: var(--dark-bg-tertiary);
-  --color-bg-card: var(--dark-bg-card);
-  --color-bg-highlight: var(--dark-bg-highlight);
-
-  --color-text-primary: var(--dark-text-primary);
-  --color-text-secondary: var(--dark-text-secondary);
-  --color-text-tertiary: var(--dark-text-tertiary);
-
-  --color-border: var(--dark-border);
-  --color-border-light: var(--dark-border-light);
 }
 
 /* Reset & Base Styles */
