@@ -123,23 +123,32 @@ const priceValue = computed(() => {
 // 시세/주문가능 조회가 아직 진행 중인가 (매수 한도는 국내·해외 모두 조회한다)
 const marketDataLoading = computed(() => quoteLoading.value || orderableLoading.value)
 
-// 주문 제출 차단 사유 (null이면 제출 가능). 시세·주문가능 조회가 실패한 상태에서
+// 주문 제출 차단 사유 (null이면 제출 가능). 시세 조회가 실패한 상태에서
 // 추정값으로 주문이 나가는 사고를 막는다.
+//
+// 매수가능조회(maxQuantity)는 다르다 — 백엔드 TradingService.verifyBuyingPower()가
+// 이 조회의 degrade(notice != null)를 fail-open으로 건너뛴다(조회 실패를 잔고부족으로
+// 오인해 정상 주문을 막으면 안 되기 때문, 특히 해외는 이 조회 자체가 모의투자 미지원일
+// 수 있다). 프론트가 여기서 하드 블록을 걸면 백엔드는 허용하려는 주문을 프론트가 막아
+// 정책이 어긋난다. 그래서 한도를 몰라도(orderForm.maxQuantity == null) 제출은 허용하고,
+// 한도를 알고 있는데 초과한 경우에만 막는다 — 백엔드와 동일한 fail-open.
 const orderBlockReason = computed(() => {
   if (marketDataLoading.value) return '시세를 불러오는 중입니다.'
   if (currentPrice.value == null) return '시세를 불러오지 못해 주문할 수 없습니다.'
   if (quantityValue.value <= 0) return '수량을 입력해 주세요.'
   if (priceValue.value <= 0) return '가격을 입력해 주세요.'
-  if (activeTab.value === 'buy') {
-    if (orderForm.value.maxQuantity == null) {
-      return '주문 가능 수량을 불러오지 못해 주문할 수 없습니다.'
-    }
-    if (quantityValue.value > orderForm.value.maxQuantity) {
-      return `주문 가능 수량(${formatNumber(orderForm.value.maxQuantity)}주)을 초과했습니다.`
-    }
+  if (activeTab.value === 'buy' && orderForm.value.maxQuantity != null
+      && quantityValue.value > orderForm.value.maxQuantity) {
+    return `주문 가능 수량(${formatNumber(orderForm.value.maxQuantity)}주)을 초과했습니다.`
   }
   return null
 })
+
+// 매수가능조회가 degrade되어 한도를 모르는 채로 제출 가능한 상태 (백엔드 fail-open과
+// 동일 조건) — 버튼은 막지 않되 사용자에게 그 사실은 알려준다.
+const buyLimitUnknown = computed(() =>
+  activeTab.value === 'buy' && !orderableLoading.value && orderForm.value.maxQuantity == null
+)
 
 const canSubmitOrder = computed(() => orderBlockReason.value === null)
 
@@ -999,8 +1008,12 @@ const realtimeNotice = computed(() => {
             </div>
           </div>
 
-          <!-- Submit Button — 시세/주문가능 조회 실패 시 비활성화 (이유 명시) -->
+          <!-- Submit Button — 시세 조회 실패 시 비활성화 (이유 명시).
+               매수가능조회 degrade는 막지 않고 경고만 표시(백엔드 fail-open과 동일). -->
           <p v-if="orderBlockReason" class="order-block-reason">{{ orderBlockReason }}</p>
+          <p v-else-if="buyLimitUnknown" class="order-block-warning">
+            주문 가능 수량을 확인하지 못했습니다. 최종 한도는 주문 시점에 서버에서 확인됩니다.
+          </p>
           <button
             :class="['submit-btn', activeTab]"
             :disabled="loading || !canSubmitOrder"
@@ -1452,7 +1465,8 @@ const realtimeNotice = computed(() => {
   color: var(--color-warning);
 }
 
-.order-block-reason {
+.order-block-reason,
+.order-block-warning {
   margin-top: var(--spacing-md);
   font-size: var(--font-size-xs);
   color: var(--color-warning);
