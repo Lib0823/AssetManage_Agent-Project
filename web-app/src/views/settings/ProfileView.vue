@@ -251,7 +251,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="profile-screen dark-canvas">
+  <div class="profile-screen">
     <AppHeader title="내 정보" showIcon icon="profile">
       <template #right>
         <button class="icon-btn" @click="handleLogout">
@@ -457,14 +457,14 @@ onMounted(async () => {
 <style scoped>
 .profile-screen {
   min-height: 100vh;
-  background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
+  background: linear-gradient(180deg, var(--canvas-gradient-start) 0%, var(--canvas-gradient-end) 100%);
   padding-bottom: var(--bottom-nav-height);
 }
 
 /* Header Override */
 .profile-screen :deep(.app-header) {
-  background: #0F172A;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-gradient-start);
+  border-bottom: 1px solid var(--canvas-hairline);
 }
 
 .icon-btn {
@@ -512,12 +512,12 @@ onMounted(async () => {
 }
 
 .info-card {
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: var(--radius-xl);
   padding: var(--spacing-xl);
   margin-bottom: var(--spacing-lg);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 16px var(--canvas-card-shadow);
+  border: 1px solid var(--canvas-hairline-soft);
 }
 
 .card-title {
@@ -527,7 +527,7 @@ onMounted(async () => {
   text-align: center;
   margin-bottom: var(--spacing-lg);
   padding-bottom: var(--spacing-md);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--canvas-hairline);
 }
 
 .info-row {
@@ -535,7 +535,7 @@ onMounted(async () => {
   align-items: center;
   gap: var(--spacing-md);
   padding: var(--spacing-md) 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--canvas-hairline-soft);
 }
 
 .info-row:last-of-type {
@@ -555,8 +555,8 @@ onMounted(async () => {
 
 .info-input {
   flex: 1;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-hairline-soft);
+  border: 1px solid var(--canvas-hairline);
   border-radius: var(--radius-md);
   padding: var(--spacing-sm) var(--spacing-md);
   font-size: var(--font-size-sm);
@@ -567,7 +567,7 @@ onMounted(async () => {
 .info-input:focus {
   outline: none;
   border-color: var(--color-primary);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--canvas-hairline-soft);
 }
 
 .info-input:disabled {
@@ -589,7 +589,7 @@ onMounted(async () => {
 
 .info-input.clickable:not(.disabled):hover {
   border-color: var(--color-primary);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--canvas-hairline-soft);
 }
 
 .info-input.clickable.disabled {
@@ -663,7 +663,7 @@ onMounted(async () => {
   justify-content: space-between;
   padding: var(--spacing-lg);
   background: #1F2937;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--canvas-hairline);
 }
 
 .calendar-title {
@@ -686,7 +686,7 @@ onMounted(async () => {
 }
 
 .calendar-close-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-soft);
   color: var(--color-text-primary);
 }
 

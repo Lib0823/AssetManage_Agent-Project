@@ -312,7 +312,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="search-screen dark-canvas">
+  <div class="search-screen">
     <AppHeader title="종목 검색" showIcon icon="search" />
 
     <div class="content">
@@ -417,14 +417,14 @@ onMounted(() => {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
+  background: linear-gradient(180deg, var(--canvas-gradient-start) 0%, var(--canvas-gradient-end) 100%);
   overflow: hidden;
 }
 
 /* Header Override */
 .search-screen :deep(.app-header) {
-  background: #0F172A;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-gradient-start);
+  border-bottom: 1px solid var(--canvas-hairline);
   flex-shrink: 0;
 }
 
@@ -446,10 +446,10 @@ onMounted(() => {
   align-items: center;
   gap: var(--spacing-sm);
   padding: 0 var(--spacing-md);
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: var(--radius-md);
   margin-bottom: var(--spacing-lg);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px var(--canvas-card-shadow);
   flex-shrink: 0;
 }
 
@@ -492,7 +492,7 @@ onMounted(() => {
 
 .results-container {
   background: rgba(30, 41, 59, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--canvas-hairline-soft);
   border-radius: 12px;
   padding: var(--spacing-md);
   flex: 1;
@@ -543,15 +543,15 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-faint);
+  border: 1px solid var(--canvas-hairline-soft);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .result-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--canvas-hairline-soft);
   border-color: rgba(139, 92, 246, 0.3);
   transform: translateX(2px);
 }
@@ -566,7 +566,7 @@ onMounted(() => {
 .item-thumb {
   width: 40px;
   height: 40px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-soft);
   border-radius: 8px;
   overflow: hidden;
   display: flex;

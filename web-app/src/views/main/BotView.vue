@@ -266,7 +266,7 @@ const isStockExpanded = (symbol) => {
 </script>
 
 <template>
-  <div class="bot-screen dark-canvas">
+  <div class="bot-screen">
     <AppHeader title="투자 봇" showIcon icon="bot" show-kis-mode />
 
     <div class="content">
@@ -618,14 +618,14 @@ const isStockExpanded = (symbol) => {
 <style scoped>
 .bot-screen {
   min-height: 100vh;
-  background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
+  background: linear-gradient(180deg, var(--canvas-gradient-start) 0%, var(--canvas-gradient-end) 100%);
   padding-bottom: var(--bottom-nav-height);
 }
 
 /* Header Override */
 .bot-screen :deep(.app-header) {
-  background: #0F172A;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--canvas-gradient-start);
+  border-bottom: 1px solid var(--canvas-hairline);
 }
 
 .content {
@@ -827,7 +827,7 @@ const isStockExpanded = (symbol) => {
 .investment-divider {
   width: 1px;
   height: 32px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--canvas-hairline);
 }
 
 .investment-label {
@@ -889,10 +889,10 @@ const isStockExpanded = (symbol) => {
 }
 
 .stock-analysis-card {
-  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  background: linear-gradient(135deg, var(--canvas-card-start) 0%, var(--canvas-card-end) 100%);
   border-radius: var(--radius-xl);
   padding: var(--spacing-lg);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px var(--canvas-card-shadow);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
@@ -913,11 +913,11 @@ const isStockExpanded = (symbol) => {
 }
 
 .stock-header:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--canvas-hairline-soft);
 }
 
 .stock-header:active {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--canvas-hairline-soft);
 }
 
 .stock-logo {
@@ -1030,7 +1030,7 @@ const isStockExpanded = (symbol) => {
   grid-template-columns: repeat(2, 1fr);
   gap: var(--spacing-md);
   padding: var(--spacing-md);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--canvas-hairline-faint);
   border-radius: var(--radius-md);
 }
 
