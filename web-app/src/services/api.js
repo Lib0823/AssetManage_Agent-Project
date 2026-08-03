@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { getToken, setTokens, clearTokens } from '@/utils/tokenStorage'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:7070/api'
 
@@ -13,7 +14,7 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('accessToken')
+    const token = getToken('accessToken')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -58,7 +59,7 @@ api.interceptors.response.use(
       isRefreshing = true
 
       try {
-        const refreshToken = localStorage.getItem('refreshToken')
+        const refreshToken = getToken('refreshToken')
         if (!refreshToken) {
           throw new Error('No refresh token')
         }
@@ -70,8 +71,8 @@ api.interceptors.response.use(
 
         const newAccessToken = response.data.data.accessToken
 
-        // 새 토큰 저장
-        localStorage.setItem('accessToken', newAccessToken)
+        // 새 토큰 저장 (기존 저장소 그대로 — 자동 로그인 설정에 맞춰 유지)
+        setTokens({ accessToken: newAccessToken })
 
         // 대기 중인 요청들에 새 토큰 전달
         refreshSubscribers.forEach((callback) => callback(newAccessToken))
@@ -83,7 +84,7 @@ api.interceptors.response.use(
       } catch (refreshError) {
         // Refresh 실패 시 로그아웃
         console.error('Token refresh failed:', refreshError)
-        localStorage.clear()
+        clearTokens()
         window.location.href = '/login'
         return Promise.reject(refreshError)
       } finally {
