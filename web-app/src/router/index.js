@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getToken } from '@/utils/tokenStorage'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -133,7 +134,7 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   const publicPages = ['/', '/welcome', '/login', '/register', '/register/finance', '/terms', '/reset-password']
   const authRequired = !publicPages.includes(to.path)
-  const token = localStorage.getItem('accessToken')
+  const token = getToken('accessToken')
 
   // For development, skip auth check
   if (import.meta.env.DEV) {

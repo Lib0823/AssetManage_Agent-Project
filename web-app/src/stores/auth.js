@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { authApi } from '@/services/api'
+import { getToken, setTokens, clearTokens } from '@/utils/tokenStorage'
 
 export const useAuthStore = defineStore('auth', () => {
   // Registration multi-step data
@@ -101,19 +102,22 @@ export const useAuthStore = defineStore('auth', () => {
     refreshToken.value = data.refreshToken
     user.value = data.user
 
-    // Save to localStorage
-    localStorage.setItem('accessToken', data.accessToken)
-    localStorage.setItem('refreshToken', data.refreshToken)
-    localStorage.setItem('user', JSON.stringify(data.user))
+    // 자동 로그인 설정에 따라 localStorage(영구) 또는 sessionStorage(탭 종료 시 소멸)에 저장.
+    setTokens({
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      user: JSON.stringify(data.user)
+    })
   }
 
-  // KIS 계좌 모드 설정 (로그인 시 조회·프로필 저장 시 갱신). localStorage 로 새로고침 후에도 유지.
+  // KIS 계좌 모드 설정 (로그인 시 조회·프로필 저장 시 갱신). 토큰과 같은 저장소에 유지.
   function setAccountMode(mode) {
     accountMode.value = mode || null
     if (mode) {
-      localStorage.setItem('accountMode', mode)
+      setTokens({ accountMode: mode })
     } else {
       localStorage.removeItem('accountMode')
+      sessionStorage.removeItem('accountMode')
     }
   }
 
@@ -123,23 +127,20 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     accountMode.value = null
 
-    // Clear from localStorage
-    localStorage.removeItem('accessToken')
-    localStorage.removeItem('refreshToken')
-    localStorage.removeItem('user')
-    localStorage.removeItem('accountMode')
+    // 인증 관련 키만 지운다 (uiSettings 등 다른 localStorage 항목은 보존).
+    clearTokens()
   }
 
   function loadAuthDataFromStorage() {
-    const storedAccessToken = localStorage.getItem('accessToken')
-    const storedRefreshToken = localStorage.getItem('refreshToken')
-    const storedUser = localStorage.getItem('user')
+    const storedAccessToken = getToken('accessToken')
+    const storedRefreshToken = getToken('refreshToken')
+    const storedUser = getToken('user')
 
     if (storedAccessToken && storedRefreshToken && storedUser) {
       accessToken.value = storedAccessToken
       refreshToken.value = storedRefreshToken
       user.value = JSON.parse(storedUser)
-      accountMode.value = localStorage.getItem('accountMode') || null
+      accountMode.value = getToken('accountMode') || null
       return true
     }
     return false

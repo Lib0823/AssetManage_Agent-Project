@@ -3,7 +3,9 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import AssetTabs from '@/components/common/AssetTabs.vue'
+import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { newsApi } from '@/services/api'
+import { isKisOutageError } from '@/utils/kisStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -34,6 +36,8 @@ const searchQuery = ref('')
 const searchActive = ref(false)
 const newsList = ref([])
 const loading = ref(false)
+// 서버 장애를 "뉴스가 없습니다"로 오인하지 않도록 SearchView/CompanyDetailView와 동일한 패턴.
+const newsOutage = ref(false)
 
 const symbol = computed(() => route.query.symbol || '')
 
@@ -179,6 +183,7 @@ const goToNewsDetail = (news) => {
 
 const loadNews = async () => {
   loading.value = true
+  newsOutage.value = false
   try {
     const params = {}
     if (symbol.value) params.symbol = symbol.value
@@ -192,6 +197,7 @@ const loadNews = async () => {
     }
   } catch (error) {
     console.error('Failed to load news:', error)
+    newsOutage.value = isKisOutageError(error)
     newsList.value = []
   } finally {
     loading.value = false
@@ -277,7 +283,15 @@ onMounted(() => {
           </div>
         </div>
 
-        <div v-if="!loading && filteredNews.length === 0" class="news-empty">
+        <KisMaintenanceNotice
+          v-if="!loading && newsOutage"
+          variant="card"
+          title="서버 연결 오류"
+          message="일시적인 서버 오류로 뉴스를 불러올 수 없어요. 잠시 후 다시 시도해 주세요."
+          class="news-notice"
+        />
+
+        <div v-else-if="!loading && filteredNews.length === 0" class="news-empty">
           {{ newsList.length > 0 ? '조건에 맞는 뉴스가 없습니다' : '뉴스가 없습니다' }}
         </div>
       </div>

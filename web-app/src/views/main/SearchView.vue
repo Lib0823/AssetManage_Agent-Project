@@ -491,7 +491,7 @@ onMounted(() => {
 }
 
 .results-container {
-  background: rgba(30, 41, 59, 0.4);
+  background: color-mix(in srgb, var(--canvas-card-start) 40%, transparent);
   border: 1px solid var(--canvas-hairline-soft);
   border-radius: 12px;
   padding: var(--spacing-md);

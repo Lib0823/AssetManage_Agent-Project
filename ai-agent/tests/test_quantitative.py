@@ -71,9 +71,14 @@ class TestQuantitativeAnalyzer:
         """Test morning_return calculation (09:00 → 10:00)."""
         # Mock KIS client
         with patch.object(quantitative_analyzer.kis_client, 'get_minute_data', new_callable=AsyncMock) as mock_minute:
+            # get_minute_data 실제 반환 컬럼은 open_price/close_price (collectors/kis_client.py
+            # get_minute_data 참고) — 'close'는 구현이 읽지 않아 이 목업은 도입 시점부터 한 번도
+            # 통과한 적이 없었다 (KeyError를 analysis/quantitative.py의 광범위 except가 삼켜
+            # 0.0으로 위장됨).
             mock_minute.return_value = pd.DataFrame({
-                'time': ['0900', '1000'],
-                'close': [70000, 70600]
+                'time': ['090100', '100000'],
+                'open_price': [70000, 70500],
+                'close_price': [70100, 70600]
             })
 
             morning_return = await quantitative_analyzer._calculate_morning_return(

@@ -99,7 +99,9 @@ const goToResetPassword = () => {
 }
 
 const handleLogout = () => {
-  localStorage.clear()
+  // 인증 키만 지운다 — localStorage.clear()는 uiSettings(다크모드/자동로그인/자산순서)까지
+  // 지워버려서 로그아웃할 때마다 사용자 설정이 초기화되는 부작용이 있었다.
+  authStore.clearAuthData()
   router.push('/welcome')
 }
 
