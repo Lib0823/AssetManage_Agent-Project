@@ -31,7 +31,7 @@ public class AssetController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> getHoldings(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);  // Remove "Bearer "
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long kisAccountId = jwtTokenProvider.getKisAccountIdFromToken(token);
 
         Map<String, Object> holdings = assetService.getHoldings(kisAccountId);
@@ -49,7 +49,7 @@ public class AssetController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> getBalance(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long kisAccountId = jwtTokenProvider.getKisAccountIdFromToken(token);
 
         Map<String, Object> balance = assetService.getBalance(kisAccountId);
@@ -68,7 +68,7 @@ public class AssetController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody AssetSnapshotRequest request
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         assetService.recordSnapshot(userId, request.getTotalAsset());
@@ -87,7 +87,7 @@ public class AssetController {
             @RequestHeader("Authorization") String authHeader,
             @RequestParam(name = "days", defaultValue = "30") int days
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         List<AssetHistoryResponse> history = assetService.getHistory(userId, days);

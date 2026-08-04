@@ -36,7 +36,7 @@ public class FavoriteController {
     public ResponseEntity<ApiResponse<List<FavoriteResponse>>> getFavorites(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         List<FavoriteResponse> favorites = favoriteService.getFavorites(userId);
@@ -55,7 +55,7 @@ public class FavoriteController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody AddFavoriteRequest request
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         FavoriteResponse favorite = favoriteService.addFavorite(
@@ -75,7 +75,7 @@ public class FavoriteController {
             @RequestHeader("Authorization") String authHeader,
             @PathVariable String stockCode
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         favoriteService.removeFavorite(userId, stockCode);
