@@ -27,7 +27,8 @@ export const useAuthStore = defineStore('auth', () => {
       isIdAvailable: false,
       isEmailChecked: false,
       isEmailAvailable: false,
-      isPhoneVerified: true // 임시 우회: 기본값 true
+      // MVP 범위에 휴대폰 본인인증(SMS/OTP) 단계가 없어 항상 true. 인증 단계를 도입하면 setPhoneVerified로 갱신한다.
+      isPhoneVerified: true
     }
   })
 

@@ -14,6 +14,12 @@ const analysisDateStr = ref('')
 const loading = ref(true)
 const error = ref(null)
 
+const headerDateStr = computed(() => {
+  if (error.value) return '조회 실패'
+  if (loading.value) return '조회중...'
+  return analysisDateStr.value || '-'
+})
+
 // TOP3 toggle state
 const activeTop3 = ref('buy') // 'buy' or 'sell'
 
@@ -621,8 +627,8 @@ onMounted(() => {
     <AppHeader title="종합분석" :showBack="true" @back="goBack">
       <template #right>
         <div class="header-meta">
-          <div class="live-dot"></div>
-          <div class="header-date">{{ analysisDateStr || '조회중...' }}</div>
+          <div v-if="!error" class="live-dot"></div>
+          <div class="header-date">{{ headerDateStr }}</div>
         </div>
       </template>
     </AppHeader>

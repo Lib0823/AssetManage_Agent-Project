@@ -34,6 +34,8 @@ const sortOrderIndex = ref(0)
 const currentSort = computed(() => sortOrders[sortOrderIndex.value])
 const searchQuery = ref('')
 const searchActive = ref(false)
+// ?symbol= 진입 시 검색창에 채워 넣은 값. 사용자 입력과 구분하기 위해 따로 기억한다.
+const prefilledQuery = ref('')
 const newsList = ref([])
 const loading = ref(false)
 // 서버 장애를 "뉴스가 없습니다"로 오인하지 않도록 SearchView/CompanyDetailView와 동일한 패턴.
@@ -60,11 +62,21 @@ const startOfDay = (ts) => {
   return d.getTime()
 }
 
+// 탭(주식/코인 · 국내/해외)만 적용한 목록.
+// 코인 탭은 비활성이라 선택될 수 없지만, 선택되더라도 주식 뉴스를 보여주지 않도록 방어한다.
+const tabFilteredNews = computed(() => {
+  if (tabs.value.main !== 'stocks') return []
+  const wantDomestic = tabs.value.sub === 'domestic'
+  return newsList.value.filter((n) => isDomesticCode(n.stock_code) === wantDomestic)
+})
+
 // 날짜 필터의 기준일.
 // 파이프라인이 평일 08:50에만 돌아 주말·휴장일에는 최신 뉴스가 며칠 전일 수 있다.
 // 벽시계 기준으로 자르면 '오늘'이 항상 비어 보이므로 "목록에서 가장 최신 뉴스의 날짜"를 기준일로 삼는다.
+// 전체 목록이 아니라 탭 필터 적용 후 목록에서 뽑아야 한다 — 해외 뉴스가 국내보다 최신이면
+// 국내 탭의 '오늘'이 통째로 비어 보인다.
 const anchorDay = computed(() => {
-  const stamps = newsList.value.map(newsTimestamp).filter((t) => t !== null)
+  const stamps = tabFilteredNews.value.map(newsTimestamp).filter((t) => t !== null)
   return startOfDay(stamps.length > 0 ? Math.max(...stamps) : Date.now())
 })
 
@@ -122,13 +134,7 @@ const sortNews = (list) => {
 // Only filters once the user actively edits the box, so a symbol-prefill
 // (which just reflects the searched state) never hides server results.
 const filteredNews = computed(() => {
-  // 코인 탭은 비활성이라 선택될 수 없지만, 선택되더라도 주식 뉴스를 보여주지 않도록 방어한다.
-  if (tabs.value.main !== 'stocks') return []
-
-  const wantDomestic = tabs.value.sub === 'domestic'
-  let list = newsList.value.filter((n) => isDomesticCode(n.stock_code) === wantDomestic)
-
-  list = list.filter(matchesDateFilter)
+  let list = tabFilteredNews.value.filter(matchesDateFilter)
 
   const q = searchQuery.value.trim().toLowerCase()
   if (searchActive.value && q) {
@@ -139,7 +145,9 @@ const filteredNews = computed(() => {
 })
 
 const onSearchInput = () => {
-  searchActive.value = true
+  // 프리필된 종목명 그대로면 필터링하지 않는다 — ?symbol= 진입 상태를 반영한 값일 뿐,
+  // 사용자가 입력한 검색어가 아니다. 실제로 편집했을 때만 제목 검색을 켠다.
+  searchActive.value = searchQuery.value !== prefilledQuery.value
 }
 
 // 돋보기 버튼 / 엔터: 입력값을 검색어로 확정 적용
@@ -194,6 +202,7 @@ const loadNews = async () => {
     if (symbol.value) {
       const first = newsList.value[0]
       searchQuery.value = (first && first.stock_name) || symbol.value
+      prefilledQuery.value = searchQuery.value
     }
   } catch (error) {
     console.error('Failed to load news:', error)

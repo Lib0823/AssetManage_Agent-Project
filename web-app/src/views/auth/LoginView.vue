@@ -51,7 +51,6 @@ const handleLogin = async (event) => {
     // Use auth store to manage authentication state
     // api.js interceptor가 response.data를 반환하므로
     // response = { success, message, data: { accessToken, refreshToken, user } }
-    console.log('[Login] Response:', response)
     authStore.setAuthData({
       accessToken: response.data.accessToken,
       refreshToken: response.data.refreshToken,
