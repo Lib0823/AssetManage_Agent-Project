@@ -201,20 +201,12 @@ export const newsApi = {
   getDetail: (id) => api.get(`/news/${id}`)
 }
 
-// Market API (Handled by FastAPI ai-agent)
+// Market API (Spring Boot api-server — MarketDataController/MarketAnalysisController)
 export const marketApi = {
   getIndices: (config) => api.get('/market/indices', config),
   getExchangeRates: () => api.get('/market/exchange-rates'),
   getTopNews: () => api.get('/market/news'),
   getAiRecommendations: () => api.get('/market/decisions')
-}
-
-// AI Bot API (Handled by FastAPI ai-agent)
-export const botApi = {
-  getStatus: () => api.get('/bot/status'),
-  getAnalysis: (symbol) => api.get(`/bot/analysis/${symbol}`),
-  toggleBot: (enabled) => api.post('/bot/toggle', { enabled }),
-  updateSettings: (settings) => api.put('/bot/settings', settings)
 }
 
 // Market Analysis API (Spring Boot api-server)
