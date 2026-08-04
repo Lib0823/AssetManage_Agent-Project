@@ -169,7 +169,7 @@ DB에 적재된 AI 분석 결과 조회. 데이터 생성은 `ai-agent` 모듈 �
 
 | 항목 | 상태 | 설명 |
 |------|------|------|
-| KIS 자격증명 복호화 | 진행중 | `KisAuthService`가 Jasypt 복호화 실패 시 평문 fallback(MVP 임시 동작). 모든 계정 암호화 저장으로 정리 필요 |
+| KIS 자격증명 복호화 | 완료 | `AuthService.register()`가 등록 시 Jasypt로 암호화해 저장하고, `KisAuthService`는 복호화 실패 시 평문 폴백 없이 `KIS_CREDENTIAL_DECRYPT_FAILED`(4006)로 fail-closed. 프로필 조회(`UserService`)는 실패 시 500 대신 null(빈 입력칸)만 반환해 재등록 가능 |
 | 자동매매 실행 | 미착수(범위 외) | `user_trade_config.isActive` 플래그는 api-server가 저장·관리하나, 실제 자동 주문 실행은 `ai-agent` 스케줄러 담당. api-server에는 스케줄링 로직 없음 |
 | 멀티유저 운영 | 진행중 | 인증/도메인은 멀티유저 구조이나 MVP 운영은 단일 관리자 중심 |
 

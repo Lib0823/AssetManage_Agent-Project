@@ -37,6 +37,8 @@ public enum ErrorCode {
     KIS_API_NETWORK_ERROR(HttpStatus.SERVICE_UNAVAILABLE, 4003, "KIS API network error"),
     KIS_OAUTH_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, 4004, "Failed to obtain KIS OAuth token"),
     KIS_ACCOUNT_DUPLICATE(HttpStatus.CONFLICT, 4005, "Account number already exists"),
+    KIS_CREDENTIAL_DECRYPT_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, 4006,
+            "Stored KIS credentials could not be decrypted — re-register the account"),
 
     // Trade Errors (5000~5999)
     TRADE_HISTORY_NOT_FOUND(HttpStatus.NOT_FOUND, 5000, "Trade history not found"),

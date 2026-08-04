@@ -24,6 +24,7 @@ import com.inbeom.apiserver.repository.UserSettingsRepository;
 import com.inbeom.apiserver.repository.UserTradeConfigRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jasypt.encryption.StringEncryptor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +39,7 @@ public class UserService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final UserSettingsRepository userSettingsRepository;
     private final ObjectMapper objectMapper;
+    private final StringEncryptor jasyptStringEncryptor;
 
     /**
      * Get user's trade configuration
@@ -287,14 +289,34 @@ public class UserService {
                 .id(kisAccount.getId())
                 .accountNumber(kisAccount.getAccountNumber())
                 .accountProductCode(kisAccount.getAccountProductCode())
-                .appKey(kisAccount.getAppKey())
-                .appSecret(kisAccount.getAppSecret())
+                .appKey(decryptForDisplay(kisAccount.getAppKey()))
+                .appSecret(decryptForDisplay(kisAccount.getAppSecret()))
                 .htsId(kisAccount.getHtsId())
                 .accountMode(kisAccount.getAccountMode())
                 .isVerified(kisAccount.getIsVerified())
                 .createdAt(kisAccount.getCreatedAt())
                 .updatedAt(kisAccount.getUpdatedAt())
                 .build();
+    }
+
+    /**
+     * 저장된 자격증명을 화면 표시용으로 복호화한다. 실패 시 예외 대신 null 을 준다.
+     *
+     * <p>암호화 도입 이전에 평문으로 저장된 레코드는 복호화가 실패하는데, 그 때문에 프로필 화면
+     * 전체가 500 으로 죽으면 사용자가 키를 다시 등록할 방법조차 없어진다. null 을 주면 web-app 이
+     * 빈 입력칸으로 렌더하고(`response.data.appKey || ''`), 사용자가 재입력하면 암호화되어 저장된다.
+     * 매매 경로({@code KisAuthService})는 반대로 복호화 실패를 4006 으로 확실히 끊는다.
+     */
+    private String decryptForDisplay(String encrypted) {
+        if (encrypted == null || encrypted.isBlank()) {
+            return null;
+        }
+        try {
+            return jasyptStringEncryptor.decrypt(encrypted);
+        } catch (Exception e) {
+            log.warn("KIS 자격증명 복호화 실패 — 평문으로 저장된 레거시 레코드로 보입니다. 재등록이 필요합니다.");
+            return null;
+        }
     }
 
     /**
@@ -320,8 +342,8 @@ public class UserService {
 
         // Update KIS account
         kisAccount.setAccountNumber(request.getAccountNumber());
-        kisAccount.setAppKey(request.getAppKey());
-        kisAccount.setAppSecret(request.getAppSecret());
+        kisAccount.setAppKey(jasyptStringEncryptor.encrypt(request.getAppKey()));
+        kisAccount.setAppSecret(jasyptStringEncryptor.encrypt(request.getAppSecret()));
         // HTS ID (체결통보 tr_key) — 선택값. 제공된 경우에만 반영.
         if (request.getHtsId() != null) {
             kisAccount.setHtsId(request.getHtsId());
@@ -339,8 +361,8 @@ public class UserService {
                 .id(kisAccount.getId())
                 .accountNumber(kisAccount.getAccountNumber())
                 .accountProductCode(kisAccount.getAccountProductCode())
-                .appKey(kisAccount.getAppKey())
-                .appSecret(kisAccount.getAppSecret())
+                .appKey(decryptForDisplay(kisAccount.getAppKey()))
+                .appSecret(decryptForDisplay(kisAccount.getAppSecret()))
                 .htsId(kisAccount.getHtsId())
                 .accountMode(kisAccount.getAccountMode())
                 .isVerified(kisAccount.getIsVerified())

@@ -2,6 +2,8 @@ package com.inbeom.apiserver.service;
 
 import com.inbeom.apiserver.domain.UserKisAccount;
 import com.inbeom.apiserver.dto.kis.KisTokenResponse;
+import com.inbeom.apiserver.exception.BusinessException;
+import com.inbeom.apiserver.exception.ErrorCode;
 import com.inbeom.apiserver.exception.KisAccountNotFoundException;
 import com.inbeom.apiserver.exception.KisApiException;
 import com.inbeom.apiserver.repository.UserKisAccountRepository;
@@ -73,18 +75,8 @@ public class KisAuthService {
         UserKisAccount kisAccount = kisAccountRepository.findById(kisAccountId)
                 .orElseThrow(() -> new KisAccountNotFoundException(kisAccountId));
 
-        // Try decryption, fallback to plain text if decryption fails (MVP workaround)
-        String appKey;
-        String appSecret;
-        try {
-            appKey = jasyptStringEncryptor.decrypt(kisAccount.getAppKey());
-            appSecret = jasyptStringEncryptor.decrypt(kisAccount.getAppSecret());
-            log.debug("Successfully decrypted KIS credentials for kis_account_id={}", kisAccountId);
-        } catch (Exception e) {
-            log.warn("Jasypt decryption failed for kis_account_id={}, using plain text (MVP mode)", kisAccountId);
-            appKey = kisAccount.getAppKey();
-            appSecret = kisAccount.getAppSecret();
-        }
+        String appKey = decryptCredential(kisAccount.getAppKey(), "app_key", kisAccountId);
+        String appSecret = decryptCredential(kisAccount.getAppSecret(), "app_secret", kisAccountId);
 
         // 3. Issue KIS OAuth token against the account's domain (mode-aware)
         String baseUrl = baseUrlFor(kisAccount.getAccountMode());
@@ -151,17 +143,8 @@ public class KisAuthService {
         UserKisAccount kisAccount = kisAccountRepository.findById(kisAccountId)
                 .orElseThrow(() -> new KisAccountNotFoundException(kisAccountId));
 
-        // Try decryption, fallback to plain text if decryption fails (MVP workaround)
-        String appKey;
-        String appSecret;
-        try {
-            appKey = jasyptStringEncryptor.decrypt(kisAccount.getAppKey());
-            appSecret = jasyptStringEncryptor.decrypt(kisAccount.getAppSecret());
-        } catch (Exception e) {
-            log.warn("Jasypt decryption failed for kis_account_id={}, using plain text (MVP mode)", kisAccountId);
-            appKey = kisAccount.getAppKey();
-            appSecret = kisAccount.getAppSecret();
-        }
+        String appKey = decryptCredential(kisAccount.getAppKey(), "app_key", kisAccountId);
+        String appSecret = decryptCredential(kisAccount.getAppSecret(), "app_secret", kisAccountId);
 
         // 계정 모드(MOCK/REAL) → 매매/조회 도메인. 호출부(TradingService/AssetService/OverseasTradingService/
         // fills)가 creds.baseUrl() 로 KIS 호출 도메인을 결정한다.
@@ -169,6 +152,29 @@ public class KisAuthService {
 
         return new KisCredentials(appKey, appSecret, kisAccount.getAccountNumber(),
                 kisAccount.getAccountProductCode(), baseUrl);
+    }
+
+    /**
+     * 저장된 KIS 자격증명을 복호화한다.
+     *
+     * <p>복호화 실패 시 평문으로 폴백하지 않는다. 폴백은 "암호화가 아예 적용되지 않았다"는 상태를
+     * 정상 동작으로 위장해, 평문 app_key 가 그대로 KIS 로 나가는 것을 아무도 눈치채지 못하게 만든다.
+     * 실패는 재등록이 필요한 상태이므로 {@link ErrorCode#KIS_CREDENTIAL_DECRYPT_FAILED}(4006)로 끊는다.
+     */
+    private String decryptCredential(String encrypted, String fieldName, Long kisAccountId) {
+        if (encrypted == null || encrypted.isBlank()) {
+            throw new BusinessException(ErrorCode.KIS_CREDENTIAL_DECRYPT_FAILED,
+                    "KIS 자격증명(" + fieldName + ")이 비어 있습니다. 계좌를 다시 등록해 주세요.");
+        }
+        try {
+            return jasyptStringEncryptor.decrypt(encrypted);
+        } catch (Exception e) {
+            log.error("Jasypt decryption failed for kis_account_id={} field={}. "
+                    + "JASYPT_PASSWORD 가 저장 시점과 다르거나 값이 평문으로 저장되어 있습니다.",
+                    kisAccountId, fieldName);
+            throw new BusinessException(ErrorCode.KIS_CREDENTIAL_DECRYPT_FAILED,
+                    "저장된 KIS 자격증명을 복호화할 수 없습니다. 프로필에서 KIS 계좌를 다시 등록해 주세요.", e);
+        }
     }
 
     /**
