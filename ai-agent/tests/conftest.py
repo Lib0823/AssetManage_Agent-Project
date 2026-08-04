@@ -7,6 +7,12 @@ from dotenv import load_dotenv
 # Load test environment variables
 load_dotenv('.env.test', override=True)
 
+# KR-FinBERT 테스트가 HuggingFace Hub 로 나가지 않도록 로컬 캐시만 쓰게 강제한다.
+# transformers/huggingface_hub 가 import 되기 전에 설정해야 효력이 있으므로
+# 픽스처가 아니라 모듈 레벨에 둔다. (Gemini 차단과 같은 취지 — CI 비결정성 방지)
+os.environ.setdefault('HF_HUB_OFFLINE', '1')
+os.environ.setdefault('TRANSFORMERS_OFFLINE', '1')
+
 
 @pytest.fixture(autouse=True)
 def gemini_no_network(monkeypatch):
