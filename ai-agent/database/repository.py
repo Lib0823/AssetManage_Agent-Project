@@ -748,18 +748,6 @@ class DatabaseRepository:
                 return f
             return value
 
-        def _sanitize_scalar_float(value):
-            """NUMERIC 컬럼용: numpy/native float 변환, NaN/±Inf/None → None."""
-            if value is None:
-                return None
-            try:
-                f = float(value)
-            except (TypeError, ValueError):
-                return None
-            if math.isnan(f) or math.isinf(f):
-                return None
-            return f
-
         def _sanitize_scalar_int(value):
             """정수 컬럼용: numpy/native int 변환, NaN/None → None."""
             if value is None:
@@ -789,7 +777,8 @@ class DatabaseRepository:
                 'passed': bool(result['passed']),
                 'failure_reason': failure_reason,
                 'max_quantity': _sanitize_scalar_int(result.get('max_quantity')),
-                'current_price': _sanitize_scalar_float(result.get('current_price')),
+                # current_price는 bigint(원화 정수가) — float 새니타이저는 컬럼 타입과 안 맞는다.
+                'current_price': _sanitize_scalar_int(result.get('current_price')),
                 'filter_checks': checks_json,
             }
 
