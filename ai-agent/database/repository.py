@@ -555,7 +555,8 @@ class DatabaseRepository:
             # Create new record with all detailed values
             record = ProphetForecast(
                 stock_code=stock_code,
-                stock_name=forecast_data.get('stock_name', stock_code),  # Added: stock_name required by DB schema
+                # ts_df 에는 stock_name 이 없어 KOSPI_100 상수 매핑으로 채운다
+                stock_name=forecast_data.get('stock_name') or STOCK_NAMES.get(stock_code, stock_code),
                 forecast_date=trade_date,  # Fixed: use forecast_date column name
                 # Aggregated trends - fixed column names to match DB schema with clamping
                 price_trend=price_trend_val,
@@ -700,7 +701,8 @@ class DatabaseRepository:
         Save safety filter results to safety_filter_result table.
 
         Args:
-            filter_results: List of filter result dicts
+            filter_results: List of filter result dicts from
+                `SafetyFilter.filter_decisions()` (stock_code/decision/passed 필수)
             filter_date: Filter date
             conn: Database connection (optional, uses engine if None)
 
@@ -783,6 +785,7 @@ class DatabaseRepository:
                 'stock_code': str(result['stock_code']),
                 'stock_name': str(result.get('stock_name', '')),
                 'filter_date': filter_date,
+                'decision': str(result['decision']),
                 'passed': bool(result['passed']),
                 'failure_reason': failure_reason,
                 'max_quantity': _sanitize_scalar_int(result.get('max_quantity')),
@@ -797,10 +800,10 @@ class DatabaseRepository:
         # filter_checks는 JSONB 컬럼이므로 CAST 필요
         insert_sql = text("""
             INSERT INTO safety_filter_result
-                (stock_code, stock_name, filter_date, passed, failure_reason,
+                (stock_code, stock_name, filter_date, decision, passed, failure_reason,
                  max_quantity, current_price, filter_checks)
             VALUES
-                (:stock_code, :stock_name, :filter_date, :passed, :failure_reason,
+                (:stock_code, :stock_name, :filter_date, :decision, :passed, :failure_reason,
                  :max_quantity, :current_price, CAST(:filter_checks AS JSONB))
         """)
 

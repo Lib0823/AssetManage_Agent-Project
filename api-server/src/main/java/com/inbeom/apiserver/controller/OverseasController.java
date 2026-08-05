@@ -63,7 +63,7 @@ public class OverseasController {
     public ResponseEntity<ApiResponse<OverseasBalanceResponse>> getBalance(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         OverseasBalanceResponse balance = overseasTradingService.getBalance(userId);
@@ -82,7 +82,7 @@ public class OverseasController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody OverseasOrderRequest request
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         Map<String, Object> result = overseasTradingService.buy(userId, request);
@@ -101,7 +101,7 @@ public class OverseasController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody OverseasOrderRequest request
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         Map<String, Object> result = overseasTradingService.sell(userId, request);
@@ -134,7 +134,7 @@ public class OverseasController {
             @RequestHeader("Authorization") String authHeader,
             @RequestParam(value = "exchange", required = false) String exchange
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         OverseasTradeHistoryResponse history = overseasTradingService.getHistory(userId, exchange);
@@ -152,7 +152,7 @@ public class OverseasController {
             @RequestHeader("Authorization") String authHeader,
             @RequestParam(value = "exchange", required = false) String exchange
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         OverseasPendingOrderResponse pending = overseasTradingService.getPendingOrders(userId, exchange);
@@ -172,7 +172,7 @@ public class OverseasController {
             @RequestParam(value = "exchange", required = false) String exchange,
             @RequestParam(value = "price", required = false) BigDecimal price
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         OverseasOrderableResponse orderable = overseasTradingService.getOrderable(userId, symbol, exchange, price);

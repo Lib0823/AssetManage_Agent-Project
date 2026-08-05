@@ -6,6 +6,8 @@ import com.inbeom.apiserver.domain.User;
 import com.inbeom.apiserver.domain.UserKisAccount;
 import com.inbeom.apiserver.dto.kis.KisDailyCcldResponse;
 import com.inbeom.apiserver.dto.trade.TradeHistoryResponse;
+import com.inbeom.apiserver.exception.BusinessException;
+import com.inbeom.apiserver.exception.ErrorCode;
 import com.inbeom.apiserver.repository.TradeHistoryRepository;
 import com.inbeom.apiserver.repository.UserRepository;
 import com.inbeom.apiserver.service.KisAuthService.KisCredentials;
@@ -239,5 +241,161 @@ class TradingServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> output = (Map<String, Object>) result.get("output");
         assertThat(output.get("ODNO")).isEqualTo("ORDER999888");
+    }
+
+    /**
+     * userRepository.findById → KIS 계좌를 가진 User 를 돌려주도록 스텁한다.
+     * getOrderable 이 userId → kisAccountId 를 해석하는 경로에서만 필요하다.
+     */
+    private void stubUserWithKisAccount() {
+        UserKisAccount kisAccount = mock(UserKisAccount.class);
+        User userWithKis = mock(User.class);
+        when(userWithKis.getKisAccount()).thenReturn(kisAccount);
+        when(kisAccount.getId()).thenReturn(kisAccountId);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(userWithKis));
+    }
+
+    private ResponseEntity<Map> orderableResponse(String rtCd, String maxBuyQty) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("rt_cd", rtCd);
+        body.put("msg1", "조회 결과");
+        body.put("output", Map.of("max_buy_qty", maxBuyQty, "ord_psbl_cash", "1000000"));
+        return new ResponseEntity<>(body, HttpStatus.OK);
+    }
+
+    @Test
+    @DisplayName("executeBuy - 시장가(orderPrice=null)는 매수가능조회를 건너뛴다")
+    void executeBuy_MarketOrder_SkipsOrderableLookup() {
+        // Given: getOrderable 은 항상 ORD_DVSN="00"(지정가) 기준이라, 시장가에 price=0 으로 물으면
+        // max_buy_qty=0 이 정상 응답으로 와 모든 시장가 매수가 차단될 수 있다 → 조회를 건너뛰어야 한다.
+        Map<String, Object> kisResponse = new HashMap<>();
+        kisResponse.put("output", Map.of("ODNO", "ORDER_MARKET"));
+        kisResponse.put("rt_cd", "0");
+
+        when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
+        when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
+        when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+                .thenReturn(new ResponseEntity<>(kisResponse, HttpStatus.OK));
+
+        // When
+        Map<String, Object> result = tradingService.executeBuy(userId, kisAccountId, "005930", "삼성전자", 10, null);
+
+        // Then: 주문은 나가고, 매수가능조회(GET)는 한 번도 호출되지 않는다.
+        assertThat(result.get("rt_cd")).isEqualTo("0");
+        verify(kisApiClient, never()).get(
+                anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), any());
+        verify(userRepository, never()).findById(anyLong());
+    }
+
+    @Test
+    @DisplayName("executeBuy - 시장가(orderPrice=0)도 매수가능조회를 건너뛴다")
+    void executeBuy_ZeroPrice_SkipsOrderableLookup() {
+        // Given: ai-agent Stage 6 는 시장가 매수를 price=0 으로 보낸다.
+        Map<String, Object> kisResponse = new HashMap<>();
+        kisResponse.put("output", Map.of("ODNO", "ORDER_ZERO"));
+        kisResponse.put("rt_cd", "0");
+
+        when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
+        when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
+        when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+                .thenReturn(new ResponseEntity<>(kisResponse, HttpStatus.OK));
+
+        // When
+        Map<String, Object> result = tradingService.executeBuy(userId, kisAccountId, "005930", "삼성전자", 10, BigDecimal.ZERO);
+
+        // Then
+        assertThat(result.get("rt_cd")).isEqualTo("0");
+        verify(kisApiClient, never()).get(
+                anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), any());
+    }
+
+    @Test
+    @DisplayName("executeBuy - 매수가능조회가 degrade(notice!=null)되면 fail-open 으로 주문을 통과시킨다")
+    void executeBuy_OrderableDegraded_FailsOpen() {
+        // Given: KIS rt_cd != 0 → getOrderable 이 notice 를 채운 degrade 응답을 반환한다.
+        // 조회 실패를 잔고 부족으로 오인해 정상 주문을 막으면 안 된다 (최종 판정은 KIS 가 한다).
+        stubUserWithKisAccount();
+
+        Map<String, Object> kisResponse = new HashMap<>();
+        kisResponse.put("output", Map.of("ODNO", "ORDER_FAILOPEN"));
+        kisResponse.put("rt_cd", "0");
+
+        when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
+        when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
+        when(kisApiClient.get(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+                .thenReturn(orderableResponse("1", "0"));
+        when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+                .thenReturn(new ResponseEntity<>(kisResponse, HttpStatus.OK));
+
+        // When: max_buy_qty=0 이지만 notice 가 있으므로 차단하지 않는다.
+        Map<String, Object> result = tradingService.executeBuy(userId, kisAccountId, "005930", "삼성전자", 10, new BigDecimal("70000"));
+
+        // Then
+        assertThat(result.get("rt_cd")).isEqualTo("0");
+        verify(kisApiClient, times(1)).post(
+                anyString(), anyString(), eq("VTTC0802U"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
+    }
+
+    @Test
+    @DisplayName("executeBuy - 최대매수수량 < 요청수량이면 INSUFFICIENT_BALANCE(5001)로 주문 전에 막는다")
+    void executeBuy_ExceedsMaxBuyQuantity_ThrowsInsufficientBalance() {
+        // Given: 정상 조회(rt_cd=0)에서 max_buy_qty=5 인데 10주를 요청한다.
+        stubUserWithKisAccount();
+
+        when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
+        when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
+        when(kisApiClient.get(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+                .thenReturn(orderableResponse("0", "5"));
+
+        // When / Then
+        assertThatThrownBy(() ->
+                tradingService.executeBuy(userId, kisAccountId, "005930", "삼성전자", 10, new BigDecimal("70000")))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INSUFFICIENT_BALANCE);
+
+        // 주문은 KIS 로 나가지 않아야 한다 (주문은 부작용이 있으므로 사전 차단이 핵심).
+        verify(kisApiClient, never()).post(
+                anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), any());
+    }
+
+    @Test
+    @DisplayName("executeBuy - 최대매수수량 >= 요청수량이면 주문이 통과한다")
+    void executeBuy_WithinMaxBuyQuantity_Proceeds() {
+        // Given
+        stubUserWithKisAccount();
+
+        Map<String, Object> kisResponse = new HashMap<>();
+        kisResponse.put("output", Map.of("ODNO", "ORDER_OK"));
+        kisResponse.put("rt_cd", "0");
+
+        when(kisAuthService.getKisAccessToken(kisAccountId)).thenReturn(mockKisToken);
+        when(kisAuthService.getKisCredentials(kisAccountId)).thenReturn(mockCredentials);
+        when(kisApiClient.get(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+                .thenReturn(orderableResponse("0", "10"));
+        when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+                .thenReturn(new ResponseEntity<>(kisResponse, HttpStatus.OK));
+
+        // When
+        Map<String, Object> result = tradingService.executeBuy(userId, kisAccountId, "005930", "삼성전자", 10, new BigDecimal("70000"));
+
+        // Then
+        assertThat(result.get("rt_cd")).isEqualTo("0");
+    }
+
+    @Test
+    @DisplayName("executeBuy - 수량이 0/음수/null 이면 INVALID_TRADE_QUANTITY(5002)로 KIS 호출 전에 막는다")
+    void executeBuy_InvalidQuantity_ThrowsInvalidTradeQuantity() {
+        // Given: web-app 은 @Min(1) 로 걸러지지만 ai-agent 내부 경로는 수량을 그대로 위임한다.
+        // When / Then
+        for (Integer invalidQuantity : new Integer[]{0, -1, null}) {
+            assertThatThrownBy(() ->
+                    tradingService.executeBuy(userId, kisAccountId, "005930", "삼성전자", invalidQuantity, new BigDecimal("70000")))
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_TRADE_QUANTITY);
+        }
+
+        // 자격증명 조회조차 하지 않고 끊긴다.
+        verifyNoInteractions(kisApiClient);
+        verifyNoInteractions(kisAuthService);
     }
 }

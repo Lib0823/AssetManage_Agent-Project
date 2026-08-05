@@ -1,5 +1,7 @@
 package com.inbeom.apiserver.util;
 
+import com.inbeom.apiserver.exception.BusinessException;
+import com.inbeom.apiserver.exception.ErrorCode;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +17,8 @@ import java.util.Map;
 @Slf4j
 @Component
 public class JwtTokenProvider {
+
+    private static final String BEARER_PREFIX = "Bearer ";
 
     private final SecretKey secretKey;
     private final long accessTokenExpiration;
@@ -80,6 +84,26 @@ public class JwtTokenProvider {
                 .getPayload();
 
         return claims.getSubject();
+    }
+
+    /**
+     * {@code Authorization} 헤더에서 Bearer 토큰만 떼어낸다.
+     *
+     * <p>컨트롤러가 {@code authHeader.substring(7)} 을 직접 호출하면 헤더가 "Bearer " 로 시작하지
+     * 않을 때 {@link StringIndexOutOfBoundsException} 이 나 401 대신 500 으로 응답한다.
+     * 형식 위반은 인증 실패이므로 {@link ErrorCode#INVALID_TOKEN}(2002, 401)로 통일한다.
+     */
+    public String resolveBearerToken(String authorizationHeader) {
+        if (authorizationHeader == null || !authorizationHeader.startsWith(BEARER_PREFIX)) {
+            throw new BusinessException(ErrorCode.INVALID_TOKEN,
+                    "Authorization 헤더는 'Bearer {token}' 형식이어야 합니다");
+        }
+        String token = authorizationHeader.substring(BEARER_PREFIX.length()).trim();
+        if (token.isEmpty()) {
+            throw new BusinessException(ErrorCode.INVALID_TOKEN,
+                    "Authorization 헤더에 토큰이 없습니다");
+        }
+        return token;
     }
 
     /**

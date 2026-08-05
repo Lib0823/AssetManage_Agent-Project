@@ -33,7 +33,7 @@ public class WebAuthnController {
     public ApiResponse<WebAuthnStartResponse> registerStart(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);  // Remove "Bearer "
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
         String username = jwtTokenProvider.getUsernameFromToken(token);
 
@@ -47,7 +47,7 @@ public class WebAuthnController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody WebAuthnFinishRequest request
     ) {
-        String token = authHeader.substring(7);  // Remove "Bearer "
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         webAuthnService.finishRegistration(userId, request.getFlowId(), request.getCredential());

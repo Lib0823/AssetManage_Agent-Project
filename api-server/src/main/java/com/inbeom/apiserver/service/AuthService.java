@@ -15,6 +15,7 @@ import com.inbeom.apiserver.repository.UserTradeConfigRepository;
 import com.inbeom.apiserver.util.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jasypt.encryption.StringEncryptor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -37,6 +38,7 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final StringEncryptor jasyptStringEncryptor;
     private final RestTemplate restTemplate = new RestTemplate();
 
     @Value("${kis.base-url}")
@@ -82,8 +84,8 @@ public class AuthService {
             UserKisAccount kisAccount = UserKisAccount.builder()
                     .user(user)
                     .accountNumber(request.getKisAccount().getAccountNumber())
-                    .appKey(request.getKisAccount().getAppKey())
-                    .appSecret(request.getKisAccount().getAppSecret())
+                    .appKey(jasyptStringEncryptor.encrypt(request.getKisAccount().getAppKey()))
+                    .appSecret(jasyptStringEncryptor.encrypt(request.getKisAccount().getAppSecret()))
                     .accountMode("REAL".equalsIgnoreCase(accountMode) ? "REAL" : "MOCK")
                     .isVerified(false)
                     .build();

@@ -62,6 +62,7 @@ class TestDefaultThresholds:
         assert sf.sentiment_pos_threshold == 0.3
         assert sf.sentiment_neg_threshold == -0.3
         assert sf.uncertainty_threshold == 500
+        assert sf.uncertainty_threshold_sell == 500
         assert sf.per_max == 30.0
         assert sf.roe_min == 10.0
         assert sf.operating_margin_min == 5.0
@@ -94,7 +95,8 @@ class TestDbThresholdOverride:
 
         assert db_sf.threshold_source == 'feature_threshold_config'
         for attr in ('sentiment_pos_threshold', 'sentiment_neg_threshold',
-                     'uncertainty_threshold', 'per_max', 'roe_min',
+                     'uncertainty_threshold', 'uncertainty_threshold_sell',
+                     'per_max', 'roe_min',
                      'operating_margin_min', 'close_position_min',
                      'volume_trend_min', 'foreign_net_buy_min',
                      'institutional_net_buy_min', 'price_trend_min',
@@ -146,6 +148,32 @@ class TestDbThresholdOverride:
         passed, reason, _ = SafetyFilter(thresholds=rows).apply_sell_filter(features)
         assert passed is False
         assert 'Neither negative sentiment nor negative trend' in reason
+
+    def test_uncertainty_sell_threshold_is_independent(self):
+        """prophet_price_uncertainty 의 sell_threshold 가 매도측에만 적용된다."""
+        rows = _seed_rows()
+        rows['prophet_price_uncertainty']['sell_threshold'] = 50.0
+
+        sf = SafetyFilter(thresholds=rows)
+
+        assert sf.uncertainty_threshold == 500.0  # 매수측은 시드값 유지
+        assert sf.uncertainty_threshold_sell == 50.0
+
+        features = {
+            'prophet_price_uncertainty': 100.0,
+            'foreign_net_buy': -1_000,
+            'institutional_net_buy': -1_000,
+            'sentiment_score': -0.4,
+            'prophet_price_trend': 0.01,
+        }
+        passed, reason, checks = sf.apply_sell_filter(features)
+
+        assert passed is False
+        assert 'High uncertainty' in reason
+        assert checks['uncertainty_check']['threshold'] == 50.0
+
+        # 매수측은 영향 없음 (uncertainty=100 <= 500)
+        assert sf.apply_buy_filter(_passing_buy_features())[0] is True
 
     def test_decimal_string_threshold_is_coerced(self):
         rows = _seed_rows()

@@ -17,6 +17,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.jasypt.encryption.StringEncryptor;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -52,6 +54,9 @@ class AuthServiceTest {
 
     @Mock
     private JwtTokenProvider jwtTokenProvider;
+
+    @Mock
+    private StringEncryptor jasyptStringEncryptor;
 
     @InjectMocks
     private AuthService authService;
@@ -137,13 +142,23 @@ class AuthServiceTest {
             given(userRepository.save(any(User.class))).willReturn(testUser);
             given(kisAccountRepository.save(any(UserKisAccount.class))).willReturn(new UserKisAccount());
             given(tradeConfigRepository.save(any(UserTradeConfig.class))).willReturn(new UserTradeConfig());
+            given(jasyptStringEncryptor.encrypt("test-app-key")).willReturn("ENC_APP_KEY");
+            given(jasyptStringEncryptor.encrypt("test-app-secret")).willReturn("ENC_APP_SECRET");
 
             // when
             RegisterResponse response = authService.register(registerRequest);
 
             // then
             assertThat(response).isNotNull();
-            then(kisAccountRepository).should(times(1)).save(any(UserKisAccount.class));
+            ArgumentCaptor<UserKisAccount> captor = ArgumentCaptor.forClass(UserKisAccount.class);
+            then(kisAccountRepository).should(times(1)).save(captor.capture());
+
+            // KIS 자격증명은 평문으로 저장되면 안 된다 (Jasypt 암호화 후 저장).
+            UserKisAccount saved = captor.getValue();
+            assertThat(saved.getAppKey()).isEqualTo("ENC_APP_KEY");
+            assertThat(saved.getAppSecret()).isEqualTo("ENC_APP_SECRET");
+            assertThat(saved.getAppKey()).isNotEqualTo("test-app-key");
+            assertThat(saved.getAppSecret()).isNotEqualTo("test-app-secret");
         }
 
         @Test

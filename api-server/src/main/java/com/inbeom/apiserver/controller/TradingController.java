@@ -40,7 +40,7 @@ public class TradingController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody TradeRequest request
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
         Long kisAccountId = jwtTokenProvider.getKisAccountIdFromToken(token);
 
@@ -67,7 +67,7 @@ public class TradingController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody TradeRequest request
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
         Long kisAccountId = jwtTokenProvider.getKisAccountIdFromToken(token);
 
@@ -93,7 +93,7 @@ public class TradingController {
     public ResponseEntity<ApiResponse<List<TradeHistoryResponse>>> getHistory(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         List<TradeHistoryResponse> history = tradingService.getTradeHistory(userId);
@@ -111,7 +111,7 @@ public class TradingController {
     public ResponseEntity<ApiResponse<List<RecentTradeResponse>>> getRecentTrades(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         List<RecentTradeResponse> trades = tradingService.getRecentTrades(userId);
@@ -129,7 +129,7 @@ public class TradingController {
     public ResponseEntity<ApiResponse<BalanceSummaryResponse>> getHoldings(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         BalanceSummaryResponse holdings = tradingService.getHoldings(userId);
@@ -147,7 +147,7 @@ public class TradingController {
     public ResponseEntity<ApiResponse<List<PendingOrderResponse>>> getPendingOrders(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         List<PendingOrderResponse> pendingOrders = tradingService.getPendingOrders(userId);
@@ -168,7 +168,7 @@ public class TradingController {
             @RequestParam("stockCode") String stockCode,
             @RequestParam(value = "price", required = false) BigDecimal price
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         OrderableResponse orderable = tradingService.getOrderable(userId, stockCode, price);
@@ -188,7 +188,7 @@ public class TradingController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody PlaceReservedOrderRequest request
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
         Long kisAccountId = jwtTokenProvider.getKisAccountIdFromToken(token);
 
@@ -207,7 +207,7 @@ public class TradingController {
     public ResponseEntity<ApiResponse<List<ReservedOrderResponse>>> getReservedOrders(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         List<ReservedOrderResponse> reservedOrders = tradingService.getReservedOrders(userId);
@@ -229,7 +229,7 @@ public class TradingController {
             @RequestParam("orgNo") String orgNo,
             @RequestParam("orderDate") String orderDate
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
         Long kisAccountId = jwtTokenProvider.getKisAccountIdFromToken(token);
 

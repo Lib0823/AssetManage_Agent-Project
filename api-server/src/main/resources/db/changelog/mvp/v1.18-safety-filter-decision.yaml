@@ -1,0 +1,56 @@
+databaseChangeLog:
+  # safety_filter_result 에 BUY/SELL 구분 컬럼 추가.
+  #
+  # 왜 필요한가: Stage 5 안전망 필터는 Stage 4 의 매수 후보와 매도 후보를 모두 검증하지만
+  # 저장 시 결정 종류를 남기지 않는다. 그래서 (1) 같은 종목이 같은 날 매수·매도 후보에 동시에
+  # 오르면 uk_safety_filter_date_stock(filter_date, stock_code) 유니크 제약에 걸려 두 번째
+  # INSERT 가 실패하고, (2) v_decision_with_filter 가 (stock_code, date) 로만 LEFT JOIN 하므로
+  # 남은 한 행이 BUY/SELL 양쪽 결정에 똑같이 붙어 잘못 귀속된다.
+  #
+  # 타입은 ai_trade_decision.decision 과 동일한 VARCHAR(10). 기존 행에는 채울 값이 없으므로
+  # nullable 로 둔다(NOT NULL 로 만들면 백필 없이는 마이그레이션이 실패한다).
+  # 실제로 값을 채우는 것은 ai-agent(database/repository.py 의 safety_filter_result INSERT) 작업이다.
+
+  - changeSet:
+      id: 1.18.1-add-safety-filter-decision
+      author: claude
+      context: mvp
+      comment: "Add decision (BUY/SELL) column to safety_filter_result"
+      changes:
+        - addColumn:
+            tableName: safety_filter_result
+            columns:
+              - column:
+                  name: decision
+                  type: "VARCHAR(10)"
+                  remarks: '안전망 검증 대상 결정 종류 (BUY/SELL) — ai_trade_decision.decision 과 동일 도메인'
+      rollback:
+        - dropColumn:
+            tableName: safety_filter_result
+            columnName: decision
+
+  # 유니크 제약을 (filter_date, stock_code) → (filter_date, stock_code, decision) 로 확장.
+  # 이 단계 없이는 위 컬럼을 채워도 종목당 하루 한 행만 남아 BUY/SELL 을 함께 저장할 수 없다.
+  # 제약을 넓히는(완화하는) 변경이라 기존 데이터는 그대로 유효하며, ai-agent 의 INSERT 는
+  # ON CONFLICT 절을 쓰지 않으므로 제약명 변경에 영향받지 않는다.
+  - changeSet:
+      id: 1.18.2-widen-safety-filter-unique
+      author: claude
+      context: mvp
+      comment: "Widen safety_filter_result unique key to include decision"
+      changes:
+        - dropUniqueConstraint:
+            tableName: safety_filter_result
+            constraintName: uk_safety_filter_date_stock
+        - addUniqueConstraint:
+            constraintName: uk_safety_filter_date_stock_decision
+            tableName: safety_filter_result
+            columnNames: filter_date, stock_code, decision
+      rollback:
+        - dropUniqueConstraint:
+            tableName: safety_filter_result
+            constraintName: uk_safety_filter_date_stock_decision
+        - addUniqueConstraint:
+            constraintName: uk_safety_filter_date_stock
+            tableName: safety_filter_result
+            columnNames: filter_date, stock_code

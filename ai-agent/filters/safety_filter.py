@@ -13,7 +13,6 @@ Enhanced Version: 추가된 안전망 규칙
 import pandas as pd
 import logging
 from typing import List, Dict, Optional, Tuple
-from datetime import date
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,10 @@ class SafetyFilter:
     # expected_operator 는 이 클래스가 실제로 구현한 비교 방향이다. DB operator 가
     # 이와 다르면 임계값을 적용하면 의미가 뒤집히므로 경고만 남기고 코드 기본값을 유지한다.
     DB_THRESHOLD_MAP = {
-        'prophet_price_uncertainty': {'buy': ('uncertainty_threshold', '<=')},
+        'prophet_price_uncertainty': {
+            'buy': ('uncertainty_threshold', '<='),
+            'sell': ('uncertainty_threshold_sell', '<='),
+        },
         'foreign_net_buy': {
             'buy': ('foreign_net_buy_min', '>'),
             'sell': ('foreign_net_buy_sell_max', '<'),
@@ -81,8 +83,9 @@ class SafetyFilter:
                  sentiment_positive_threshold: float = 0.3,
                  sentiment_negative_threshold: float = -0.3,
 
-                 # Uncertainty threshold
+                 # Uncertainty thresholds (매수/매도 독립 튜닝 가능)
                  uncertainty_threshold: float = 500,
+                 uncertainty_threshold_sell: float = 500,
 
                  # NEW: Fundamental thresholds
                  per_max_threshold: float = 30.0,          # PER 상한
@@ -114,7 +117,8 @@ class SafetyFilter:
         Args:
             sentiment_positive_threshold: Minimum sentiment score for buy
             sentiment_negative_threshold: Maximum sentiment score for sell
-            uncertainty_threshold: Maximum allowed price uncertainty
+            uncertainty_threshold: Maximum allowed price uncertainty for buy
+            uncertainty_threshold_sell: Maximum allowed price uncertainty for sell
             per_max_threshold: Maximum PER for buy (avoid overvaluation)
             roe_min_threshold: Minimum ROE (%) for buy
             operating_margin_min: Minimum operating margin (%) for buy
@@ -139,6 +143,7 @@ class SafetyFilter:
         self.sentiment_pos_threshold = sentiment_positive_threshold
         self.sentiment_neg_threshold = sentiment_negative_threshold
         self.uncertainty_threshold = uncertainty_threshold
+        self.uncertainty_threshold_sell = uncertainty_threshold_sell
 
         # NEW: Fundamental thresholds
         self.per_max = per_max_threshold
@@ -170,7 +175,8 @@ class SafetyFilter:
                    f"OpMargin>={self.operating_margin_min}%, "
                    f"ClosePos>={self.close_position_min}, "
                    f"VolTrend>{self.volume_trend_min}, "
-                   f"Uncertainty<={self.uncertainty_threshold}, "
+                   f"Uncertainty<={self.uncertainty_threshold}(buy)"
+                   f"/{self.uncertainty_threshold_sell}(sell), "
                    f"Sentiment>={self.sentiment_pos_threshold}/<={self.sentiment_neg_threshold}")
 
     def _apply_db_thresholds(self, thresholds: Optional[Dict[str, Dict]]) -> int:
@@ -410,12 +416,12 @@ class SafetyFilter:
         # Check 1: Uncertainty
         uncertainty_value = features.get('prophet_price_uncertainty', 0)
         check_details['uncertainty_check'] = {
-            'passed': uncertainty_value <= self.uncertainty_threshold,
+            'passed': uncertainty_value <= self.uncertainty_threshold_sell,
             'value': uncertainty_value,
-            'threshold': self.uncertainty_threshold
+            'threshold': self.uncertainty_threshold_sell
         }
-        if uncertainty_value > self.uncertainty_threshold:
-            conditions.append(f"High uncertainty: {uncertainty_value:.2f} > {self.uncertainty_threshold}")
+        if uncertainty_value > self.uncertainty_threshold_sell:
+            conditions.append(f"High uncertainty: {uncertainty_value:.2f} > {self.uncertainty_threshold_sell}")
             return False, conditions[0], check_details
 
         # Check 2: Supply condition (Foreign OR Institutional selling)
@@ -608,32 +614,3 @@ class SafetyFilter:
             })
 
         return filtered_decisions
-
-    def save_filter_results(self,
-                           filter_results: List[Dict],
-                           filter_date: date,
-                           conn) -> None:
-        """
-        Save safety filter results to safety_filter_result table.
-
-        Args:
-            filter_results: List of filter result dicts from filter_decisions()
-            filter_date: Date of analysis
-            conn: Database connection (psycopg2 or SQLAlchemy)
-        """
-        import json
-
-        records = []
-        for result in filter_results:
-            records.append({
-                'stock_code': result['stock_code'],
-                'stock_name': result.get('stock_name', ''),  # TODO: Add stock name lookup
-                'filter_date': filter_date,
-                'decision': result['decision'],
-                'passed': result['passed'],
-                'failure_reason': result.get('failure_reason'),
-                'feature_values': json.dumps(result.get('feature_values', {}))
-            })
-
-        df = pd.DataFrame(records)
-        df.to_sql('safety_filter_result', conn, if_exists='append', index=False)

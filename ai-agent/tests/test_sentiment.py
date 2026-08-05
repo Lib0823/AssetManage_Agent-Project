@@ -10,16 +10,29 @@ from analysis.sentiment import SentimentAnalyzer
 from models.kr_finbert import KRFinBERTAnalyzer
 
 
+def _load_or_skip(factory):
+    """conftest 가 오프라인을 강제하므로 캐시 미보유 시 다운로드 대신 skip 한다."""
+    try:
+        return factory()
+    except Exception as exc:
+        pytest.skip(
+            f"KR-FinBERT 로컬 캐시 없음 → 오프라인 테스트 skip. "
+            f"먼저 모델을 캐시하세요: "
+            f"python -c \"from models.kr_finbert import KRFinBERTAnalyzer; KRFinBERTAnalyzer()\" "
+            f"(HF_HUB_OFFLINE 해제 상태에서). 원인: {exc}"
+        )
+
+
 @pytest.fixture
 def sentiment_analyzer():
-    """Create SentimentAnalyzer instance for testing."""
-    return SentimentAnalyzer()
+    """Create SentimentAnalyzer instance for testing (로컬 캐시 모델 사용)."""
+    return _load_or_skip(SentimentAnalyzer)
 
 
 @pytest.fixture
 def kr_finbert():
-    """Create KR-FinBERT analyzer instance."""
-    return KRFinBERTAnalyzer()
+    """Create KR-FinBERT analyzer instance (로컬 캐시 모델 사용)."""
+    return _load_or_skip(KRFinBERTAnalyzer)
 
 
 @pytest.fixture

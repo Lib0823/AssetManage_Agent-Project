@@ -19,7 +19,6 @@
    - [MarketAnalysisController (/market)](#59-marketanalysiscontroller-market)
    - [MarketDataController (/market)](#510-marketdatacontroller-market)
    - [HealthController (/health)](#511-healthcontroller-health)
-   - [TestController (/test)](#512-testcontroller-test)
 6. [관련 문서](#6-관련-문서)
 
 ---
@@ -92,7 +91,7 @@ ErrorCode 대역 구분:
 
 | 구분 | 경로 |
 |------|------|
-| PUBLIC (permitAll) | `/health`, `/health/**`, `/auth/**`, `/actuator/**`, `/test/**`, `/market/**`, `/company/**`, `/stocks/**`, `/overseas/stocks/**` |
+| PUBLIC (permitAll) | `/health`, `/health/**`, `/auth/**`, `/actuator/**`, `/market/**`, `/company/**`, `/stocks/**`, `/overseas/stocks/**` |
 | AUTH 필요 | `/users/**`, `/assets/**`, `/trading/**`, `/favorites/**`, `/overseas/**`(`/overseas/stocks/**` 제외) 등 그 외 전부 |
 
 AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요구하며, 토큰 claims의 `userId` / `kisAccountId`를 서버에서 추출해 사용합니다. (상세는 [AUTHENTICATION_FLOW.md](AUTHENTICATION_FLOW.md))
@@ -234,14 +233,6 @@ AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요
 |--------|------|--------------|------|
 | GET | `/health` | `Map{status, timestamp, version}` | 헬스 체크 |
 | GET | `/health/db` | `Map` | PostgreSQL 연결 테스트 |
-
-### 5.12 TestController (/test)
-
-전체 PUBLIC, 개발 전용.
-
-| Method | Path | 응답 data(T) | 설명 |
-|--------|------|--------------|------|
-| GET | `/test/bcrypt/{password}` | `Map` | BCrypt 해시 생성 + 검증. 개발 유틸리티 |
 
 ---
 

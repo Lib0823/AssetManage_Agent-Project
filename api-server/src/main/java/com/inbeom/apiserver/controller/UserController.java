@@ -27,8 +27,8 @@ public class UserController {
     public ResponseEntity<ApiResponse<UserProfileResponse>> getUserProfile(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
-            Long userId = jwtTokenProvider.getUserIdFromToken(token);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
+        Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         UserProfileResponse profile = userService.getUserProfile(userId);
 
@@ -46,7 +46,7 @@ public class UserController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody UpdateUserProfileRequest request
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         UserProfileResponse profile = userService.updateUserProfile(userId, request);
@@ -64,7 +64,7 @@ public class UserController {
     public ResponseEntity<ApiResponse<UserSettingsResponse>> getUserSettings(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         UserSettingsResponse settings = userService.getUserSettings(userId);
@@ -83,7 +83,7 @@ public class UserController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody UpdateUserSettingsRequest request
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         UserSettingsResponse settings = userService.updateUserSettings(userId, request);
@@ -101,7 +101,7 @@ public class UserController {
     public ResponseEntity<ApiResponse<Void>> deleteAccount(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         log.info("User deletion requested: userId={}", userId);
@@ -120,7 +120,7 @@ public class UserController {
     public ResponseEntity<ApiResponse<KisAccountResponse>> getKisAccount(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         KisAccountResponse kisAccount = userService.getKisAccount(userId);
@@ -139,7 +139,7 @@ public class UserController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody UpdateKisAccountRequest request
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         KisAccountResponse kisAccount = userService.updateKisAccount(userId, request);
@@ -157,7 +157,7 @@ public class UserController {
     public ResponseEntity<ApiResponse<TradeConfigResponse>> getTradeConfig(
             @RequestHeader("Authorization") String authHeader
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         TradeConfigResponse config = userService.getTradeConfig(userId);
@@ -176,7 +176,7 @@ public class UserController {
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody UpdateTradeConfigRequest request
     ) {
-        String token = authHeader.substring(7);
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
 
         TradeConfigResponse config = userService.updateTradeConfig(userId, request);

@@ -95,6 +95,10 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.17-asset-daily-snapshot.yaml
       context: mvp
 
+  - include:
+      file: classpath:db/changelog/mvp/v1.18-safety-filter-decision.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================
