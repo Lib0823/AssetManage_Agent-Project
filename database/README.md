@@ -36,7 +36,7 @@ database/
 
 > `schema.sql`을 직접 실행하거나 손으로 수정하지 마세요. 항상 changelog가 소스입니다.
 
-> ⚠️ **v1.8(`stock_master`/`user_favorites`)·v1.9(해외주식 US `exchange_code`/`currency` 컬럼 + 25개 US 시드)·v1.10(`stock_news` 테이블 + GIN 태그 인덱스) 추가 후 `schema.sql` 스냅샷은 아직 재생성되지 않았습니다.** 라이브 DB에 Liquibase가 v1.8~v1.10을 적용한 뒤 `./database/generate-schema.sh`(내부적으로 `pg_dump -s`)를 실행해 재생성해야 합니다. DB 없이 DDL을 임의로 손으로 작성하지 마세요(스냅샷 위조 금지).
+> `schema.sql`은 v1.19(`user_holdings` 제거)까지 반영된 스냅샷이다. 이후 changelog가 추가되면 다시 밀릴 수 있으니, 스키마 관련 작업 전에는 재생성 여부를 확인할 것 — schema.sql이 changelog보다 오래된 상태로 방치되면 이 파일을 근거로 정상 동작하는 코드의 컬럼/테이블을 잘못 지우는 사고로 이어질 수 있다(DB 없이 DDL을 손으로 고치는 것도 금지 — 스냅샷 위조가 된다).
 
 상위 시스템 데이터 흐름은 [`../_docs/ARCHITECTURE.md`](../_docs/ARCHITECTURE.md) 참고.
 
@@ -71,13 +71,14 @@ database/
 
 > `stock_news`는 종목별 뉴스 기사 단건을 저장한다(`news_analysis`는 종목 단위 감성 집계). ai-agent가 `(stock_code, analysis_date)` 기준으로 DELETE 후 INSERT 하므로 unique 제약은 없다. `tags`(JSONB, 문자열 배열)에는 GIN 인덱스(`idx_stock_news_tags`, `jsonb_path_ops`)가 있어 향후 태그 검색에 사용한다. Spring Boot의 `StockNewsController`(`/api/news`)가 읽기 전용으로 중계한다.
 
-### 3. 웹 표시용 (3개)
+### 3. 웹 표시용 (2개)
 
 | 테이블명 | 설명 | 비고 |
 |---------|------|------|
 | `market_daily_summary` | 시장 전체 일일 요약 (KOSPI 지수, 등락 종목수, 시장 감성) | 대시보드용 |
-| `stock_realtime_price` | 종목별 실시간 가격 (캐시) | 현재가, 등락률, 거래량 |
-| `user_holdings` | 사용자별 보유 종목 현황 | 평가손익, 평가손익률 |
+| `stock_realtime_price` | 종목별 실시간 가격 (캐시) | 현재가, 등락률, 거래량. **채우는 코드가 없어 항상 null** — `MarketAnalysisRepository`가 LEFT JOIN으로 참조하므로 고아 테이블은 아니지만, writer가 없다는 점은 알고 있어야 한다 |
+
+> `user_holdings`(사용자별 보유 종목 현황)는 v1.19에서 제거했다. api-server·ai-agent 어디서도 읽거나 쓰지 않는 순수 고아 테이블이었다 — 보유 종목은 KIS 실시간 조회(`TradingService.getHoldings` 등)로 대체됐다.
 
 ### 4. 매매 실행 & 거래 (3개)
 

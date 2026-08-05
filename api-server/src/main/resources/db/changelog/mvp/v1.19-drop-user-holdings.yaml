@@ -1,0 +1,78 @@
+databaseChangeLog:
+  # user_holdings 는 v1.7에서 "포트폴리오 관리용"으로 만들어졌지만, 실제로는 어디서도
+  # 읽거나 쓰지 않는다 — 보유 종목은 KIS 실시간 조회(TradingService.getHoldings 등)로
+  # 대체됐다. api-server/src, ai-agent 전체에서 이 changelog 밖의 참조가 0건임을
+  # 확인했다(2026-08-05 QA 재검증). stock_realtime_price 와 달리 조회 쿼리나 뷰에서도
+  # 참조되지 않는 순수 고아 테이블이라 삭제 대상이다.
+  - changeSet:
+      id: 1.19.1-drop-user-holdings
+      author: claude
+      context: mvp
+      comment: "Drop unused user_holdings table (holdings are read live from KIS, never from this table)"
+      changes:
+        - dropTable:
+            tableName: user_holdings
+      rollback:
+        - createTable:
+            tableName: user_holdings
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_user_holdings_user
+                    references: users(id)
+                    deleteCascade: true
+              - column:
+                  name: stock_code
+                  type: VARCHAR(10)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: stock_name
+                  type: VARCHAR(50)
+              - column:
+                  name: quantity
+                  type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: avg_price
+                  type: BIGINT
+              - column:
+                  name: current_price
+                  type: BIGINT
+              - column:
+                  name: profit_loss
+                  type: BIGINT
+              - column:
+                  name: profit_loss_rate
+                  type: NUMERIC(6,2)
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: user_holdings
+            columnNames: user_id, stock_code
+            constraintName: uk_user_holdings_user_stock
+        - createIndex:
+            indexName: idx_user_holdings_user
+            tableName: user_holdings
+            columns:
+              - column:
+                  name: user_id
+        - createIndex:
+            indexName: idx_user_holdings_stock
+            tableName: user_holdings
+            columns:
+              - column:
+                  name: stock_code
