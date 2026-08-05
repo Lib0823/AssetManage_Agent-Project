@@ -206,18 +206,18 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 
 ## Database Schema
 
-**실제 테이블: 22개 + 뷰 4개** (Liquibase가 18개 changelog로 생성, v1.0~v1.17). **스키마 단일 출처는 Liquibase changelog**(`api-server/src/main/resources/db/changelog/`)이며, [`database/schema.sql`](database/schema.sql)은 라이브 DB에서 뽑은 참고용 스냅샷입니다(자동 생성 — `database/generate-schema.sh`, 직접 편집 금지). 전체 목록·관계는 [`database/README.md`](database/README.md).
+**실제 테이블: 21개 + 뷰 4개** (Liquibase가 20개 changelog로 생성, v1.0~v1.19). **스키마 단일 출처는 Liquibase changelog**(`api-server/src/main/resources/db/changelog/`)이며, [`database/schema.sql`](database/schema.sql)은 라이브 DB에서 뽑은 참고용 스냅샷입니다(자동 생성 — `database/generate-schema.sh`, 직접 편집 금지). 전체 목록·관계는 [`database/README.md`](database/README.md).
 
 | 그룹 | 테이블 |
 |------|--------|
 | 사용자 & 인증 | `users`, `refresh_tokens`, `user_kis_accounts`, `user_trade_config`, `user_settings`, `webauthn_credentials` |
 | 분석 데이터 | `stock_filter_score`, `stock_financial`, `news_analysis`, `stock_news`, `prophet_forecast`, `ai_trade_decision`, `safety_filter_result` |
-| 웹 표시용 | `market_daily_summary`, `stock_realtime_price`, `user_holdings`, `asset_daily_snapshot` |
+| 웹 표시용 | `market_daily_summary`, `stock_realtime_price`, `asset_daily_snapshot` |
 | 매매 실행 | `trade_execution_plan`, `feature_threshold_config`, `trade_history` |
 | 검색 & 관심종목 | `stock_master`, `user_favorites` |
 | 뷰 | `v_latest_trade_plan`, `v_decision_with_filter`, `v_market_overview`, `v_stock_analysis_summary` |
 
-> 테이블 수 변경 이력: v1.8에서 `stock_master`/`user_favorites` 추가(19개), v1.10 `stock_news`·v1.14 `webauthn_credentials`·v1.17 `asset_daily_snapshot` 추가로 현재 22개입니다.
+> 테이블 수 변경 이력: v1.8에서 `stock_master`/`user_favorites` 추가(19개), v1.10 `stock_news`·v1.14 `webauthn_credentials`·v1.17 `asset_daily_snapshot` 추가로 22개, v1.18에서 `safety_filter_result.decision` 컬럼 추가(테이블 수 변화 없음), v1.19에서 아무도 읽거나 쓰지 않던 `user_holdings`를 제거해 현재 21개입니다.
 
 ## Technology Stack Summary
 
@@ -227,7 +227,7 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 | Backend API | Spring Boot 4.1, Java 21, Spring Data JPA, Spring Security + JWT(jjwt 0.12.3), Jasypt, Liquibase, PostgreSQL, Gradle |
 | AI Pipeline | Python 3.11+, FastAPI, APScheduler, pandas, NumPy, scikit-learn, Prophet, transformers (KR-FinBERT), matplotlib |
 | AI Model | Gemini API (free tier) |
-| Database | PostgreSQL 16 (22 tables + 4 views) |
+| Database | PostgreSQL 16 (21 tables + 4 views) |
 | Search | Elasticsearch 8.x (확장 예정) |
 | Infra | Docker, Docker Compose |
 | External APIs | KIS Developers (mock trading), DART (financial data) |

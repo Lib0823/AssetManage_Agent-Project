@@ -71,13 +71,12 @@ database/
 
 > `stock_news`는 종목별 뉴스 기사 단건을 저장한다(`news_analysis`는 종목 단위 감성 집계). ai-agent가 `(stock_code, analysis_date)` 기준으로 DELETE 후 INSERT 하므로 unique 제약은 없다. `tags`(JSONB, 문자열 배열)에는 GIN 인덱스(`idx_stock_news_tags`, `jsonb_path_ops`)가 있어 향후 태그 검색에 사용한다. Spring Boot의 `StockNewsController`(`/api/news`)가 읽기 전용으로 중계한다.
 
-### 3. 웹 표시용 (3개)
+### 3. 웹 표시용 (2개)
 
 | 테이블명 | 설명 | 비고 |
 |---------|------|------|
 | `market_daily_summary` | 시장 전체 일일 요약 (KOSPI 지수, 등락 종목수, 시장 감성) | 대시보드용 |
-| `stock_realtime_price` | 종목별 실시간 가격 (캐시) | 현재가, 등락률, 거래량 |
-| `user_holdings` | 사용자별 보유 종목 현황 | 평가손익, 평가손익률 |
+| `stock_realtime_price` | 종목별 실시간 가격 (캐시) | 현재가, 등락률, 거래량. 채우는 코드 없어 항상 null |
 
 ### 4. 매매 실행 & 거래 (3개)
 

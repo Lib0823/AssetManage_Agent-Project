@@ -99,6 +99,10 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.18-safety-filter-decision.yaml
       context: mvp
 
+  - include:
+      file: classpath:db/changelog/mvp/v1.19-drop-user-holdings.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================

@@ -124,7 +124,7 @@ score = |foreign_net_buy|*0.3 + |institutional_net_buy|*0.3 + vol_avg_multiple*0
 |------------|---------|---------|
 | `users`, `refresh_tokens`, `user_kis_accounts`, `user_trade_config`, `user_settings` | Spring Boot | Spring Boot, ai-agent(`is_active`) |
 | `stock_filter_score`, `stock_financial`, `news_analysis`, `prophet_forecast`, `ai_trade_decision`, `safety_filter_result` | ai-agent | Spring Boot (조회 API), ai-agent |
-| `market_daily_summary`, `stock_realtime_price`, `user_holdings` | ai-agent / Spring Boot | web-app(via Spring Boot) |
+| `market_daily_summary`, `stock_realtime_price` | ai-agent / Spring Boot | web-app(via Spring Boot) |
 | `trade_execution_plan`, `feature_threshold_config` | ai-agent | ai-agent, (확장 시 web-app) |
 | `trade_history` | Spring Boot | Spring Boot |
 

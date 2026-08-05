@@ -18,7 +18,6 @@
 | `safety_filter_result` | AI Agent | Safety Filter 검증 결과 | 매일 |
 | `trade_history` | api-server | KIS 주문 체결 이력 | 거래 시 |
 | `user_trade_config` | api-server | 자동매매 설정(`is_active`, `order_amount`) | 설정 변경 시 |
-| `user_holdings` | api-server | 보유 종목 | 거래 시 |
 
 > AI Agent가 사용하는 SQLAlchemy 모델은 `database/models.py`에 `StockFilterScore`, `MarketDailySummary`, `ProphetForecast` 3종만 정의되어 있다. 나머지 테이블은 raw SQL(repository) 또는 DART 클라이언트로 기록한다.
 
