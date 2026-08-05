@@ -26,9 +26,7 @@ export const useAuthStore = defineStore('auth', () => {
       isIdChecked: false,
       isIdAvailable: false,
       isEmailChecked: false,
-      isEmailAvailable: false,
-      // MVP 범위에 휴대폰 본인인증(SMS/OTP) 단계가 없어 항상 true. 인증 단계를 도입하면 setPhoneVerified로 갱신한다.
-      isPhoneVerified: true
+      isEmailAvailable: false
     }
   })
 
@@ -69,10 +67,6 @@ export const useAuthStore = defineStore('auth', () => {
     registrationData.value.validation.isEmailAvailable = available
   }
 
-  function setPhoneVerified(verified) {
-    registrationData.value.validation.isPhoneVerified = verified
-  }
-
   function clearRegistrationData() {
     registrationData.value = {
       step1: {
@@ -92,8 +86,7 @@ export const useAuthStore = defineStore('auth', () => {
         isIdChecked: false,
         isIdAvailable: false,
         isEmailChecked: false,
-        isEmailAvailable: false,
-        isPhoneVerified: true
+        isEmailAvailable: false
       }
     }
   }
@@ -184,7 +177,6 @@ export const useAuthStore = defineStore('auth', () => {
     saveStep2Data,
     setIdCheckResult,
     setEmailCheckResult,
-    setPhoneVerified,
     clearRegistrationData,
     setAuthData,
     setAccountMode,
