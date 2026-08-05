@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { authApi } from '@/services/api'
 import { Toast } from 'vant'
+import { logger } from '@/utils/logger'
 
 const router = useRouter()
 
@@ -61,7 +62,8 @@ const handleReset = async () => {
       router.push('/login')
     }, 1000)
   } catch (error) {
-    console.error('Password reset error:', error)
+    // 요청 바디(새 비밀번호)가 담긴 error.config.data가 그대로 노출되지 않도록 status/message만 남긴다.
+    logger.debug('Password reset error:', error.response?.status, error.response?.data?.message)
 
     // 에러 메시지 처리
     if (error.response?.data?.message) {

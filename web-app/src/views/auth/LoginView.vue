@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/services/api'
 import { readUiSettings, writeUiSettings } from '@/utils/uiSettings'
+import { logger } from '@/utils/logger'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -60,7 +61,9 @@ const handleLogin = async (event) => {
     // Navigate to home
     router.push('/home')
   } catch (error) {
-    console.error('Login failed:', error)
+    // axios 에러 객체를 그대로 로깅하면 error.config.data(제출한 비밀번호 포함)가
+    // 콘솔에 그대로 노출된다. status/message만 남긴다.
+    logger.debug('Login failed:', error.response?.status, error.response?.data?.message)
 
     // 로그인 화면에서는 401 에러를 정상적으로 처리 (인터셉터 우회)
     if (error.response?.status === 401) {

@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/services/api'
 import { Toast, Dialog } from 'vant'
 import { isPlatformAuthAvailable, registerBiometric } from '@/services/webauthn'
+import { logger } from '@/utils/logger'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -107,7 +108,8 @@ const handleValidateKis = async () => {
       }
     }
   } catch (error) {
-    console.error('KIS validation error:', error)
+    // 요청 바디(KIS appKey/appSecret)가 담긴 error.config.data가 노출되지 않도록 status/message만 남긴다.
+    logger.debug('KIS validation error:', error.response?.status, error.response?.data?.message)
 
     // 에러 메시지 처리
     if (error.response?.data?.data?.message) {
@@ -226,7 +228,8 @@ const handleRegister = async () => {
         router.push('/home')
       }, 1000)
     } catch (loginError) {
-      console.error('Auto-login failed:', loginError)
+      // 요청 바디(비밀번호)가 담긴 loginError.config.data가 노출되지 않도록 status/message만 남긴다.
+      logger.debug('Auto-login failed:', loginError.response?.status, loginError.response?.data?.message)
       Toast.fail('회원가입은 완료되었으나 자동 로그인에 실패했습니다. 로그인 화면으로 이동합니다.')
       authStore.clearRegistrationData()
       setTimeout(() => {
@@ -234,7 +237,8 @@ const handleRegister = async () => {
       }, 1500)
     }
   } catch (error) {
-    console.error('Registration error:', error)
+    // 요청 바디(비밀번호, KIS appKey/appSecret)가 담긴 error.config.data가 노출되지 않도록 status/message만 남긴다.
+    logger.debug('Registration error:', error.response?.status, error.response?.data?.message)
 
     // 에러 메시지 처리
     if (error.response?.data?.message) {
