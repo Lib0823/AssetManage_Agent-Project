@@ -24,7 +24,9 @@ class Settings(BaseSettings):
     db_password: str
 
     # Scheduler Configuration
-    pipeline_cron: str = "50 8 * * 1-5"  # Weekdays 08:50
+    # 요일 필드는 이름(mon-fri)으로 쓴다 — APScheduler CronTrigger 는 표준 crontab(0=일요일)과
+    # 달리 Python weekday() 기준(0=월요일)이라, 숫자 '1-5'를 쓰면 월~금이 아니라 화~토가 된다.
+    pipeline_cron: str = "50 8 * * mon-fri"  # Weekdays 08:50
     pipeline_timezone: str = "Asia/Seoul"
     pipeline_enabled: bool = True
 
