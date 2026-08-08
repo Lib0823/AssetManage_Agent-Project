@@ -828,33 +828,36 @@ class KISClient:
         }
 
         try:
-            async with self.semaphore:  # Rate limiting
-                result = await self.request('GET', endpoint, tr_id, params)
-                await asyncio.sleep(0.2)  # 5 req/sec
+            # self.request() 가 이미 self.semaphore 로 rate limiting 을 건다.
+            # 여기서 다시 감싸면 같은(재진입 불가) semaphore 를 한 호출이 두 번 점유해
+            # 유효 동시성이 반토막 나고, 동시 호출 수가 세마포어 크기에 도달하면
+            # 모든 호출이 서로의 두 번째 획득을 기다리며 교착된다.
+            result = await self.request('GET', endpoint, tr_id, params)
+            await asyncio.sleep(0.2)  # 5 req/sec
 
-                if result.get('rt_cd') == '0':  # Success
-                    output = result['output']
-                    current_price = int(output['stck_prpr'])  # 주식 현재가
+            if result.get('rt_cd') == '0':  # Success
+                output = result['output']
+                current_price = int(output['stck_prpr'])  # 주식 현재가
 
-                    per = self._parse_kis_float(output.get('per'))
-                    pbr = self._parse_kis_float(output.get('pbr'))
-                    eps = self._parse_kis_float(output.get('eps'))
+                per = self._parse_kis_float(output.get('per'))
+                pbr = self._parse_kis_float(output.get('pbr'))
+                eps = self._parse_kis_float(output.get('eps'))
 
-                    logger.debug(
-                        f"Price/valuation for {stock_code}: {current_price:,}원, "
-                        f"PER={per}, PBR={pbr}, EPS={eps}"
-                    )
+                logger.debug(
+                    f"Price/valuation for {stock_code}: {current_price:,}원, "
+                    f"PER={per}, PBR={pbr}, EPS={eps}"
+                )
 
-                    return {
-                        'current_price': current_price,
-                        'per': per,
-                        'pbr': pbr,
-                        'eps': eps
-                    }
-                else:
-                    error_msg = result.get('msg1', 'Unknown error')
-                    logger.error(f"Failed to fetch current price for {stock_code}: {error_msg}")
-                    return {'current_price': 0, 'per': None, 'pbr': None, 'eps': None}
+                return {
+                    'current_price': current_price,
+                    'per': per,
+                    'pbr': pbr,
+                    'eps': eps
+                }
+            else:
+                error_msg = result.get('msg1', 'Unknown error')
+                logger.error(f"Failed to fetch current price for {stock_code}: {error_msg}")
+                return {'current_price': 0, 'per': None, 'pbr': None, 'eps': None}
 
         except Exception as e:
             logger.exception(f"Exception while fetching current price for {stock_code}: {e}")

@@ -329,6 +329,16 @@ class NewsCollector:
             logger.warning(f"Failed to fetch article content from {url}: {e}")
             return ''
 
+    # 길이별로 포맷을 확정 매칭한다. strptime 은 %H/%M/%S 같은 숫자 지시자를
+    # 1~2자리 모두 허용해서, '%Y%m%d%H%M%S' 로 12자리(YYYYMMDDHHMM) 문자열을 시도하면
+    # 초 자리가 없어도 매칭에 성공해버려 분(分)의 마지막 자리가 초로 밀린다
+    # (예: '202606141440' → 14:04, 정답은 14:40). 길이로 포맷을 먼저 확정해 방지한다.
+    _NAVER_DATETIME_FORMATS_BY_LENGTH = {
+        14: '%Y%m%d%H%M%S',
+        12: '%Y%m%d%H%M',
+        8: '%Y%m%d',
+    }
+
     def _parse_naver_datetime(self, datetime_str: str) -> datetime:
         """
         Parse Naver stock-news API datetime (YYYYMMDDHHMM) to datetime.
@@ -340,11 +350,12 @@ class NewsCollector:
             datetime object (current time if parsing fails)
         """
         cleaned = (datetime_str or '').strip()
-        for fmt in ('%Y%m%d%H%M%S', '%Y%m%d%H%M', '%Y%m%d'):
+        fmt = self._NAVER_DATETIME_FORMATS_BY_LENGTH.get(len(cleaned))
+        if fmt:
             try:
                 return datetime.strptime(cleaned, fmt)
             except ValueError:
-                continue
+                pass
         return datetime.now()
 
     def _resolve_news_source(self, item: Dict, url: str) -> str:
