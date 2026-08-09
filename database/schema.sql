@@ -5,17 +5,17 @@
 -- ⚠️  이 파일은 자동 생성됩니다. 직접 편집하지 마세요.
 --     스키마 소스: api-server/src/main/resources/db/changelog/ (Liquibase)
 --     재생성:      ./database/generate-schema.sh
---     사람용 설명/ERD: database/README.md
+--     사람용 설명/ERD: database/1.timescaledb-migration.md
 -- ============================================================
 
 --
 -- PostgreSQL database dump
 --
 
-\restrict llKe90kaPYMm5OWEVBDfo9Hv49x3T3igCGVoz9cZ0zQHGBoJckyMfsHQmcRXgic
+\restrict BNyg4TgbqCGWnyr0x5OcWDNUmFJmIxaCxhl0rVPxUCBclHOa7ctASTdXT5RpnEL
 
--- Dumped from database version 16.14 (Debian 16.14-1.pgdg13+1)
--- Dumped by pg_dump version 16.14 (Debian 16.14-1.pgdg13+1)
+-- Dumped from database version 16.14
+-- Dumped by pg_dump version 16.14
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -42,9 +42,274 @@ SET row_security = off;
 COMMENT ON SCHEMA public IS '';
 
 
+--
+-- Name: timescaledb; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION timescaledb; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION timescaledb IS 'Enables scalable inserts and complex queries for time-series data (Community Edition)';
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: stock_filter_score; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.stock_filter_score (
+    id bigint NOT NULL,
+    stock_code character varying(10) NOT NULL,
+    stock_name character varying(50) NOT NULL,
+    score_date date NOT NULL,
+    foreign_net_buy bigint NOT NULL,
+    institutional_net_buy bigint NOT NULL,
+    vol_avg_multiple numeric(10,2) NOT NULL,
+    price_volatility numeric(10,4) NOT NULL,
+    scaler_score numeric(10,4) NOT NULL,
+    is_selected boolean DEFAULT false NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL,
+    morning_return numeric(10,4),
+    close_position numeric(5,4)
+);
+
+
+--
+-- Name: TABLE stock_filter_score; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.stock_filter_score IS '코스피 100 종목 스코어링 결과 (매일 갱신)';
+
+
+--
+-- Name: COLUMN stock_filter_score.morning_return; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.stock_filter_score.morning_return IS '장초반 수익률';
+
+
+--
+-- Name: COLUMN stock_filter_score.close_position; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.stock_filter_score.close_position IS '종가 위치 (0~1)';
+
+
+--
+-- Name: _hyper_2_1_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_2_1_chunk (
+    CONSTRAINT constraint_1 CHECK (((score_date >= '2026-05-28'::date) AND (score_date < '2026-06-04'::date)))
+)
+INHERITS (public.stock_filter_score);
+
+
+--
+-- Name: _hyper_2_2_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_2_2_chunk (
+    CONSTRAINT constraint_2 CHECK (((score_date >= '2026-05-21'::date) AND (score_date < '2026-05-28'::date)))
+)
+INHERITS (public.stock_filter_score);
+
+
+--
+-- Name: _hyper_2_3_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_2_3_chunk (
+    CONSTRAINT constraint_3 CHECK (((score_date >= '2026-06-11'::date) AND (score_date < '2026-06-18'::date)))
+)
+INHERITS (public.stock_filter_score);
+
+
+--
+-- Name: _hyper_2_4_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_2_4_chunk (
+    CONSTRAINT constraint_4 CHECK (((score_date >= '2026-06-04'::date) AND (score_date < '2026-06-11'::date)))
+)
+INHERITS (public.stock_filter_score);
+
+
+--
+-- Name: _hyper_2_5_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_2_5_chunk (
+    CONSTRAINT constraint_5 CHECK (((score_date >= '2026-07-02'::date) AND (score_date < '2026-07-09'::date)))
+)
+INHERITS (public.stock_filter_score);
+
+
+--
+-- Name: prophet_forecast; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.prophet_forecast (
+    id bigint NOT NULL,
+    stock_code character varying(10) NOT NULL,
+    stock_name character varying(50) NOT NULL,
+    forecast_date date NOT NULL,
+    yhat_d1 numeric(12,2),
+    yhat_d2 numeric(12,2),
+    yhat_d3 numeric(12,2),
+    yhat_d4 numeric(12,2),
+    yhat_d5 numeric(12,2),
+    yhat_upper_d1 numeric(12,2),
+    yhat_upper_d2 numeric(12,2),
+    yhat_upper_d3 numeric(12,2),
+    yhat_upper_d4 numeric(12,2),
+    yhat_upper_d5 numeric(12,2),
+    yhat_lower_d1 numeric(12,2),
+    yhat_lower_d2 numeric(12,2),
+    yhat_lower_d3 numeric(12,2),
+    yhat_lower_d4 numeric(12,2),
+    yhat_lower_d5 numeric(12,2),
+    price_trend numeric(10,6),
+    volume_trend numeric(10,6),
+    price_uncertainty numeric(10,4),
+    created_at timestamp without time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE prophet_forecast; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.prophet_forecast IS 'Prophet D+1~D+5 시계열 예측 결과';
+
+
+--
+-- Name: _hyper_3_10_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_3_10_chunk (
+    CONSTRAINT constraint_10 CHECK (((forecast_date >= '2026-07-02'::date) AND (forecast_date < '2026-07-09'::date)))
+)
+INHERITS (public.prophet_forecast);
+
+
+--
+-- Name: _hyper_3_6_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_3_6_chunk (
+    CONSTRAINT constraint_6 CHECK (((forecast_date >= '2026-05-28'::date) AND (forecast_date < '2026-06-04'::date)))
+)
+INHERITS (public.prophet_forecast);
+
+
+--
+-- Name: _hyper_3_7_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_3_7_chunk (
+    CONSTRAINT constraint_7 CHECK (((forecast_date >= '2026-06-04'::date) AND (forecast_date < '2026-06-11'::date)))
+)
+INHERITS (public.prophet_forecast);
+
+
+--
+-- Name: _hyper_3_8_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_3_8_chunk (
+    CONSTRAINT constraint_8 CHECK (((forecast_date >= '2026-06-11'::date) AND (forecast_date < '2026-06-18'::date)))
+)
+INHERITS (public.prophet_forecast);
+
+
+--
+-- Name: _hyper_3_9_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_3_9_chunk (
+    CONSTRAINT constraint_9 CHECK (((forecast_date >= '2026-05-21'::date) AND (forecast_date < '2026-05-28'::date)))
+)
+INHERITS (public.prophet_forecast);
+
+
+--
+-- Name: news_analysis; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.news_analysis (
+    id bigint NOT NULL,
+    stock_code character varying(10),
+    analysis_date date NOT NULL,
+    sentiment_score numeric(5,3) NOT NULL,
+    news_count integer DEFAULT 0 NOT NULL,
+    created_at timestamp without time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE news_analysis; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.news_analysis IS 'KR-FinBERT 감성 분석 결과';
+
+
+--
+-- Name: _hyper_4_11_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_4_11_chunk (
+    CONSTRAINT constraint_11 CHECK (((analysis_date >= '2026-05-28'::date) AND (analysis_date < '2026-06-04'::date)))
+)
+INHERITS (public.news_analysis);
+
+
+--
+-- Name: _hyper_4_12_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_4_12_chunk (
+    CONSTRAINT constraint_12 CHECK (((analysis_date >= '2026-06-04'::date) AND (analysis_date < '2026-06-11'::date)))
+)
+INHERITS (public.news_analysis);
+
+
+--
+-- Name: _hyper_4_13_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_4_13_chunk (
+    CONSTRAINT constraint_13 CHECK (((analysis_date >= '2026-06-11'::date) AND (analysis_date < '2026-06-18'::date)))
+)
+INHERITS (public.news_analysis);
+
+
+--
+-- Name: _hyper_4_14_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_4_14_chunk (
+    CONSTRAINT constraint_14 CHECK (((analysis_date >= '2026-05-21'::date) AND (analysis_date < '2026-05-28'::date)))
+)
+INHERITS (public.news_analysis);
+
+
+--
+-- Name: _hyper_4_15_chunk; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._hyper_4_15_chunk (
+    CONSTRAINT constraint_15 CHECK (((analysis_date >= '2026-07-02'::date) AND (analysis_date < '2026-07-09'::date)))
+)
+INHERITS (public.news_analysis);
+
 
 --
 -- Name: ai_trade_decision; Type: TABLE; Schema: public; Owner: -
@@ -254,27 +519,6 @@ ALTER TABLE public.market_daily_summary ALTER COLUMN id ADD GENERATED BY DEFAULT
 
 
 --
--- Name: news_analysis; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.news_analysis (
-    id bigint NOT NULL,
-    stock_code character varying(10),
-    analysis_date date NOT NULL,
-    sentiment_score numeric(5,3) NOT NULL,
-    news_count integer DEFAULT 0 NOT NULL,
-    created_at timestamp without time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: TABLE news_analysis; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.news_analysis IS 'KR-FinBERT 감성 분석 결과';
-
-
---
 -- Name: news_analysis_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -286,44 +530,6 @@ ALTER TABLE public.news_analysis ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDE
     NO MAXVALUE
     CACHE 1
 );
-
-
---
--- Name: prophet_forecast; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.prophet_forecast (
-    id bigint NOT NULL,
-    stock_code character varying(10) NOT NULL,
-    stock_name character varying(50) NOT NULL,
-    forecast_date date NOT NULL,
-    yhat_d1 numeric(12,2),
-    yhat_d2 numeric(12,2),
-    yhat_d3 numeric(12,2),
-    yhat_d4 numeric(12,2),
-    yhat_d5 numeric(12,2),
-    yhat_upper_d1 numeric(12,2),
-    yhat_upper_d2 numeric(12,2),
-    yhat_upper_d3 numeric(12,2),
-    yhat_upper_d4 numeric(12,2),
-    yhat_upper_d5 numeric(12,2),
-    yhat_lower_d1 numeric(12,2),
-    yhat_lower_d2 numeric(12,2),
-    yhat_lower_d3 numeric(12,2),
-    yhat_lower_d4 numeric(12,2),
-    yhat_lower_d5 numeric(12,2),
-    price_trend numeric(10,6),
-    volume_trend numeric(10,6),
-    price_uncertainty numeric(10,4),
-    created_at timestamp without time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: TABLE prophet_forecast; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.prophet_forecast IS 'Prophet D+1~D+5 시계열 예측 결과';
 
 
 --
@@ -483,48 +689,6 @@ ALTER TABLE public.safety_filter_result ALTER COLUMN id ADD GENERATED BY DEFAULT
     NO MAXVALUE
     CACHE 1
 );
-
-
---
--- Name: stock_filter_score; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.stock_filter_score (
-    id bigint NOT NULL,
-    stock_code character varying(10) NOT NULL,
-    stock_name character varying(50) NOT NULL,
-    score_date date NOT NULL,
-    foreign_net_buy bigint NOT NULL,
-    institutional_net_buy bigint NOT NULL,
-    vol_avg_multiple numeric(10,2) NOT NULL,
-    price_volatility numeric(10,4) NOT NULL,
-    scaler_score numeric(10,4) NOT NULL,
-    is_selected boolean DEFAULT false NOT NULL,
-    created_at timestamp without time zone DEFAULT now() NOT NULL,
-    morning_return numeric(10,4),
-    close_position numeric(5,4)
-);
-
-
---
--- Name: TABLE stock_filter_score; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.stock_filter_score IS '코스피 100 종목 스코어링 결과 (매일 갱신)';
-
-
---
--- Name: COLUMN stock_filter_score.morning_return; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.stock_filter_score.morning_return IS '장초반 수익률';
-
-
---
--- Name: COLUMN stock_filter_score.close_position; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.stock_filter_score.close_position IS '종가 위치 (0~1)';
 
 
 --
@@ -1535,6 +1699,421 @@ ALTER TABLE public.webauthn_credentials ALTER COLUMN id ADD GENERATED BY DEFAULT
 
 
 --
+-- Name: _hyper_2_1_chunk is_selected; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_1_chunk ALTER COLUMN is_selected SET DEFAULT false;
+
+
+--
+-- Name: _hyper_2_1_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_1_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_2_2_chunk is_selected; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_2_chunk ALTER COLUMN is_selected SET DEFAULT false;
+
+
+--
+-- Name: _hyper_2_2_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_2_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_2_3_chunk is_selected; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_3_chunk ALTER COLUMN is_selected SET DEFAULT false;
+
+
+--
+-- Name: _hyper_2_3_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_3_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_2_4_chunk is_selected; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_4_chunk ALTER COLUMN is_selected SET DEFAULT false;
+
+
+--
+-- Name: _hyper_2_4_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_4_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_2_5_chunk is_selected; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_5_chunk ALTER COLUMN is_selected SET DEFAULT false;
+
+
+--
+-- Name: _hyper_2_5_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_5_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_3_10_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_10_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_3_6_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_6_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_3_7_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_7_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_3_8_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_8_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_3_9_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_9_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_4_11_chunk news_count; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_11_chunk ALTER COLUMN news_count SET DEFAULT 0;
+
+
+--
+-- Name: _hyper_4_11_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_11_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_4_12_chunk news_count; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_12_chunk ALTER COLUMN news_count SET DEFAULT 0;
+
+
+--
+-- Name: _hyper_4_12_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_12_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_4_13_chunk news_count; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_13_chunk ALTER COLUMN news_count SET DEFAULT 0;
+
+
+--
+-- Name: _hyper_4_13_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_13_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_4_14_chunk news_count; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_14_chunk ALTER COLUMN news_count SET DEFAULT 0;
+
+
+--
+-- Name: _hyper_4_14_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_14_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_4_15_chunk news_count; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_15_chunk ALTER COLUMN news_count SET DEFAULT 0;
+
+
+--
+-- Name: _hyper_4_15_chunk created_at; Type: DEFAULT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_15_chunk ALTER COLUMN created_at SET DEFAULT now();
+
+
+--
+-- Name: _hyper_3_10_chunk 10_pk_prophet_forecast; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_10_chunk
+    ADD CONSTRAINT "10_pk_prophet_forecast" PRIMARY KEY (id, forecast_date);
+
+
+--
+-- Name: _hyper_3_10_chunk 10_prophet_forecast_stock_code_forecast_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_10_chunk
+    ADD CONSTRAINT "10_prophet_forecast_stock_code_forecast_date_key" UNIQUE (stock_code, forecast_date);
+
+
+--
+-- Name: _hyper_4_11_chunk 11_news_analysis_stock_code_analysis_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_11_chunk
+    ADD CONSTRAINT "11_news_analysis_stock_code_analysis_date_key" UNIQUE (stock_code, analysis_date);
+
+
+--
+-- Name: _hyper_4_11_chunk 11_pk_news_analysis; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_11_chunk
+    ADD CONSTRAINT "11_pk_news_analysis" PRIMARY KEY (id, analysis_date);
+
+
+--
+-- Name: _hyper_4_12_chunk 12_news_analysis_stock_code_analysis_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_12_chunk
+    ADD CONSTRAINT "12_news_analysis_stock_code_analysis_date_key" UNIQUE (stock_code, analysis_date);
+
+
+--
+-- Name: _hyper_4_12_chunk 12_pk_news_analysis; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_12_chunk
+    ADD CONSTRAINT "12_pk_news_analysis" PRIMARY KEY (id, analysis_date);
+
+
+--
+-- Name: _hyper_4_13_chunk 13_news_analysis_stock_code_analysis_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_13_chunk
+    ADD CONSTRAINT "13_news_analysis_stock_code_analysis_date_key" UNIQUE (stock_code, analysis_date);
+
+
+--
+-- Name: _hyper_4_13_chunk 13_pk_news_analysis; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_13_chunk
+    ADD CONSTRAINT "13_pk_news_analysis" PRIMARY KEY (id, analysis_date);
+
+
+--
+-- Name: _hyper_4_14_chunk 14_news_analysis_stock_code_analysis_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_14_chunk
+    ADD CONSTRAINT "14_news_analysis_stock_code_analysis_date_key" UNIQUE (stock_code, analysis_date);
+
+
+--
+-- Name: _hyper_4_14_chunk 14_pk_news_analysis; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_14_chunk
+    ADD CONSTRAINT "14_pk_news_analysis" PRIMARY KEY (id, analysis_date);
+
+
+--
+-- Name: _hyper_4_15_chunk 15_news_analysis_stock_code_analysis_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_15_chunk
+    ADD CONSTRAINT "15_news_analysis_stock_code_analysis_date_key" UNIQUE (stock_code, analysis_date);
+
+
+--
+-- Name: _hyper_4_15_chunk 15_pk_news_analysis; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_4_15_chunk
+    ADD CONSTRAINT "15_pk_news_analysis" PRIMARY KEY (id, analysis_date);
+
+
+--
+-- Name: _hyper_2_1_chunk 1_pk_stock_filter_score; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_1_chunk
+    ADD CONSTRAINT "1_pk_stock_filter_score" PRIMARY KEY (id, score_date);
+
+
+--
+-- Name: _hyper_2_1_chunk 1_stock_filter_score_stock_code_score_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_1_chunk
+    ADD CONSTRAINT "1_stock_filter_score_stock_code_score_date_key" UNIQUE (stock_code, score_date);
+
+
+--
+-- Name: _hyper_2_2_chunk 2_pk_stock_filter_score; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_2_chunk
+    ADD CONSTRAINT "2_pk_stock_filter_score" PRIMARY KEY (id, score_date);
+
+
+--
+-- Name: _hyper_2_2_chunk 2_stock_filter_score_stock_code_score_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_2_chunk
+    ADD CONSTRAINT "2_stock_filter_score_stock_code_score_date_key" UNIQUE (stock_code, score_date);
+
+
+--
+-- Name: _hyper_2_3_chunk 3_pk_stock_filter_score; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_3_chunk
+    ADD CONSTRAINT "3_pk_stock_filter_score" PRIMARY KEY (id, score_date);
+
+
+--
+-- Name: _hyper_2_3_chunk 3_stock_filter_score_stock_code_score_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_3_chunk
+    ADD CONSTRAINT "3_stock_filter_score_stock_code_score_date_key" UNIQUE (stock_code, score_date);
+
+
+--
+-- Name: _hyper_2_4_chunk 4_pk_stock_filter_score; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_4_chunk
+    ADD CONSTRAINT "4_pk_stock_filter_score" PRIMARY KEY (id, score_date);
+
+
+--
+-- Name: _hyper_2_4_chunk 4_stock_filter_score_stock_code_score_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_4_chunk
+    ADD CONSTRAINT "4_stock_filter_score_stock_code_score_date_key" UNIQUE (stock_code, score_date);
+
+
+--
+-- Name: _hyper_2_5_chunk 5_pk_stock_filter_score; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_5_chunk
+    ADD CONSTRAINT "5_pk_stock_filter_score" PRIMARY KEY (id, score_date);
+
+
+--
+-- Name: _hyper_2_5_chunk 5_stock_filter_score_stock_code_score_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_2_5_chunk
+    ADD CONSTRAINT "5_stock_filter_score_stock_code_score_date_key" UNIQUE (stock_code, score_date);
+
+
+--
+-- Name: _hyper_3_6_chunk 6_pk_prophet_forecast; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_6_chunk
+    ADD CONSTRAINT "6_pk_prophet_forecast" PRIMARY KEY (id, forecast_date);
+
+
+--
+-- Name: _hyper_3_6_chunk 6_prophet_forecast_stock_code_forecast_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_6_chunk
+    ADD CONSTRAINT "6_prophet_forecast_stock_code_forecast_date_key" UNIQUE (stock_code, forecast_date);
+
+
+--
+-- Name: _hyper_3_7_chunk 7_pk_prophet_forecast; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_7_chunk
+    ADD CONSTRAINT "7_pk_prophet_forecast" PRIMARY KEY (id, forecast_date);
+
+
+--
+-- Name: _hyper_3_7_chunk 7_prophet_forecast_stock_code_forecast_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_7_chunk
+    ADD CONSTRAINT "7_prophet_forecast_stock_code_forecast_date_key" UNIQUE (stock_code, forecast_date);
+
+
+--
+-- Name: _hyper_3_8_chunk 8_pk_prophet_forecast; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_8_chunk
+    ADD CONSTRAINT "8_pk_prophet_forecast" PRIMARY KEY (id, forecast_date);
+
+
+--
+-- Name: _hyper_3_8_chunk 8_prophet_forecast_stock_code_forecast_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_8_chunk
+    ADD CONSTRAINT "8_prophet_forecast_stock_code_forecast_date_key" UNIQUE (stock_code, forecast_date);
+
+
+--
+-- Name: _hyper_3_9_chunk 9_pk_prophet_forecast; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_9_chunk
+    ADD CONSTRAINT "9_pk_prophet_forecast" PRIMARY KEY (id, forecast_date);
+
+
+--
+-- Name: _hyper_3_9_chunk 9_prophet_forecast_stock_code_forecast_date_key; Type: CONSTRAINT; Schema: _timescaledb_internal; Owner: -
+--
+
+ALTER TABLE ONLY _timescaledb_internal._hyper_3_9_chunk
+    ADD CONSTRAINT "9_prophet_forecast_stock_code_forecast_date_key" UNIQUE (stock_code, forecast_date);
+
+
+--
 -- Name: ai_trade_decision ai_trade_decision_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1583,14 +2162,6 @@ ALTER TABLE ONLY public.market_daily_summary
 
 
 --
--- Name: news_analysis news_analysis_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.news_analysis
-    ADD CONSTRAINT news_analysis_pkey PRIMARY KEY (id);
-
-
---
 -- Name: news_analysis news_analysis_stock_code_analysis_date_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1603,7 +2174,31 @@ ALTER TABLE ONLY public.news_analysis
 --
 
 ALTER TABLE ONLY public.asset_daily_snapshot
-    ADD CONSTRAINT pk_asset_daily_snapshot PRIMARY KEY (id);
+    ADD CONSTRAINT pk_asset_daily_snapshot PRIMARY KEY (id, snapshot_date);
+
+
+--
+-- Name: news_analysis pk_news_analysis; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.news_analysis
+    ADD CONSTRAINT pk_news_analysis PRIMARY KEY (id, analysis_date);
+
+
+--
+-- Name: prophet_forecast pk_prophet_forecast; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.prophet_forecast
+    ADD CONSTRAINT pk_prophet_forecast PRIMARY KEY (id, forecast_date);
+
+
+--
+-- Name: stock_filter_score pk_stock_filter_score; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.stock_filter_score
+    ADD CONSTRAINT pk_stock_filter_score PRIMARY KEY (id, score_date);
 
 
 --
@@ -1612,14 +2207,6 @@ ALTER TABLE ONLY public.asset_daily_snapshot
 
 ALTER TABLE ONLY public.webauthn_credentials
     ADD CONSTRAINT pk_webauthn_credentials PRIMARY KEY (id);
-
-
---
--- Name: prophet_forecast prophet_forecast_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.prophet_forecast
-    ADD CONSTRAINT prophet_forecast_pkey PRIMARY KEY (id);
 
 
 --
@@ -1652,14 +2239,6 @@ ALTER TABLE ONLY public.refresh_tokens
 
 ALTER TABLE ONLY public.safety_filter_result
     ADD CONSTRAINT safety_filter_result_pkey PRIMARY KEY (id);
-
-
---
--- Name: stock_filter_score stock_filter_score_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.stock_filter_score
-    ADD CONSTRAINT stock_filter_score_pkey PRIMARY KEY (id);
 
 
 --
@@ -1860,6 +2439,223 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_username_key UNIQUE (username);
+
+
+--
+-- Name: _hyper_2_1_chunk_idx_stock_filter_score_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_2_1_chunk_idx_stock_filter_score_date ON _timescaledb_internal._hyper_2_1_chunk USING btree (score_date);
+
+
+--
+-- Name: _hyper_2_1_chunk_idx_stock_filter_score_selected; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_2_1_chunk_idx_stock_filter_score_selected ON _timescaledb_internal._hyper_2_1_chunk USING btree (score_date, is_selected);
+
+
+--
+-- Name: _hyper_2_2_chunk_idx_stock_filter_score_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_2_2_chunk_idx_stock_filter_score_date ON _timescaledb_internal._hyper_2_2_chunk USING btree (score_date);
+
+
+--
+-- Name: _hyper_2_2_chunk_idx_stock_filter_score_selected; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_2_2_chunk_idx_stock_filter_score_selected ON _timescaledb_internal._hyper_2_2_chunk USING btree (score_date, is_selected);
+
+
+--
+-- Name: _hyper_2_3_chunk_idx_stock_filter_score_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_2_3_chunk_idx_stock_filter_score_date ON _timescaledb_internal._hyper_2_3_chunk USING btree (score_date);
+
+
+--
+-- Name: _hyper_2_3_chunk_idx_stock_filter_score_selected; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_2_3_chunk_idx_stock_filter_score_selected ON _timescaledb_internal._hyper_2_3_chunk USING btree (score_date, is_selected);
+
+
+--
+-- Name: _hyper_2_4_chunk_idx_stock_filter_score_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_2_4_chunk_idx_stock_filter_score_date ON _timescaledb_internal._hyper_2_4_chunk USING btree (score_date);
+
+
+--
+-- Name: _hyper_2_4_chunk_idx_stock_filter_score_selected; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_2_4_chunk_idx_stock_filter_score_selected ON _timescaledb_internal._hyper_2_4_chunk USING btree (score_date, is_selected);
+
+
+--
+-- Name: _hyper_2_5_chunk_idx_stock_filter_score_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_2_5_chunk_idx_stock_filter_score_date ON _timescaledb_internal._hyper_2_5_chunk USING btree (score_date);
+
+
+--
+-- Name: _hyper_2_5_chunk_idx_stock_filter_score_selected; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_2_5_chunk_idx_stock_filter_score_selected ON _timescaledb_internal._hyper_2_5_chunk USING btree (score_date, is_selected);
+
+
+--
+-- Name: _hyper_3_10_chunk_idx_prophet_forecast_code; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_3_10_chunk_idx_prophet_forecast_code ON _timescaledb_internal._hyper_3_10_chunk USING btree (stock_code);
+
+
+--
+-- Name: _hyper_3_10_chunk_idx_prophet_forecast_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_3_10_chunk_idx_prophet_forecast_date ON _timescaledb_internal._hyper_3_10_chunk USING btree (forecast_date);
+
+
+--
+-- Name: _hyper_3_6_chunk_idx_prophet_forecast_code; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_3_6_chunk_idx_prophet_forecast_code ON _timescaledb_internal._hyper_3_6_chunk USING btree (stock_code);
+
+
+--
+-- Name: _hyper_3_6_chunk_idx_prophet_forecast_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_3_6_chunk_idx_prophet_forecast_date ON _timescaledb_internal._hyper_3_6_chunk USING btree (forecast_date);
+
+
+--
+-- Name: _hyper_3_7_chunk_idx_prophet_forecast_code; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_3_7_chunk_idx_prophet_forecast_code ON _timescaledb_internal._hyper_3_7_chunk USING btree (stock_code);
+
+
+--
+-- Name: _hyper_3_7_chunk_idx_prophet_forecast_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_3_7_chunk_idx_prophet_forecast_date ON _timescaledb_internal._hyper_3_7_chunk USING btree (forecast_date);
+
+
+--
+-- Name: _hyper_3_8_chunk_idx_prophet_forecast_code; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_3_8_chunk_idx_prophet_forecast_code ON _timescaledb_internal._hyper_3_8_chunk USING btree (stock_code);
+
+
+--
+-- Name: _hyper_3_8_chunk_idx_prophet_forecast_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_3_8_chunk_idx_prophet_forecast_date ON _timescaledb_internal._hyper_3_8_chunk USING btree (forecast_date);
+
+
+--
+-- Name: _hyper_3_9_chunk_idx_prophet_forecast_code; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_3_9_chunk_idx_prophet_forecast_code ON _timescaledb_internal._hyper_3_9_chunk USING btree (stock_code);
+
+
+--
+-- Name: _hyper_3_9_chunk_idx_prophet_forecast_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_3_9_chunk_idx_prophet_forecast_date ON _timescaledb_internal._hyper_3_9_chunk USING btree (forecast_date);
+
+
+--
+-- Name: _hyper_4_11_chunk_idx_news_analysis_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_4_11_chunk_idx_news_analysis_date ON _timescaledb_internal._hyper_4_11_chunk USING btree (analysis_date);
+
+
+--
+-- Name: _hyper_4_11_chunk_idx_news_analysis_stock; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_4_11_chunk_idx_news_analysis_stock ON _timescaledb_internal._hyper_4_11_chunk USING btree (stock_code, analysis_date);
+
+
+--
+-- Name: _hyper_4_12_chunk_idx_news_analysis_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_4_12_chunk_idx_news_analysis_date ON _timescaledb_internal._hyper_4_12_chunk USING btree (analysis_date);
+
+
+--
+-- Name: _hyper_4_12_chunk_idx_news_analysis_stock; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_4_12_chunk_idx_news_analysis_stock ON _timescaledb_internal._hyper_4_12_chunk USING btree (stock_code, analysis_date);
+
+
+--
+-- Name: _hyper_4_13_chunk_idx_news_analysis_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_4_13_chunk_idx_news_analysis_date ON _timescaledb_internal._hyper_4_13_chunk USING btree (analysis_date);
+
+
+--
+-- Name: _hyper_4_13_chunk_idx_news_analysis_stock; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_4_13_chunk_idx_news_analysis_stock ON _timescaledb_internal._hyper_4_13_chunk USING btree (stock_code, analysis_date);
+
+
+--
+-- Name: _hyper_4_14_chunk_idx_news_analysis_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_4_14_chunk_idx_news_analysis_date ON _timescaledb_internal._hyper_4_14_chunk USING btree (analysis_date);
+
+
+--
+-- Name: _hyper_4_14_chunk_idx_news_analysis_stock; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_4_14_chunk_idx_news_analysis_stock ON _timescaledb_internal._hyper_4_14_chunk USING btree (stock_code, analysis_date);
+
+
+--
+-- Name: _hyper_4_15_chunk_idx_news_analysis_date; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_4_15_chunk_idx_news_analysis_date ON _timescaledb_internal._hyper_4_15_chunk USING btree (analysis_date);
+
+
+--
+-- Name: _hyper_4_15_chunk_idx_news_analysis_stock; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _hyper_4_15_chunk_idx_news_analysis_stock ON _timescaledb_internal._hyper_4_15_chunk USING btree (stock_code, analysis_date);
+
+
+--
+-- Name: asset_daily_snapshot_snapshot_date_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX asset_daily_snapshot_snapshot_date_idx ON public.asset_daily_snapshot USING btree (snapshot_date DESC);
 
 
 --
@@ -2231,5 +3027,5 @@ ALTER TABLE ONLY public.webauthn_credentials
 -- PostgreSQL database dump complete
 --
 
-\unrestrict llKe90kaPYMm5OWEVBDfo9Hv49x3T3igCGVoz9cZ0zQHGBoJckyMfsHQmcRXgic
+\unrestrict BNyg4TgbqCGWnyr0x5OcWDNUmFJmIxaCxhl0rVPxUCBclHOa7ctASTdXT5RpnEL
 

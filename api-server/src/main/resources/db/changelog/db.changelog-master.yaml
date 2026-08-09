@@ -103,6 +103,31 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.19-drop-user-holdings.yaml
       context: mvp
 
+  # Phase 19: TimescaleDB extension (시계열 테이블 hypertable 전환 준비)
+  - include:
+      file: classpath:db/changelog/mvp/v1.20-timescaledb-extension.yaml
+      context: mvp
+
+  # Phase 20: asset_daily_snapshot -> hypertable (시계열 마이그레이션 1차 파일럿)
+  - include:
+      file: classpath:db/changelog/mvp/v1.21-asset-daily-snapshot-hypertable.yaml
+      context: mvp
+
+  # Phase 21: stock_filter_score -> hypertable (시계열 마이그레이션 2차 — 조인 허브)
+  - include:
+      file: classpath:db/changelog/mvp/v1.22-stock-filter-score-hypertable.yaml
+      context: mvp
+
+  # Phase 22: prophet_forecast -> hypertable (시계열 마이그레이션 2차)
+  - include:
+      file: classpath:db/changelog/mvp/v1.23-prophet-forecast-hypertable.yaml
+      context: mvp
+
+  # Phase 23: news_analysis -> hypertable (시계열 마이그레이션 2차)
+  - include:
+      file: classpath:db/changelog/mvp/v1.24-news-analysis-hypertable.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================

@@ -1,0 +1,36 @@
+databaseChangeLog:
+  # news_analysis 를 TimescaleDB hypertable로 전환 (시계열 마이그레이션 2차).
+  # 기존 uk_news_analysis(stock_code, analysis_date) UNIQUE 제약이 이미 파티션 컬럼을
+  # 포함하므로 변경 불필요. ai-agent 는 이 테이블을 SQLAlchemy ORM 없이 raw SQL(DELETE 후
+  # 재삽입)로만 쓰므로 Python 쪽 코드 변경이 필요 없다.
+  - changeSet:
+      id: 1.24.1-news-analysis-composite-pk
+      author: claude
+      context: mvp
+      comment: "Widen news_analysis PK to (id, analysis_date) so it can become a hypertable"
+      changes:
+        - dropPrimaryKey:
+            tableName: news_analysis
+        - addPrimaryKey:
+            tableName: news_analysis
+            columnNames: id, analysis_date
+            constraintName: pk_news_analysis
+      rollback:
+        - dropPrimaryKey:
+            tableName: news_analysis
+        - addPrimaryKey:
+            tableName: news_analysis
+            columnNames: id
+            constraintName: pk_news_analysis
+
+  - changeSet:
+      id: 1.24.2-news-analysis-to-hypertable
+      author: claude
+      context: mvp
+      comment: "Convert news_analysis into a TimescaleDB hypertable partitioned by analysis_date"
+      changes:
+        - sql:
+            sql: SELECT create_hypertable('news_analysis', 'analysis_date', migrate_data => TRUE, if_not_exists => TRUE);
+      rollback:
+        - sql:
+            sql: SELECT 1; -- hypertable 전환은 단일 DDL로 되돌릴 수 없음 (v1.21 파일 상단 주석 참고)

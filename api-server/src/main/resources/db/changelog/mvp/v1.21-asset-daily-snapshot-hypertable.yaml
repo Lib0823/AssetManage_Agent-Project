@@ -1,0 +1,53 @@
+databaseChangeLog:
+  # asset_daily_snapshot 을 TimescaleDB hypertable로 전환 (시계열 마이그레이션 1차 파일럿).
+  #
+  # 배경: 대용량 시계열 테이블(stock_filter_score/prophet_forecast/news_analysis)이 매일
+  # 누적되면서 MarketAnalysisRepository의 JOIN 쿼리 응답이 느려지는 문제에 대응하기 위해
+  # 시계열 테이블을 TimescaleDB hypertable로 전환한다. asset_daily_snapshot은 다른 테이블과
+  # JOIN이 없고 볼륨도 가장 작아 리스크가 가장 낮은 파일럿 대상으로 먼저 전환한다.
+  #
+  # TimescaleDB 제약: hypertable의 모든 UNIQUE/PRIMARY KEY 제약은 파티션 컬럼(snapshot_date)을
+  # 포함해야 한다. 기존 PK는 id 단독이라 이 요구를 충족하지 못하므로, PK를 (id, snapshot_date)
+  # 복합키로 변경한 뒤 create_hypertable()을 호출한다. 기존 uk_asset_daily_snapshot_user_date
+  # UNIQUE(user_id, snapshot_date)는 이미 파티션 컬럼을 포함하므로 변경 불필요.
+  #
+  # 검증: 별도 테스트 컨테이너(timescale/timescaledb:latest-pg16)에서 동일한 스키마 모양
+  # (id BIGSERIAL PK + UNIQUE(dim, date) + FK to users)으로 5000행 데이터, UNIQUE 위반,
+  # UPDATE(JPA save() upsert 패턴), FK CASCADE DELETE, date-range 쿼리(chunk exclusion)까지
+  # 전부 재현해 정상 동작을 직접 확인한 뒤 작성했다.
+  #
+  # 롤백 주의: create_hypertable()로 전환한 뒤에는 "일반 테이블로 되돌리기"에 해당하는
+  # 단일 DDL이 없다(TimescaleDB 자체에 un-hypertable 기능 없음). 아래 rollback은 PK를
+  # 원상복구할 뿐, hypertable 파티셔닝 자체를 되돌리지 않는다 — 완전한 롤백이 필요하면
+  # 마이그레이션 전 백업에서 복원해야 한다.
+  - changeSet:
+      id: 1.21.1-asset-daily-snapshot-composite-pk
+      author: claude
+      context: mvp
+      comment: "Widen asset_daily_snapshot PK to (id, snapshot_date) so it can become a hypertable"
+      changes:
+        - dropPrimaryKey:
+            tableName: asset_daily_snapshot
+        - addPrimaryKey:
+            tableName: asset_daily_snapshot
+            columnNames: id, snapshot_date
+            constraintName: pk_asset_daily_snapshot
+      rollback:
+        - dropPrimaryKey:
+            tableName: asset_daily_snapshot
+        - addPrimaryKey:
+            tableName: asset_daily_snapshot
+            columnNames: id
+            constraintName: pk_asset_daily_snapshot
+
+  - changeSet:
+      id: 1.21.2-asset-daily-snapshot-to-hypertable
+      author: claude
+      context: mvp
+      comment: "Convert asset_daily_snapshot into a TimescaleDB hypertable partitioned by snapshot_date"
+      changes:
+        - sql:
+            sql: SELECT create_hypertable('asset_daily_snapshot', 'snapshot_date', migrate_data => TRUE, if_not_exists => TRUE);
+      rollback:
+        - sql:
+            sql: SELECT 1; -- hypertable 전환은 단일 DDL로 되돌릴 수 없음 (위 파일 상단 주석 참고)
