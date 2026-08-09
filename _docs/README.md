@@ -29,6 +29,7 @@
 | **개발 현황을 보려는 사람** | [`STATUS.md`](STATUS.md) |
 | **AI 에이전트 / Claude Code** | [`../CLAUDE.md`](../CLAUDE.md) → 작업 대상 모듈 `_docs/README.md` |
 | **DB 스키마를 보려는 사람** | [`../database/README.md`](../database/README.md) → [`../database/schema.sql`](../database/schema.sql) |
+| **TimescaleDB 마이그레이션 경위를 보려는 사람** | [`timescaledb-migration/README.md`](Troubleshooting/1.timescaledb-migration.md) |
 
 ---
 
