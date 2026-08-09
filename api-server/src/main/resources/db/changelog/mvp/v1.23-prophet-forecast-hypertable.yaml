@@ -1,0 +1,35 @@
+databaseChangeLog:
+  # prophet_forecast 를 TimescaleDB hypertable로 전환 (시계열 마이그레이션 2차).
+  # 기존 uk_prophet_forecast(stock_code, forecast_date) UNIQUE 제약이 이미 파티션 컬럼을
+  # 포함하므로 변경 불필요. ai-agent 저장 로직도 날짜 기준 DELETE 후 재삽입 방식이다.
+  - changeSet:
+      id: 1.23.1-prophet-forecast-composite-pk
+      author: claude
+      context: mvp
+      comment: "Widen prophet_forecast PK to (id, forecast_date) so it can become a hypertable"
+      changes:
+        - dropPrimaryKey:
+            tableName: prophet_forecast
+        - addPrimaryKey:
+            tableName: prophet_forecast
+            columnNames: id, forecast_date
+            constraintName: pk_prophet_forecast
+      rollback:
+        - dropPrimaryKey:
+            tableName: prophet_forecast
+        - addPrimaryKey:
+            tableName: prophet_forecast
+            columnNames: id
+            constraintName: pk_prophet_forecast
+
+  - changeSet:
+      id: 1.23.2-prophet-forecast-to-hypertable
+      author: claude
+      context: mvp
+      comment: "Convert prophet_forecast into a TimescaleDB hypertable partitioned by forecast_date"
+      changes:
+        - sql:
+            sql: SELECT create_hypertable('prophet_forecast', 'forecast_date', migrate_data => TRUE, if_not_exists => TRUE);
+      rollback:
+        - sql:
+            sql: SELECT 1; -- hypertable 전환은 단일 DDL로 되돌릴 수 없음 (v1.21 파일 상단 주석 참고)

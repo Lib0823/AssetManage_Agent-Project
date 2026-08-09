@@ -73,11 +73,32 @@ dependencies {
     // @SpringBootTest(profile=test) 전용 인메모리 DB. 로컬 PostgreSQL 없이 컨텍스트 기동을
     // 검증하기 위한 것이며, 운영 스키마(Liquibase/PostgreSQL)를 대체하지 않는다.
     testRuntimeOnly 'com.h2database:h2'
+
+    // TimescaleDB hypertable 마이그레이션 무결성 테스트 전용 (Docker 필요, `timescaledbTest`로만 실행).
+    // Spring Boot 4.1.0-SNAPSHOT BOM 이 아직 testcontainers 버전을 관리하지 않아 명시 고정한다.
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
+    testImplementation 'org.testcontainers:postgresql:1.21.4'
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'timescaledb'
+    }
     finalizedBy jacocoTestReport
+}
+
+// TimescaleDB hypertable 전환 무결성 테스트. 실제 Docker 컨테이너(timescale/timescaledb)를 띄우므로
+// 기본 `test`에서는 제외하고 별도 태스크로 분리한다 — Docker 없는 환경/일반 빠른 테스트 루프를 방해하지 않기 위함.
+tasks.register('timescaledbTest', Test) {
+    description = 'Runs TimescaleDB hypertable migration integrity tests (requires Docker).'
+    group = 'verification'
+    useJUnitPlatform {
+        includeTags 'timescaledb'
+    }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    shouldRunAfter test
 }
 
 jacocoTestReport {

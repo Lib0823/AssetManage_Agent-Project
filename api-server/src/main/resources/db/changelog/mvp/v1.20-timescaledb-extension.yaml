@@ -1,0 +1,17 @@
+databaseChangeLog:
+  # TimescaleDB 확장 활성화. postgres:16 -> timescale/timescaledb:latest-pg16 로 이미지를
+  # 교체했으므로(docker-compose.yml) 확장 자체는 이미지에 포함돼 있고, 여기서는 DB에 등록만 한다.
+  # 이후 changelog(v1.21+)가 개별 시계열 테이블을 hypertable로 전환한다.
+  - changeSet:
+      id: 1.20.1-enable-timescaledb-extension
+      author: claude
+      context: mvp
+      comment: "Enable timescaledb extension for time-series table partitioning (hypertables)"
+      changes:
+        - sql:
+            sql: CREATE EXTENSION IF NOT EXISTS timescaledb;
+      rollback:
+        # 주의: hypertable이 이미 생성된 뒤에는 확장을 안전하게 DROP할 수 없다(의존 객체 존재).
+        # 이 changeset 단독으로만 롤백하는 경우(hypertable 전환 전)에 한해 유효하다.
+        - sql:
+            sql: DROP EXTENSION IF EXISTS timescaledb;

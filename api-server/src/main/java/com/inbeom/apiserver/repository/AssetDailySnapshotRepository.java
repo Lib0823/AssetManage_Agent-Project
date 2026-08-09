@@ -1,6 +1,7 @@
 package com.inbeom.apiserver.repository;
 
 import com.inbeom.apiserver.domain.AssetDailySnapshot;
+import com.inbeom.apiserver.domain.AssetDailySnapshotId;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -9,7 +10,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface AssetDailySnapshotRepository extends JpaRepository<AssetDailySnapshot, Long> {
+public interface AssetDailySnapshotRepository extends JpaRepository<AssetDailySnapshot, AssetDailySnapshotId> {
 
     /**
      * 사용자의 특정 날짜 스냅샷 조회 (upsert 판별용).

@@ -4,7 +4,7 @@ AI 주식 자동매매 시스템 데이터베이스 스키마 문서
 
 ## 개요
 
-- **DBMS**: PostgreSQL 16
+- **DBMS**: PostgreSQL 16 + [TimescaleDB](https://www.timescale.com/) 확장 (`timescale/timescaledb:latest-pg16` 이미지). SQL/JOIN/JPA는 순정 Postgres와 완전히 동일하고, 시계열 테이블 4개만 내부적으로 hypertable(날짜 기준 자동 파티셔닝)로 관리된다 — 아래 [시계열 테이블(Hypertables)](#시계열-테이블-timescaledb-hypertables) 참고
 - **총 테이블 수**: 21개 (+ 뷰 4개)
 - **스키마**: 단일 public 스키마 (MVP 단순화)
 - **스키마 소스(편집 대상)**: **Liquibase** changelog (`api-server/src/main/resources/db/changelog/`)
@@ -205,6 +205,49 @@ spring:
 
 ---
 
+## 시계열 테이블 (TimescaleDB Hypertables)
+
+매일 누적되는 시계열 테이블이 커질수록 `MarketAnalysisRepository`의 JOIN 조회가 느려지는 문제에
+대응해, 4개 테이블을 [TimescaleDB](https://www.timescale.com/) hypertable로 전환했다
+(Liquibase `v1.20`~`v1.24`). Postgres 확장이라 SQL/JOIN/JPA/SQLAlchemy는 순정 Postgres와
+완전히 동일하게 동작하고, 파티션 컬럼 기준으로 데이터를 chunk 단위로 자동 쪼개 조회·삽입 성능을
+유지한다(오래된 chunk는 조회 범위에 안 걸리면 스캔에서 자동 제외됨 — chunk exclusion).
+
+| 테이블 | 파티션 컬럼 | 비고 |
+|--------|-------------|------|
+| `asset_daily_snapshot` | `snapshot_date` | 1차 파일럿(조인 없음, 볼륨 최소) |
+| `stock_filter_score` | `score_date` | `MarketAnalysisRepository`의 JOIN 허브 — 매일 KOSPI 100 전체(100행) 적재 |
+| `prophet_forecast` | `forecast_date` | |
+| `news_analysis` | `analysis_date` | `stock_code IS NULL`인 시장 전반 감성 행 포함 |
+
+**PK 제약**: TimescaleDB는 hypertable의 모든 PK/UNIQUE 제약이 파티션 컬럼을 포함해야 한다. 위
+4개 테이블 모두 기존 `id BIGSERIAL` 단일 PK를 `(id, 파티션컬럼)` 복합키로 바꿨다. 기존
+`UNIQUE(stock_code, date)`류 제약은 이미 파티션 컬럼을 포함하므로 그대로 유지된다 —
+`news_analysis`의 `save_sentiment_analysis()`가 쓰는 `ON CONFLICT (stock_code, analysis_date)`
+upsert도 영향 없다.
+
+**ORM 영향**:
+- api-server: 이 4개 테이블 중 JPA 엔티티가 있는 건 `asset_daily_snapshot`뿐이라(나머지는
+  `MarketAnalysisRepository`가 `JdbcTemplate` native SQL로만 읽음) `AssetDailySnapshot`에만
+  `@IdClass(AssetDailySnapshotId)` 복합키를 적용했다.
+- ai-agent: `StockFilterScore`/`ProphetForecast` SQLAlchemy 모델은 원래 `id`를 UPDATE
+  조건으로 안 쓰므로(행 로드 후 필드 수정 방식이 아니라 `stock_code`+날짜 기준 bulk
+  update/delete) 변경 불필요. 다만 `save_quantitative_features()`가 예외였다 — 행을 로드해
+  `id` 단독 PK로 UPDATE하던 걸 `query(...).update()`로 바꿔 `WHERE stock_code=.. AND
+  score_date=..`가 남게 했다(안 그러면 UPDATE가 모든 chunk를 훑는다).
+
+**로컬 개발 시 주의**: TimescaleDB는 `shared_preload_libraries`에 등록되어야 서버 시작 시
+로드된다(`CREATE EXTENSION`만으로는 부족). `docker-compose.yml`의 `postgres` 서비스에
+`command: postgres -c shared_preload_libraries=timescaledb`로 명시되어 있으니, 기존
+`postgres:16`로 초기화된 볼륨을 재사용하는 환경에서도 별도 조치 없이 정상 동작한다.
+
+**검증**: `api-server/src/test/java/.../migration/`에 Testcontainers 기반 TDD 통합 테스트가
+있다(hypertable 등록·PK 형태·UNIQUE/FK 제약·upsert 패턴·CASCADE·3중 JOIN·chunk exclusion
+검증). Docker가 필요해 기본 `./gradlew test`에서는 제외되고 `./gradlew timescaledbTest`로
+별도 실행한다.
+
+---
+
 ## 초기 데이터
 
 - `users`: admin 계정 (username: `admin`, password: `admin123` BCrypt)
@@ -220,6 +263,8 @@ spring:
 - **일자 조회**: `score_date`, `analysis_date`, `forecast_date`, `decision_date`, `filter_date`, `execution_date`
 - **종목 조회**: `stock_code`
 - **복합 조회**: `(stock_code, date)`, `(user_id, stock_code)`, `(decision_date, decision, rank)`
+- **시계열 파티셔닝**: `asset_daily_snapshot`/`stock_filter_score`/`prophet_forecast`/`news_analysis`는
+  TimescaleDB hypertable로 날짜 컬럼 기준 chunk 자동 파티셔닝됨 — 위 [시계열 테이블](#시계열-테이블-timescaledb-hypertables) 참고
 
 ## 보안 고려사항
 

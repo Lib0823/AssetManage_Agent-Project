@@ -199,21 +199,29 @@ class DatabaseRepository:
         """
         session = self.session_factory()
         try:
-            # Update existing record (created by filter stage)
-            record = session.query(StockFilterScore).filter(
+            # Update existing record (created by filter stage).
+            # 행을 로드해 수정하면 ORM 이 매핑된 PK(id) 만으로 UPDATE 를 만들어
+            # hypertable 의 모든 청크를 훑는다. score_date 를 WHERE 에 남기는
+            # 일괄 UPDATE 로 보내 파티션 청크 배제가 걸리게 한다.
+            updated = session.query(StockFilterScore).filter(
                 StockFilterScore.stock_code == stock_code,
                 StockFilterScore.score_date == trade_date
-            ).first()
+            ).update(
+                {
+                    StockFilterScore.morning_return: morning_return,
+                    StockFilterScore.close_position: close_position,
+                },
+                synchronize_session=False
+            )
 
-            if record:
-                record.morning_return = morning_return
-                record.close_position = close_position
+            if updated:
                 session.commit()
                 logger.debug(f"Updated quantitative features for {stock_code}")
                 return True
-            else:
-                logger.warning(f"No filter score record found for {stock_code} on {trade_date}")
-                return False
+
+            session.rollback()
+            logger.warning(f"No filter score record found for {stock_code} on {trade_date}")
+            return False
 
         except SQLAlchemyError as e:
             logger.error(f"Error saving quantitative features for {stock_code}: {e}")

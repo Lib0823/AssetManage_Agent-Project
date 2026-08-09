@@ -227,7 +227,7 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 | Backend API | Spring Boot 4.1, Java 21, Spring Data JPA, Spring Security + JWT(jjwt 0.12.3), Jasypt, Liquibase, PostgreSQL, Gradle |
 | AI Pipeline | Python 3.11+, FastAPI, APScheduler, pandas, NumPy, scikit-learn, Prophet, transformers (KR-FinBERT), matplotlib |
 | AI Model | Gemini API (free tier) |
-| Database | PostgreSQL 16 (21 tables + 4 views) |
+| Database | PostgreSQL 16 + TimescaleDB extension (21 tables + 4 views; 4 tables are hypertables — see `database/README.md`) |
 | Search | Elasticsearch 8.x (확장 예정) |
 | Infra | Docker, Docker Compose |
 | External APIs | KIS Developers (mock trading), DART (financial data) |

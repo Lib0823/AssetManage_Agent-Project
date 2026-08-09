@@ -1,0 +1,41 @@
+databaseChangeLog:
+  # stock_filter_score 를 TimescaleDB hypertable로 전환 (시계열 마이그레이션 2차 — 조인 허브).
+  # MarketAnalysisRepository가 이 테이블을 기준으로 prophet_forecast/news_analysis/stock_financial/
+  # ai_trade_decision/stock_realtime_price 를 LEFT JOIN 하므로, 매일 100행씩(KOSPI 100 전체) 쌓이는
+  # 이 테이블이 실질적인 조회 성능 저하의 핵심 원인이다. v1.21(asset_daily_snapshot)과 동일한
+  # 패턴(복합 PK → hypertable)을 그대로 적용한다.
+  #
+  # 기존 uk_stock_filter_score(stock_code, score_date) UNIQUE 제약은 이미 파티션 컬럼(score_date)을
+  # 포함하므로 변경 불필요. ai-agent 의 저장 로직은 해당 날짜 DELETE 후 재삽입 방식이라 id 기반
+  # upsert에 의존하지 않는다 — PK 변경이 쓰기 경로에 영향 없음.
+  - changeSet:
+      id: 1.22.1-stock-filter-score-composite-pk
+      author: claude
+      context: mvp
+      comment: "Widen stock_filter_score PK to (id, score_date) so it can become a hypertable"
+      changes:
+        - dropPrimaryKey:
+            tableName: stock_filter_score
+        - addPrimaryKey:
+            tableName: stock_filter_score
+            columnNames: id, score_date
+            constraintName: pk_stock_filter_score
+      rollback:
+        - dropPrimaryKey:
+            tableName: stock_filter_score
+        - addPrimaryKey:
+            tableName: stock_filter_score
+            columnNames: id
+            constraintName: pk_stock_filter_score
+
+  - changeSet:
+      id: 1.22.2-stock-filter-score-to-hypertable
+      author: claude
+      context: mvp
+      comment: "Convert stock_filter_score into a TimescaleDB hypertable partitioned by score_date"
+      changes:
+        - sql:
+            sql: SELECT create_hypertable('stock_filter_score', 'score_date', migrate_data => TRUE, if_not_exists => TRUE);
+      rollback:
+        - sql:
+            sql: SELECT 1; -- hypertable 전환은 단일 DDL로 되돌릴 수 없음 (v1.21 파일 상단 주석 참고)
