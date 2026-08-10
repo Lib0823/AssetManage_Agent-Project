@@ -262,7 +262,7 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 - **문서**: `database/README.md` (테이블 목록·관계·인덱스 전략)
 
 ### Project-Specific Context
-대학원 최종 프로젝트(MVP). 단일 사용자(admin) 기준, KIS 모의투자, 무료 Gemini 티어 전제. 멀티 유저·실전 매매·운영 배포는 향후 과제. KIS 키는 `user_kis_accounts`에 Jasypt 암호화 저장, KOSPI 100 종목 코드는 ai-agent에 하드코딩.
+대학원 최종 프로젝트(MVP). **아키텍처는 멀티유저 구조**(회원가입, 유저별 `user_kis_accounts`/`user_trade_config`, ai-agent가 `get_active_auto_trading_users()`로 활성 유저 목록을 순회) — 단, **현재 실사용자는 소수**(관리자 위주)뿐이라 부하 관점에서는 아직 검증되지 않은 상태. 유저 수가 늘어날 것을 감안해 개발할 것: 특히 Stage 0-1 보유종목 조회(`asyncio.gather`로 활성 유저 수만큼 동시 호출)와 Stage 6 매매 실행(활성 유저 순차 루프)은 유저 수에 선형으로 스케일되므로 향후 병목 후보. KIS 모의투자, Gemini 무료 티어(1 call/day) 전제는 유지. 실전 매매·운영 배포는 향후 과제. KIS 키는 `user_kis_accounts`에 Jasypt 암호화 저장, KOSPI 100 종목 코드는 ai-agent에 하드코딩.
 
 ### Git Workflow
 - Main branch: `main`
