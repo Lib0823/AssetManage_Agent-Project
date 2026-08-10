@@ -1,0 +1,71 @@
+databaseChangeLog:
+  # trade_execution_plan 의 UNIQUE 키를 유저 스코프로 교정한다 (멀티유저 버그 수정).
+  #
+  # 배경 — 스키마 드리프트:
+  #   라이브 DB 에는 Liquibase 도입 이전(또는 수동 DDL)으로 만들어진
+  #   `unique_execution_plan_key UNIQUE (execution_date, stock_code, trade_type)` 가 존재하지만,
+  #   v1.0~v1.25 changeset 어디에도 이 제약이 없다. 즉 환경마다 제약 유무가 다르다.
+  #     - 개발자 로컬/라이브 DB : 제약 있음  → 아래 버그 재현
+  #     - CI/신규 DB(Liquibase) : 제약 없음  → 버그 미재현 + 중복 방지도 전혀 없음
+  #
+  # 버그:
+  #   v1.12 에서 user_id 가 추가돼 Stage 6 가 "유저별" 실행 행을 기록하게 됐는데,
+  #   기존 제약에는 user_id 가 빠져 있다. 그래서 서로 다른 두 유저가 같은 날 같은 종목을
+  #   같은 방향(BUY/SELL)으로 거래하면 두 번째 유저의 INSERT 가 UNIQUE 위반으로 롤백된다.
+  #   Kafka 매매 실행(Stage 6)이 발행 "전에" 이 테이블에 먼저 INSERT 하도록 바뀌면서
+  #   이 INSERT 실패가 곧 해당 유저의 주문 유실로 이어진다.
+  #
+  # 수정:
+  #   좁은 제약을 제거하고 user_id 를 포함한 (user_id, execution_date, stock_code, trade_type)
+  #   제약으로 교체한다. 유저 간 충돌은 사라지고, 같은 유저의 같은 날/종목/방향 중복은 계속 막힌다.
+  #
+  # 컬럼 순서 근거 (선두 user_id):
+  #   UNIQUE 제약은 뒤에 같은 컬럼 순서의 인덱스를 만들므로, 실제 조회 패턴의 prefix 와 맞춰야 한다.
+  #     - TradeExecutionPlanRepository#findExecutedOrderKeys : WHERE user_id = ?
+  #     - repository.py#save_trade_execution_plan            : DELETE WHERE user_id = ? AND execution_date = ?
+  #     - repository.py#update_trade_execution_result        : WHERE user_id, execution_date, stock_code, trade_type
+  #   세 쿼리 모두 user_id 로 시작하고, 마지막 쿼리는 4개 컬럼 전체와 정확히 일치한다.
+  #
+  # user_id NULL 주의:
+  #   user_id 는 nullable(v1.12: NULL = 레거시/전역 행)이고 PostgreSQL 의 UNIQUE 는 NULL 을
+  #   중복으로 보지 않는다. 따라서 user_id 가 NULL 인 레거시 행끼리는 이 제약이 적용되지 않는다.
+  #   현재 Stage 6 는 항상 user_id 를 채우므로 실사용 경로에는 영향이 없다.
+
+  - changeSet:
+      id: 1.26.1-drop-narrow-execution-plan-unique-key
+      author: claude
+      context: mvp
+      comment: "Drop drifted unique_execution_plan_key (execution_date, stock_code, trade_type) if the environment has it"
+      # 제약이 없는 환경(Liquibase 로 새로 만든 DB)에서는 dropUniqueConstraint 가 실패하므로,
+      # 존재할 때만 실행하고 없으면 조용히 MARK_RAN 처리한다.
+      # uniqueConstraintExists 는 Liquibase 4.30+ 정식 precondition (현재 liquibase-core 5.0.3).
+      preConditions:
+        - onFail: MARK_RAN
+        - onFailMessage: "unique_execution_plan_key not present (fresh Liquibase-built DB) — nothing to drop"
+        - uniqueConstraintExists:
+            tableName: trade_execution_plan
+            constraintName: unique_execution_plan_key
+      changes:
+        - dropUniqueConstraint:
+            tableName: trade_execution_plan
+            constraintName: unique_execution_plan_key
+      rollback:
+        - addUniqueConstraint:
+            tableName: trade_execution_plan
+            constraintName: unique_execution_plan_key
+            columnNames: execution_date, stock_code, trade_type
+
+  - changeSet:
+      id: 1.26.2-add-user-scoped-execution-plan-unique-key
+      author: claude
+      context: mvp
+      comment: "Add user-scoped unique key so two users can trade the same stock/side on the same day"
+      changes:
+        - addUniqueConstraint:
+            tableName: trade_execution_plan
+            constraintName: uk_trade_exec_plan_user_date_stock_type
+            columnNames: user_id, execution_date, stock_code, trade_type
+      rollback:
+        - dropUniqueConstraint:
+            tableName: trade_execution_plan
+            constraintName: uk_trade_exec_plan_user_date_stock_type

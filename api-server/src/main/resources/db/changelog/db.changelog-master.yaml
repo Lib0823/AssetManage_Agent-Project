@@ -133,6 +133,11 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.25-trade-history-idempotency.yaml
       context: mvp
 
+  # Phase 25: trade_execution_plan UNIQUE 키를 유저 스코프로 교정 (멀티유저 충돌 수정)
+  - include:
+      file: classpath:db/changelog/mvp/v1.26-trade-execution-plan-user-scoped-key.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================
