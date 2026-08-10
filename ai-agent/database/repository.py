@@ -1030,3 +1030,70 @@ class DatabaseRepository:
             return 0
         finally:
             session.close()
+
+    def update_trade_execution_result(
+        self,
+        user_id: int,
+        execution_date: date,
+        stock_code: str,
+        trade_type: str,
+        execution_status: str,
+        order_no: Optional[str] = None,
+        error_message: Optional[str] = None,
+        raw_result: Optional[Dict] = None,
+    ) -> int:
+        """`trade.order.result` 수신 시 주문의 최종 상태를 확정한다.
+
+        Stage 6 가 QUEUED 로 심어둔 행을 (user_id, execution_date, stock_code, trade_type)
+        = 멱등키 구성요소로 찾아 갱신한다. 별도 멱등키 컬럼이 없어도 이 4개 조합이
+        멱등키와 1:1 이므로 매칭이 성립한다.
+
+        Args:
+            execution_status: DB 에 기록할 상태값 ('EXECUTED' | 'FAILED')
+            order_no: KIS 주문번호(ODNO). None 이면 기존 값을 유지한다.
+            error_message: 실패 사유 (execution_result JSONB 에 병합)
+            raw_result: 수신한 결과 메시지 원문 (execution_result JSONB 에 병합)
+
+        Returns:
+            int: 갱신된 행 수 (매칭 실패/오류 시 0)
+        """
+        patch = {'result_message': raw_result or {}}
+        if error_message:
+            patch['error_message'] = error_message
+
+        update_sql = text("""
+            UPDATE trade_execution_plan
+               SET execution_status = :status,
+                   order_no = COALESCE(:order_no, order_no),
+                   executed_at = now(),
+                   updated_at = now(),
+                   execution_result = COALESCE(execution_result, '{}'::jsonb)
+                                      || CAST(:patch AS JSONB)
+             WHERE user_id = :user_id
+               AND execution_date = :execution_date
+               AND stock_code = :stock_code
+               AND trade_type = :trade_type
+        """)
+
+        session = self.session_factory()
+        try:
+            result = session.execute(update_sql, {
+                'status': str(execution_status)[:20],
+                'order_no': (str(order_no)[:30] if order_no else None),
+                'user_id': user_id,
+                'execution_date': execution_date,
+                'stock_code': stock_code,
+                'trade_type': str(trade_type)[:4],
+                'patch': json.dumps(patch, ensure_ascii=False),
+            })
+            session.commit()
+            return result.rowcount or 0
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(
+                f"Error updating trade_execution_plan "
+                f"(user={user_id} {stock_code} {trade_type} {execution_date}): {e}"
+            )
+            return 0
+        finally:
+            session.close()

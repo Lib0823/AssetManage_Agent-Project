@@ -1,17 +1,24 @@
 """FastAPI application for AI Agent pipeline."""
+import asyncio
 import logging
 import sys
-import math
-from datetime import date, datetime
-from typing import Optional, List
+from datetime import date
+from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from pipeline import PipelineScheduler, PipelineOrchestrator
 from database import DatabaseRepository
+from messaging import (
+    KafkaMessagePublisher,
+    PipelineRunConsumer,
+    TradeResultConsumer,
+    TRIGGER_MANUAL,
+    ensure_topics,
+)
 from config import settings
 
 # Configure logging
@@ -30,22 +37,57 @@ logger = logging.getLogger(__name__)
 # Global instances
 scheduler: Optional[PipelineScheduler] = None
 orchestrator: Optional[PipelineOrchestrator] = None
+publisher: Optional[KafkaMessagePublisher] = None
+pipeline_run_consumer: Optional[PipelineRunConsumer] = None
+trade_result_consumer: Optional[TradeResultConsumer] = None
+consumer_tasks: List[asyncio.Task] = []
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """FastAPI lifespan event handler for startup/shutdown."""
-    global scheduler, orchestrator
+    """FastAPI lifespan event handler for startup/shutdown.
+
+    기동 순서:
+      1. Kafka 토픽 보장(pipeline.run.requested = 파티션 1개) + 프로듀서 기동
+      2. 오케스트레이터 생성 (프로듀서 공유 → Stage 6 가 이걸로 주문 발행)
+      3. 컨슈머 2개를 백그라운드 태스크로 기동
+         - pipeline.run.requested → 파이프라인 실행 (동시 실행 방지의 핵심)
+         - trade.order.result     → trade_execution_plan 상태 확정
+      4. APScheduler 기동 (실행이 아니라 '발행'만 한다)
+
+    Kafka 접속 실패 시 앱 기동 자체는 막지 않는다(조회 API 는 계속 서비스). 이 경우
+    트리거 엔드포인트가 503 을 반환한다.
+    """
+    global scheduler, orchestrator, publisher, pipeline_run_consumer, trade_result_consumer, consumer_tasks
 
     # Startup
     logger.info("Starting AI Agent application...")
 
-    # Initialize orchestrator (reused for manual API calls)
-    orchestrator = PipelineOrchestrator()
+    publisher = KafkaMessagePublisher()
+    kafka_ready = False
+    try:
+        await ensure_topics()
+        await publisher.start()
+        kafka_ready = True
+    except Exception as e:
+        logger.error(f"Kafka producer startup failed — pipeline triggers will be unavailable: {e}")
+
+    # Initialize orchestrator (reused by the pipeline consumer; OAuth token cached)
+    orchestrator = PipelineOrchestrator(publisher=publisher)
     logger.info("PipelineOrchestrator initialized (OAuth token will be cached)")
 
-    # Initialize scheduler
-    scheduler = PipelineScheduler()
+    consumer_tasks = []
+    if kafka_ready:
+        pipeline_run_consumer = PipelineRunConsumer(orchestrator=orchestrator)
+        trade_result_consumer = TradeResultConsumer(db_repo=DatabaseRepository())
+        consumer_tasks = [
+            asyncio.create_task(pipeline_run_consumer.run(), name="pipeline-run-consumer"),
+            asyncio.create_task(trade_result_consumer.run(), name="trade-result-consumer"),
+        ]
+        logger.info("Kafka consumers started (pipeline.run.requested, trade.order.result)")
+
+    # Initialize scheduler (publishes run requests; never runs the pipeline itself)
+    scheduler = PipelineScheduler(publisher=publisher)
     scheduler.start()
     logger.info("Application started successfully")
 
@@ -55,6 +97,16 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down AI Agent application...")
     if scheduler:
         scheduler.stop()
+
+    for task in consumer_tasks:
+        task.cancel()
+    if consumer_tasks:
+        await asyncio.gather(*consumer_tasks, return_exceptions=True)
+        logger.info("Kafka consumers stopped")
+
+    if publisher:
+        await publisher.stop()
+
     logger.info("Application shut down successfully")
 
 
@@ -78,6 +130,9 @@ class PipelineStatusResponse(BaseModel):
     scheduler_running: bool
     next_run_time: Optional[str]
     latest_execution_date: Optional[str]
+    kafka_connected: bool = False
+    running_trade_date: Optional[str] = None  # 현재 컨슈머가 실행 중인 거래일 (없으면 None)
+    last_run: Optional[Dict[str, Any]] = None  # 마지막으로 끝난 실행 요약
 
 
 @app.get("/")
@@ -96,29 +151,34 @@ async def health_check():
     return {"status": "healthy"}
 
 
-@app.post("/api/pipeline/trigger")
-async def trigger_pipeline_manual(
-    request: ManualTriggerRequest,
-    background_tasks: BackgroundTasks
-):
+@app.post("/api/pipeline/trigger", status_code=202)
+async def trigger_pipeline_manual(request: ManualTriggerRequest):
     """
-    Manually trigger complete pipeline execution.
+    Queue a complete pipeline execution (비동기).
+
+    `pipeline.run.requested` 에 실행 요청만 발행하고 즉시 202 를 반환한다. 실제 실행은
+    단일 컨슈머가 순차 처리하므로, 스케줄 트리거와 겹쳐도 동시에 실행되지 않는다.
+    (예전에는 파이프라인이 끝날 때까지 응답을 붙들고 있었다 — 수 분 단위)
 
     Args:
-        request: Optional trade_date and holdings
+        request: Optional trade_date (holdings 는 무시 — Stage 0-1 에서 api-server 로
+            부터 유저별 보유종목을 직접 받는다)
 
     Returns:
-        Execution results
+        202 Accepted + 큐잉된 메시지
     """
-    global orchestrator
+    global publisher
 
-    if orchestrator is None:
-        raise HTTPException(status_code=500, detail="Orchestrator not initialized")
+    if publisher is None or not publisher.running:
+        raise HTTPException(
+            status_code=503,
+            detail="Kafka publisher unavailable; cannot queue pipeline run"
+        )
 
     logger.info(f"Manual trigger request received: {request.dict()}")
 
     # Parse trade date if provided
-    trade_date_obj = None
+    trade_date_obj = date.today()
     if request.trade_date:
         try:
             trade_date_obj = date.fromisoformat(request.trade_date)
@@ -128,57 +188,24 @@ async def trigger_pipeline_manual(
                 detail=f"Invalid date format: {request.trade_date}. Use YYYY-MM-DD"
             )
 
-    # Execute pipeline using global orchestrator (OAuth token cached)
-    try:
-        result = await orchestrator.run_complete_pipeline(
-            trade_date=trade_date_obj,
-            holdings=request.holdings
-        )
+    queued, message = await publisher.publish_pipeline_run(
+        trade_date=trade_date_obj, trigger_type=TRIGGER_MANUAL
+    )
 
-        # Convert date objects and invalid float values for JSON serialization
-        def convert_dates(obj):
-            """
-            Recursively convert date/datetime objects to ISO format strings
-            and invalid float values (inf, -inf, NaN) to None.
-            """
-            # Check datetime first (subclass of date)
-            if isinstance(obj, datetime):
-                return obj.isoformat()
-            elif isinstance(obj, date):
-                return obj.isoformat()
-            elif isinstance(obj, float):
-                # Handle invalid float values
-                if math.isinf(obj) or math.isnan(obj):
-                    return None
-                return obj
-            elif isinstance(obj, dict):
-                return {k: convert_dates(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_dates(item) for item in obj]
-            return obj
+    if not queued:
+        raise HTTPException(status_code=503, detail="Failed to queue pipeline run")
 
-        result = convert_dates(result)
+    body = {
+        "message": "Pipeline run queued",
+        "status": "QUEUED",
+        "request": message,
+    }
+    if request.holdings:
+        # 계약상 전달할 자리가 없고, 보유종목은 파이프라인이 api-server 에서 직접 받는다.
+        logger.warning(f"'holdings' is ignored by the queued pipeline run: {request.holdings}")
+        body["ignored"] = {"holdings": request.holdings}
 
-        if result['success']:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "message": "Pipeline executed successfully",
-                    "result": result
-                }
-            )
-        else:
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "message": "Pipeline execution failed",
-                    "result": result
-                }
-            )
-
-    except Exception as e:
-        logger.exception(f"Error during manual pipeline execution: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return JSONResponse(status_code=202, content=body)
 
 
 @app.get("/api/pipeline/status", response_model=PipelineStatusResponse)
@@ -187,9 +214,9 @@ async def get_pipeline_status():
     Get current pipeline status.
 
     Returns:
-        Scheduler status and latest execution date
+        Scheduler status, Kafka 연결 상태, 진행 중/직전 실행 정보, latest execution date
     """
-    global scheduler
+    global scheduler, publisher, pipeline_run_consumer
 
     if scheduler is None:
         raise HTTPException(status_code=500, detail="Scheduler not initialized")
@@ -206,7 +233,10 @@ async def get_pipeline_status():
     return PipelineStatusResponse(
         scheduler_running=scheduler.scheduler.running,
         next_run_time=next_run_str,
-        latest_execution_date=latest_date_str
+        latest_execution_date=latest_date_str,
+        kafka_connected=bool(publisher and publisher.running),
+        running_trade_date=(pipeline_run_consumer.current_run if pipeline_run_consumer else None),
+        last_run=(pipeline_run_consumer.last_run if pipeline_run_consumer else None),
     )
 
 

@@ -149,20 +149,21 @@ def fetch_all(engine, sql, **params):
 class RecordingSession:
     """SQLAlchemy Session 대역 — 실행된 SQL/params 를 기록한다."""
 
-    def __init__(self, fail_on=None, rows=None):
+    def __init__(self, fail_on=None, rows=None, rowcount=1):
         self.executions = []          # [(sql_text, params)]
         self.committed = False
         self.rolled_back = False
         self.closed = False
         self.fail_on = fail_on        # 이 문자열이 SQL 에 있으면 SQLAlchemyError
         self._rows = rows if rows is not None else []
+        self._rowcount = rowcount     # UPDATE/DELETE 결과의 rowcount 대역
 
     def execute(self, statement, params=None):
         sql = str(statement)
         self.executions.append((sql, params))
         if self.fail_on and self.fail_on in sql:
             raise SQLAlchemyError(f'injected failure on {self.fail_on}')
-        return _RecordingResult(self._rows)
+        return _RecordingResult(self._rows, self._rowcount)
 
     def commit(self):
         self.committed = True
@@ -188,8 +189,9 @@ class RecordingSession:
 
 
 class _RecordingResult:
-    def __init__(self, rows):
+    def __init__(self, rows, rowcount=1):
         self._rows = rows
+        self.rowcount = rowcount
 
     def mappings(self):
         return self
@@ -1629,6 +1631,133 @@ class TestSaveTradeExecutionPlan:
 
         assert make_repo(session=session).save_trade_execution_plan(
             1, TRADE_DATE, [plan_record()]) == 0
+        assert session.rolled_back is True
+        assert session.closed is True
+
+
+# ===========================================================================
+# 12-1. update_trade_execution_result (trade.order.result 수신 시 상태 확정)
+# ===========================================================================
+
+class TestUpdateTradeExecutionResult:
+    """Kafka 결과 메시지 → trade_execution_plan 상태 갱신.
+
+    Postgres 전용 SQL(`jsonb ||`, `now()`, `COALESCE`)이라 RecordingSession 으로
+    바인딩 파라미터와 SQL 형태만 검증한다. 실제 Postgres 실행은
+    tests/test_kafka_integration.py 의 (d) 시나리오에서 확인한다.
+    """
+
+    def _call(self, session, **overrides):
+        kwargs = {
+            'user_id': 1,
+            'execution_date': TRADE_DATE,
+            'stock_code': KNOWN_CODE,
+            'trade_type': 'BUY',
+            'execution_status': 'EXECUTED',
+            'order_no': '0000123',
+            'error_message': None,
+            'raw_result': {'idempotencyKey': f'1:{KNOWN_CODE}:{TRADE_DATE}:BUY', 'status': 'SUCCESS'},
+        }
+        kwargs.update(overrides)
+        return make_repo(session=session).update_trade_execution_result(**kwargs)
+
+    def test_returns_updated_row_count(self):
+        session = RecordingSession(rowcount=1)
+
+        assert self._call(session) == 1
+        assert session.committed is True
+        assert session.closed is True
+
+    def test_matches_on_idempotency_key_components(self):
+        """멱등키의 4개 구성요소로 행을 찾는다 (별도 키 컬럼 없이 1:1 매칭)."""
+        session = RecordingSession()
+        self._call(session)
+
+        sql = session.sql_at(0)
+        params = session.params_at(0)
+        assert 'UPDATE trade_execution_plan' in sql
+        assert 'WHERE user_id = :user_id' in sql
+        assert 'AND execution_date = :execution_date' in sql
+        assert 'AND stock_code = :stock_code' in sql
+        assert 'AND trade_type = :trade_type' in sql
+        assert params['user_id'] == 1
+        assert params['execution_date'] == TRADE_DATE
+        assert params['stock_code'] == KNOWN_CODE
+        assert params['trade_type'] == 'BUY'
+
+    def test_status_and_order_no_are_bound(self):
+        session = RecordingSession()
+        self._call(session)
+
+        params = session.params_at(0)
+        assert params['status'] == 'EXECUTED'
+        assert params['order_no'] == '0000123'
+
+    def test_order_no_is_preserved_when_absent(self):
+        """결과에 주문번호가 없으면 기존 값을 지우지 않는다 (COALESCE)."""
+        session = RecordingSession()
+        self._call(session, order_no=None)
+
+        assert 'COALESCE(:order_no, order_no)' in session.sql_at(0)
+        assert session.params_at(0)['order_no'] is None
+
+    def test_error_message_is_merged_into_execution_result(self):
+        session = RecordingSession()
+        self._call(session, execution_status='FAILED', error_message='주문가능금액 부족')
+
+        patch = json.loads(session.params_at(0)['patch'])
+        assert patch['error_message'] == '주문가능금액 부족'
+
+    def test_raw_message_is_kept_for_traceability(self):
+        session = RecordingSession()
+        self._call(session)
+
+        patch = json.loads(session.params_at(0)['patch'])
+        assert patch['result_message']['status'] == 'SUCCESS'
+
+    def test_existing_execution_result_is_merged_not_replaced(self):
+        """QUEUED 시점에 남긴 멱등키가 결과 병합 후에도 남아야 추적이 된다."""
+        session = RecordingSession()
+        self._call(session)
+
+        assert "COALESCE(execution_result, '{}'::jsonb)" in session.sql_at(0)
+        assert '|| CAST(:patch AS JSONB)' in session.sql_at(0)
+
+    def test_no_error_message_omits_the_field(self):
+        session = RecordingSession()
+        self._call(session, error_message=None)
+
+        assert 'error_message' not in json.loads(session.params_at(0)['patch'])
+
+    def test_korean_error_is_not_escaped(self):
+        session = RecordingSession()
+        self._call(session, error_message='장 종료')
+
+        assert '장 종료' in session.params_at(0)['patch']
+
+    def test_long_fields_are_truncated(self):
+        session = RecordingSession()
+        self._call(session, execution_status='S' * 50, order_no='O' * 100)
+
+        params = session.params_at(0)
+        assert len(params['status']) == 20
+        assert len(params['order_no']) == 30
+
+    def test_trade_type_is_truncated_to_four_chars(self):
+        session = RecordingSession()
+        self._call(session, trade_type='SELL_ALL')
+
+        assert session.params_at(0)['trade_type'] == 'SELL'
+
+    def test_no_matching_row_returns_zero(self):
+        session = RecordingSession(rowcount=0)
+
+        assert self._call(session) == 0
+
+    def test_db_error_rolls_back_and_returns_zero(self):
+        session = RecordingSession(fail_on='UPDATE trade_execution_plan')
+
+        assert self._call(session) == 0
         assert session.rolled_back is True
         assert session.closed is True
 
