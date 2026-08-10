@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface TradeHistoryRepository extends JpaRepository<TradeHistory, Long> {
@@ -31,6 +32,12 @@ public interface TradeHistoryRepository extends JpaRepository<TradeHistory, Long
     List<String> findCurrentHoldingStockCodes(@Param("user") User user);
 
     List<TradeHistory> findByUserIdOrderByOrderedAtDesc(Long userId);
+
+    /**
+     * Kafka 멱등키로 기존 처리 이력 조회. 존재하면(PENDING/EXECUTED/FAILED 무관) 이미 KIS 로
+     * 주문이 나갔을 수 있다는 뜻이므로 재실행하지 않는다.
+     */
+    Optional<TradeHistory> findByIdempotencyKey(String idempotencyKey);
 
     void deleteByUserId(Long userId);
 }

@@ -128,6 +128,11 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.24-news-analysis-hypertable.yaml
       context: mvp
 
+  # Phase 24: trade_history.idempotency_key (Kafka 매매 주문 중복 실행 방지)
+  - include:
+      file: classpath:db/changelog/mvp/v1.25-trade-history-idempotency.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================

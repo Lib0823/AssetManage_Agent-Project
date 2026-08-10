@@ -8,9 +8,17 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface StockMasterRepository extends JpaRepository<StockMaster, Long> {
+
+    /**
+     * 종목코드로 단건 조회. Kafka 매매 주문 메시지에는 종목명이 없어
+     * {@code trade_history.stock_name}(NOT NULL)을 채우기 위해 사용한다.
+     * 국내/해외에 같은 코드가 있을 수 있으므로 First 로 제한한다.
+     */
+    Optional<StockMaster> findFirstByStockCode(String stockCode);
 
     /**
      * 종목 검색: 종목 코드 prefix 또는 종목명 부분일치(대소문자 무시), 최대 30건.

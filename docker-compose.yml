@@ -30,6 +30,49 @@ services:
       retries: 10
       start_period: 10s
 
+  # kafka — 매매 주문 큐 (ai-agent Stage 6 발행 → api-server 소비)
+  # KRaft 모드 단일 노드: Zookeeper 불필요(Kafka 4.x 는 아예 지원하지 않음).
+  kafka:
+    image: apache/kafka:4.0.0
+    container_name: financemanage-kafka
+    environment:
+      # --- KRaft (broker + controller 겸용 단일 노드) ---
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # --- 리스너 ---
+      # PLAINTEXT(9092): 컨테이너 네트워크 내부(api-server/ai-agent → kafka:9092)
+      # EXTERNAL(29092): 호스트에서 로컬 개발용 접속(localhost:29092)
+      # 컨테이너 내부 9092 를 호스트로 그대로 노출하면 advertised 주소가 충돌하므로 분리한다.
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # --- 단일 노드용 복제 설정 (기본값 3 이면 토픽 생성이 실패한다) ---
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # 매매 주문은 사후 대조가 필요하므로 기본 7일보다 넉넉히 30일 보관.
+      KAFKA_LOG_RETENTION_HOURS: 720
+      CLUSTER_ID: financemanage-kafka-cluster
+      TZ: Asia/Seoul
+    ports:
+      - "29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - financemanage-network
+    restart: unless-stopped
+    healthcheck:
+      # 브로커 API 가 실제로 응답하는지 확인 (포트 개방만으로는 부족 — 기동 중에도 열려 있다)
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
   # api-server (Spring Boot) — 인증·매매 실행·조회 API
   api-server:
     build: ./api-server
@@ -41,10 +84,15 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-financemanage}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-admin}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-admin1234}
+      # .env 의 KAFKA_BOOTSTRAP_SERVERS(로컬용 localhost:29092)를 컨테이너 내부 주소로 덮어쓴다.
+      # SPRING_DATASOURCE_URL 과 동일한 패턴.
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     ports:
       - "7070:7070"
     depends_on:
       postgres:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     networks:
       - financemanage-network
@@ -63,6 +111,7 @@ services:
       DB_NAME: ${POSTGRES_DB:-financemanage}
       DB_USER: ${POSTGRES_USER:-admin}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-admin1234}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     volumes:
       # KR-FinBERT 모델 캐시 (재시작 간 재다운로드 방지)
       - hf-cache:/root/.cache/huggingface
@@ -70,6 +119,8 @@ services:
       - "8000:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     networks:
       - financemanage-network
@@ -105,6 +156,7 @@ services:
 volumes:
   postgres-data:
   hf-cache:
+  kafka-data:
 
 networks:
   financemanage-network:

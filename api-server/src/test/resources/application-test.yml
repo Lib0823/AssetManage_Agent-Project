@@ -54,6 +54,12 @@ jasypt:
 internal:
   api-key: test-only-internal-api-key
 
+# Kafka 비활성화: 기본 `test` 태스크는 브로커 없이 도는 단위/컨텍스트 테스트다.
+# 켜두면 컨슈머 컨테이너가 localhost:9092 로 계속 재연결을 시도하며 로그를 오염시킨다.
+# 실제 Kafka 경로는 `./gradlew kafkaTest`(Testcontainers)로 검증한다.
+kafka:
+  enabled: false
+
 # 외부 연동은 전부 비활성 (테스트가 네트워크를 타면 안 된다).
 kis:
   quote-app-key: ""
