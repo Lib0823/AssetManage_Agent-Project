@@ -158,6 +158,49 @@ const formatRelativeTime = (dateStr) => {
   return date.toLocaleDateString('ko-KR')
 }
 
+// trade_history.order_status 에 실제로 들어가는 값 (api-server 코드 기준):
+//   PENDING   - TradeHistory 기본값 + TradeOrderIdempotencyService.STATUS_PENDING
+//               (Kafka 컨슈머가 KIS 호출 "전"에 선점해 두는 상태 → 아직 체결 아님)
+//   EXECUTED  - TradeOrderIdempotencyService.STATUS_EXECUTED / TradeHistory.markAsExecuted()
+//   FAILED    - TradeOrderIdempotencyService.STATUS_FAILED / TradeHistory.markAsFailed()
+//   CANCELLED - TradeHistory.markAsCancelled()
+//   COMPLETED - Liquibase 시드(v1.4) 및 KIS 라이브 조회 매핑에서 쓰는 '체결' 표기
+//   PARTIAL   - KIS 라이브 조회 매핑의 일부체결
+// QUEUED 는 ai-agent 의 trade_execution_plan.execution_status 값이라 이 응답에는 오지 않지만,
+// 경로가 늘어나 흘러들어와도 '체결'로 오표시되지 않도록 대기 계열로 함께 매핑해 둔다.
+const TRADE_STATUS_MAP = {
+  EXECUTED: { label: '체결', tone: 'success' },
+  COMPLETED: { label: '체결', tone: 'success' },
+  PARTIAL: { label: '일부체결', tone: 'success' },
+  PENDING: { label: '대기중', tone: 'pending' },
+  QUEUED: { label: '대기중', tone: 'pending' },
+  CANCELLED: { label: '취소', tone: 'neutral' },
+  FAILED: { label: '실패', tone: 'danger' }
+}
+
+// 모르는 상태를 '체결'로 단정하지 않는다 — 중립적으로 '주문'이라고만 표시한다.
+const UNKNOWN_TRADE_STATUS = { label: '주문', tone: 'neutral' }
+
+const getTradeStatus = (orderStatus) =>
+  TRADE_STATUS_MAP[String(orderStatus ?? '').trim().toUpperCase()] || UNKNOWN_TRADE_STATUS
+
+// 0 이하/비숫자는 "값이 없는 것"으로 본다. KIS 시장가 주문은 orderPrice 가 0 이고,
+// 접수 시점에는 executedPrice 가 아직 null 이라 ?? 폴백이 0 을 그대로 통과시켜 '0원'이 찍혔다.
+const toPositivePrice = (value) => {
+  if (value === null || value === undefined || value === '') return null
+  const num = Number(value)
+  return Number.isFinite(num) && num > 0 ? num : null
+}
+
+// 체결가 > 주문가(지정가 미체결) > 시장가 순으로 표시. 셋 다 없으면 '0원' 대신 시장가로 안내한다.
+const formatTradePrice = (trade) => {
+  const executed = toPositivePrice(trade.executedPrice)
+  if (executed !== null) return `체결가 ${formatNumber(executed)}원`
+  const ordered = toPositivePrice(trade.orderPrice)
+  if (ordered !== null) return `주문가 ${formatNumber(ordered)}원`
+  return '시장가 주문'
+}
+
 // 1. 알림 ← 거래 내역
 const loadNotifications = async () => {
   try {
@@ -171,12 +214,14 @@ const loadNotifications = async () => {
     const sorted = [...trades].sort((a, b) => new Date(b.orderedAt) - new Date(a.orderedAt))
     notifications.value = sorted.slice(0, 8).map((trade) => {
       const side = (trade.orderType || '').toUpperCase() === 'SELL' ? '매도' : '매수'
-      const price = trade.executedPrice ?? trade.orderPrice
+      const status = getTradeStatus(trade.orderStatus)
       return {
         id: trade.id,
         type: 'trade',
-        title: `${trade.stockName} ${trade.quantity}주 ${side} 체결`,
-        desc: price != null ? `체결가 ${formatNumber(price)}원` : '',
+        title: `${trade.stockName} ${trade.quantity}주 ${side} ${status.label}`,
+        desc: formatTradePrice(trade),
+        statusLabel: status.label,
+        statusTone: status.tone,
         time: formatRelativeTime(trade.orderedAt),
         read: true
       }
@@ -340,7 +385,15 @@ onMounted(() => {
                 <span class="noti-title">{{ noti.title }}</span>
                 <span class="noti-desc">{{ noti.desc }}</span>
               </div>
-              <span class="noti-time">{{ noti.time }}</span>
+              <div class="noti-meta">
+                <span
+                  v-if="noti.statusLabel"
+                  :class="['noti-status', `tone-${noti.statusTone}`]"
+                >
+                  {{ noti.statusLabel }}
+                </span>
+                <span class="noti-time">{{ noti.time }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -733,10 +786,53 @@ onMounted(() => {
   color: #9CA3AF;
 }
 
+.noti-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .noti-time {
   font-size: 10px;
   color: #9CA3AF;
   white-space: nowrap;
+}
+
+/* 주문 상태 배지 — 체결/대기/실패를 색으로 구분해 '체결'로 오인하지 않게 한다 */
+.noti-status {
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.noti-status.tone-success {
+  color: #6EE7B7;
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.noti-status.tone-pending {
+  color: #FCD34D;
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.noti-status.tone-danger {
+  color: #FCA5A5;
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.noti-status.tone-neutral {
+  color: #D1D5DB;
+  background: rgba(156, 163, 175, 0.15);
+  border-color: rgba(156, 163, 175, 0.35);
 }
 
 .section {
