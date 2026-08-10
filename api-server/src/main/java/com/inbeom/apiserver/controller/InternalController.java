@@ -54,7 +54,12 @@ public class InternalController {
     /**
      * POST /api/internal/users/{userId}/trades/buy
      * 특정 사용자 명의 매수 주문.
+     *
+     * @deprecated 파이프라인 Stage 6 의 정규 경로는 Kafka {@code trade.order.requested} 토픽
+     *             ({@code TradeOrderConsumer})이다. 이 동기 HTTP 경로는 재시도·멱등성·DLQ 가
+     *             없어 실패 시 주문이 조용히 유실된다. <b>수동 확인/디버깅용으로만</b> 남겨둔다.
      */
+    @Deprecated
     @PostMapping("/users/{userId}/trades/buy")
     public ResponseEntity<ApiResponse<Map<String, Object>>> buy(
             @PathVariable Long userId,
@@ -68,7 +73,11 @@ public class InternalController {
     /**
      * POST /api/internal/users/{userId}/trades/sell
      * 특정 사용자 명의 매도 주문.
+     *
+     * @deprecated 매수와 동일 — Kafka {@code trade.order.requested} 경로를 사용할 것.
+     *             수동 확인/디버깅용으로만 유지한다.
      */
+    @Deprecated
     @PostMapping("/users/{userId}/trades/sell")
     public ResponseEntity<ApiResponse<Map<String, Object>>> sell(
             @PathVariable Long userId,

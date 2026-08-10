@@ -11,6 +11,8 @@ from analysis import StockFilter, QuantitativeAnalyzer, SentimentAnalyzer, TimeS
 from ai import TradingDecisionGenerator
 from filters import SafetyFilter
 from execution import TradeExecutor
+from messaging import KafkaMessagePublisher
+from messaging.messages import SIDE_BUY, SIDE_SELL, build_idempotency_key
 from database import DatabaseRepository
 from config.constants import KOSPI_100, STOCK_NAMES
 from config import settings
@@ -29,7 +31,11 @@ class PipelineOrchestrator:
     4. Save results to database
     """
 
-    def __init__(self, api_server_url: Optional[str] = None):
+    def __init__(
+        self,
+        api_server_url: Optional[str] = None,
+        publisher: Optional[KafkaMessagePublisher] = None,
+    ):
         resolved_url = api_server_url or settings.api_server_url
 
         # Stage 1: Filtering
@@ -56,13 +62,17 @@ class PipelineOrchestrator:
             thresholds=self.db_repo.get_feature_thresholds()
         )
 
-        # Internal api-server channel (multi-user holdings / decisions / execution)
+        # Internal api-server channel (multi-user holdings / portfolio 조회 전용).
+        # 매매 실행은 더 이상 이 REST 채널을 쓰지 않고 Kafka 로 나간다.
         self.internal_api = InternalApiClient(
             base_url=resolved_url, api_key=settings.internal_api_key
         )
 
-        # Stage 6: Trade Execution (per-user, via internal api-server channel)
-        self.trade_executor = TradeExecutor(internal_api=self.internal_api)
+        # Stage 6: Trade Execution (per-user, Kafka `trade.order.requested`)
+        # lifespan 이 만든 프로듀서를 공유받는다. 단독 실행(테스트/스크립트)이면
+        # 자체 인스턴스를 만들고 첫 발행 시 lazy 하게 기동한다.
+        self.publisher = publisher or KafkaMessagePublisher()
+        self.trade_executor = TradeExecutor(publisher=self.publisher)
 
         # 멀티유저 컨텍스트 (Step 0-1 에서 채워지고 이후 단계가 사용)
         self.active_users: List[Dict] = []
@@ -662,72 +672,164 @@ class PipelineOrchestrator:
 
             logger.info(f"[Stage 6] user {user_id}: {len(buy_orders)} buys, {len(sell_orders)} sells planned")
 
-            # 4) 실행 (유저 KIS 키로 api-server 대행)
+            # 4) 계획 행 선기록 — **반드시 발행보다 먼저**.
+            #
+            # api-server 가 KIS 를 호출조차 하지 않고 즉시 실패 결과를 내는 경로(계약 위반
+            # 메시지, DB claim 실패 등)에서는 `trade.order.result` 가 밀리초 안에 돌아온다.
+            # 계획 저장이 발행 뒤에 오면 결과 컨슈머의 UPDATE 가 0행으로 끝나고, 이어지는
+            # 배치 INSERT(DELETE 후 INSERT)가 그 종목을 QUEUED 로 되살려 **이미 FAILED 로
+            # 확정된 주문이 영구히 QUEUED 로 남는다**. 행이 먼저 존재해야 결과 UPDATE 가
+            # 항상 매칭된다 — "행 존재 시점 < 결과 도착 가능 시점".
             try:
-                exec_result = await self.trade_executor.execute_for_user(user_id, buy_orders, sell_orders)
+                planned_records = self._build_planned_records(
+                    user_id, trade_date, buy_orders, sell_orders
+                )
+                if planned_records:
+                    self.db_repo.save_trade_execution_plan(user_id, trade_date, planned_records)
+            except Exception as e:
+                logger.error(f"[Stage 6] Failed to pre-persist execution plan for user {user_id}: {e}")
+
+            # 5) 실행 요청 발행 (api-server 가 소비해 유저 KIS 키로 대행).
+            # 체결 결과는 기다리지 않는다 — `trade.order.result` 컨슈머가 나중에 확정한다.
+            try:
+                exec_result = await self.trade_executor.execute_for_user(
+                    user_id, buy_orders, sell_orders, trade_date=trade_date
+                )
             except Exception as e:
                 logger.error(f"[Stage 6] Execution failed for user {user_id}: {e}")
                 exec_result = {'user_id': user_id, 'error': f'execution failed: {e}'}
 
-            # 영속화: 유저별 실행 결과를 trade_execution_plan 에 기록 (비핵심: 실패해도 진행)
-            try:
-                exec_records = self._build_execution_records(buy_orders, sell_orders, exec_result)
-                if exec_records:
-                    self.db_repo.save_trade_execution_plan(user_id, trade_date, exec_records)
-            except Exception as e:
-                logger.error(f"[Stage 6] Failed to persist execution for user {user_id}: {e}")
+            # 6) 발행 자체가 실패한 주문만 단건 UPDATE 로 FAILED 확정 (배치 재삽입 금지)
+            self._mark_publish_failures(user_id, trade_date, buy_orders, sell_orders, exec_result)
 
             results.append(exec_result)
 
         return results
 
+    # 발행 전에 심는 초기 상태. 'QUEUED' 로 두는 이유:
+    #   - 발행 성공이 압도적 다수인데, 'PENDING' 으로 심고 성공 시 QUEUED 로 올리면
+    #     그 UPDATE 가 이미 도착한 결과(EXECUTED/FAILED)를 되돌릴 수 있다 — 같은 레이스 재발.
+    #   - 발행 실패는 소수이고 결과 메시지가 영영 오지 않으므로, 그때만 FAILED 로 내린다.
+    INITIAL_EXECUTION_STATUS = 'QUEUED'
+
     @staticmethod
-    def _build_execution_records(buy_orders: List[Dict], sell_orders: List[Dict], exec_result: Dict) -> List[Dict]:
-        """유저별 buy/sell 주문 + 실행결과 → trade_execution_plan 레코드 리스트."""
+    def _build_planned_records(
+        user_id: int,
+        trade_date: date,
+        buy_orders: List[Dict],
+        sell_orders: List[Dict],
+    ) -> List[Dict]:
+        """주문 목록만으로 trade_execution_plan 초기 레코드를 만든다 (발행 결과 불필요).
+
+        발행 전에 INSERT 해야 하므로 발행 결과에 의존할 수 없다. 멱등키는
+        `{userId}:{stockCode}:{tradeDate}:{side}` 로 결정적이라 미리 계산해 넣어 두고,
+        결과 메시지와 대조할 수 있게 한다. 최종 상태(EXECUTED/FAILED)와 KIS 주문번호는
+        `trade.order.result` 컨슈머가 갱신한다.
+        """
         records: List[Dict] = []
 
-        def _odno(result: Dict):
-            """KIS 주문 응답에서 주문번호(ODNO) 추출. 실패 시 None."""
-            data = (result or {}).get('data') or {}
-            output = data.get('output') or {}
-            return output.get('ODNO') or output.get('odno')
-        buy_res = {r['stock_code']: r.get('result', {}) for r in (exec_result.get('buy_results') or [])}
+        def _base(order: Dict, side: str, rank: int) -> Dict:
+            return {
+                'stock_code': order['stock_code'],
+                'stock_name': order.get('stock_name'),
+                'trade_type': side,
+                'planned_quantity': int(order.get('quantity') or 0),
+                'gemini_reason': order.get('reason', ''),
+                'gemini_rank': rank,
+                'safety_filter_passed': True,
+                'execution_status': PipelineOrchestrator.INITIAL_EXECUTION_STATUS,
+                # 주문번호는 api-server 가 KIS 주문을 낸 뒤에야 나온다 (결과 메시지에서 채움)
+                'order_no': None,
+                'execution_result': {
+                    'status': PipelineOrchestrator.INITIAL_EXECUTION_STATUS,
+                    'idempotency_key': build_idempotency_key(
+                        user_id, order['stock_code'], trade_date, side
+                    ),
+                },
+            }
+
         for i, o in enumerate(buy_orders, 1):
-            res = buy_res.get(o['stock_code'], {})
             price = int(o.get('price') or 0)
             qty = int(o.get('quantity') or 0)
-            records.append({
-                'stock_code': o['stock_code'],
-                'stock_name': o.get('stock_name'),
-                'trade_type': 'BUY',
-                'planned_quantity': qty,
-                'reference_price': price or None,
-                'estimated_amount': (price * qty) or None,
-                'gemini_reason': o.get('reason', ''),
-                'gemini_rank': i,
-                'safety_filter_passed': True,
-                'execution_status': 'EXECUTED' if res.get('success') else 'FAILED',
-                'order_no': _odno(res),
-                'execution_result': res,
-            })
-        sell_res = {r['stock_code']: r.get('result', {}) for r in (exec_result.get('sell_results') or [])}
+            record = _base(o, SIDE_BUY, i)
+            record['reference_price'] = price or None
+            record['estimated_amount'] = (price * qty) or None
+            records.append(record)
+
         for i, o in enumerate(sell_orders, 1):
-            res = sell_res.get(o['stock_code'], {})
-            records.append({
-                'stock_code': o['stock_code'],
-                'stock_name': o.get('stock_name'),
-                'trade_type': 'SELL',
-                'planned_quantity': int(o.get('quantity') or 0),
-                'reference_price': None,
-                'estimated_amount': None,
-                'gemini_reason': o.get('reason', ''),
-                'gemini_rank': i,
-                'safety_filter_passed': True,
-                'execution_status': 'EXECUTED' if res.get('success') else 'FAILED',
-                'order_no': _odno(res),
-                'execution_result': res,
-            })
+            record = _base(o, SIDE_SELL, i)
+            record['reference_price'] = None
+            record['estimated_amount'] = None
+            records.append(record)
+
         return records
+
+    @staticmethod
+    def _publish_failed(result: Dict) -> bool:
+        """발행 결과 → 발행 실패인가.
+
+        결과 자체가 없으면(executor 예외로 통째로 못 받은 경우 포함) 실패로 본다.
+        """
+        if not result:
+            return True
+        status = result.get('status')
+        if status:
+            return str(status).upper() != PipelineOrchestrator.INITIAL_EXECUTION_STATUS
+        return not result.get('success')
+
+    def _mark_publish_failures(
+        self,
+        user_id: int,
+        trade_date: date,
+        buy_orders: List[Dict],
+        sell_orders: List[Dict],
+        exec_result: Dict,
+    ) -> int:
+        """Kafka 발행에 실패한 주문만 골라 **해당 행 하나씩** FAILED 로 확정한다.
+
+        발행 실패는 브로커에 메시지가 없다는 뜻이므로 `trade.order.result` 가 영영 오지
+        않는다. 여기서 확정하지 않으면 QUEUED 로 방치된다. 배치 재삽입
+        (`save_trade_execution_plan`)을 쓰면 그 사이 도착한 다른 주문의 결과가 지워지므로
+        반드시 단건 UPDATE 를 쓴다.
+
+        Returns:
+            int: FAILED 로 내린 행 수
+        """
+        marked = 0
+        groups = (
+            (SIDE_BUY, buy_orders, 'buy_results'),
+            (SIDE_SELL, sell_orders, 'sell_results'),
+        )
+        for side, orders, result_key in groups:
+            published = {
+                r['stock_code']: (r.get('result') or {})
+                for r in (exec_result.get(result_key) or [])
+            }
+            for order in orders:
+                res = published.get(order['stock_code'], {})
+                if not self._publish_failed(res):
+                    continue
+                error_message = (
+                    res.get('error') or exec_result.get('error') or 'kafka publish failed'
+                )
+                try:
+                    marked += self.db_repo.update_trade_execution_result(
+                        user_id=user_id,
+                        execution_date=trade_date,
+                        stock_code=order['stock_code'],
+                        trade_type=side,
+                        execution_status='FAILED',
+                        error_message=error_message,
+                        raw_result=res or {'success': False},
+                    ) or 0
+                except Exception as e:
+                    logger.error(
+                        f"[Stage 6] Failed to mark publish failure "
+                        f"(user={user_id} {order['stock_code']} {side}): {e}"
+                    )
+        if marked:
+            logger.warning(f"[Stage 6] user {user_id}: {marked} order(s) marked FAILED (publish failed)")
+        return marked
 
     def run_complete_pipeline_sync(
         self,

@@ -28,6 +28,7 @@ COLLABORATORS = [
     'KISClient', 'StockFilter', 'DARTAPIClient', 'QuantitativeAnalyzer',
     'SentimentAnalyzer', 'TimeSeriesAnalyzer', 'TradingDecisionGenerator',
     'SafetyFilter', 'DatabaseRepository', 'InternalApiClient', 'TradeExecutor',
+    'KafkaMessagePublisher',
 ]
 
 
@@ -178,6 +179,7 @@ def env():
     db.save_safety_filter_results = MagicMock(return_value=True)
     db.get_user_order_amount = MagicMock(return_value=1_000_000)
     db.save_trade_execution_plan = MagicMock(return_value=1)
+    db.update_trade_execution_result = MagicMock(return_value=1)
 
     internal = MagicMock(name='InternalApiClient')
     internal.get_active_auto_trading_users = AsyncMock(return_value=[])
@@ -185,18 +187,23 @@ def env():
         'holdings': [], 'cash': 0.0, 'total_assets': 0.0, 'holding_codes': [],
     })
 
-    async def _execute(user_id, buy_orders, sell_orders):
+    async def _execute(user_id, buy_orders, sell_orders, trade_date=None):
         order_log.append('execute')
         return {
             'user_id': user_id,
-            'buy_results': [{'stock_code': o['stock_code'], 'result': {'success': True}}
+            'trade_date': trade_date.isoformat() if trade_date else None,
+            'buy_results': [{'stock_code': o['stock_code'],
+                             'result': {'success': True, 'status': 'QUEUED'}}
                             for o in buy_orders],
-            'sell_results': [{'stock_code': o['stock_code'], 'result': {'success': True}}
+            'sell_results': [{'stock_code': o['stock_code'],
+                              'result': {'success': True, 'status': 'QUEUED'}}
                              for o in sell_orders],
         }
 
     executor = MagicMock(name='TradeExecutor')
     executor.execute_for_user = AsyncMock(side_effect=_execute)
+
+    publisher = MagicMock(name='KafkaMessagePublisher')
 
     instances = {
         'KISClient': kis,
@@ -210,6 +217,7 @@ def env():
         'DatabaseRepository': db,
         'InternalApiClient': internal,
         'TradeExecutor': executor,
+        'KafkaMessagePublisher': publisher,
     }
 
     with ExitStack() as stack:
@@ -237,6 +245,7 @@ def env():
             db=db,
             internal=internal,
             executor=executor,
+            publisher=publisher,
         )
 
 
@@ -258,8 +267,19 @@ class TestInit:
         env.classes['QuantitativeAnalyzer'].assert_called_once_with(kis_client=env.kis)
         env.classes['TimeSeriesAnalyzer'].assert_called_once_with(kis_client=env.kis)
 
-    def test_trade_executor_uses_internal_api(self, env):
-        env.classes['TradeExecutor'].assert_called_once_with(internal_api=env.internal)
+    def test_trade_executor_publishes_to_kafka(self, env):
+        """Stage 6 는 REST 대신 Kafka 프로듀서를 통해 주문을 낸다."""
+        env.classes['TradeExecutor'].assert_called_once_with(publisher=env.publisher)
+
+    def test_injected_publisher_is_reused(self, env):
+        """lifespan 이 만든 프로듀서를 주입하면 새로 만들지 않고 공유한다."""
+        env.classes['KafkaMessagePublisher'].reset_mock()
+        shared = MagicMock(name='sharedPublisher')
+
+        orchestrator = PipelineOrchestrator(publisher=shared)
+
+        assert orchestrator.publisher is shared
+        env.classes['KafkaMessagePublisher'].assert_not_called()
 
     def test_explicit_api_server_url_overrides_settings(self, env):
         with patch('pipeline.orchestrator.settings') as s:
@@ -674,6 +694,21 @@ class TestPerUserExecution:
         }]
         assert sell_orders == []
 
+    async def test_trade_date_is_passed_to_executor_for_idempotency_key(self, env):
+        """멱등키에 거래일이 들어가야 하므로 Stage 6 는 trade_date 를 넘겨야 한다."""
+        self._arm(
+            env,
+            [{'user_id': 1, 'order_amount': 100_000, 'max_holdings': 5}],
+            {1: {'holdings': [], 'cash': 1_000_000.0, 'holding_codes': []}},
+        )
+        env.decision_gen.generate_user_decision = MagicMock(return_value={
+            'buy': [{'stock_code': '000660', 'reason': 'r'}], 'sell': [],
+        })
+
+        await env.orchestrator._run_per_user_execution(self._features(), date(2026, 8, 5))
+
+        assert env.executor.execute_for_user.await_args.kwargs['trade_date'] == date(2026, 8, 5)
+
     async def test_unknown_stock_code_falls_back_to_code_as_name(self, env):
         """STOCK_NAMES 에 없는 종목코드는 코드 자체를 이름으로 쓴다."""
         self._arm(
@@ -828,11 +863,18 @@ class TestPerUserExecution:
         results = await env.orchestrator._run_per_user_execution(self._features(), date(2026, 8, 5))
 
         assert results == [{'user_id': 1, 'error': 'execution failed: api-server 500'}]
-        # 실행 실패도 계획 자체는 FAILED 로 기록된다
+        # 계획 행은 발행 전에 QUEUED 로 심어져 있고...
         user_id, exec_date, records = env.db.save_trade_execution_plan.call_args[0]
         assert user_id == 1
         assert exec_date == date(2026, 8, 5)
-        assert records[0]['execution_status'] == 'FAILED'
+        assert records[0]['execution_status'] == 'QUEUED'
+        # ...발행이 통째로 실패했으므로 단건 UPDATE 로 FAILED 확정된다 (배치 재삽입 아님)
+        assert env.db.save_trade_execution_plan.call_count == 1
+        kwargs = env.db.update_trade_execution_result.call_args.kwargs
+        assert kwargs['stock_code'] == '005930'
+        assert kwargs['trade_type'] == 'BUY'
+        assert kwargs['execution_status'] == 'FAILED'
+        assert kwargs['error_message'] == 'execution failed: api-server 500'
 
     async def test_persistence_failure_does_not_break_execution(self, env):
         env.db.save_trade_execution_plan = MagicMock(side_effect=RuntimeError('db down'))
@@ -878,24 +920,229 @@ class TestPerUserExecution:
         assert results[0]['user_id'] == 99
 
 
-class TestBuildExecutionRecords:
-    """trade_execution_plan 레코드 변환."""
+class _FakeExecutionPlanTable:
+    """`trade_execution_plan` 최소 재현 — 실제 repository SQL 시맨틱을 그대로 흉내낸다.
+
+    - `save_trade_execution_plan`: (user_id, execution_date) 일괄 DELETE 후 INSERT
+      (`repository.py` 의 DELETE→INSERT 배치와 동일)
+    - `update_trade_execution_result`: (user_id, execution_date, stock_code, trade_type)
+      4키 UPDATE. 행이 없으면 **0행** 을 돌려준다(= 실 DB 에서 경고만 남고 끝나는 상황).
+    """
+
+    def __init__(self):
+        self.rows = {}   # (user_id, date, stock_code, trade_type) -> row dict
+
+    def save_trade_execution_plan(self, user_id, execution_date, records):
+        for key in [k for k in self.rows if k[0] == user_id and k[1] == execution_date]:
+            del self.rows[key]
+        for r in records:
+            self.rows[(user_id, execution_date, r['stock_code'], r['trade_type'])] = {
+                'execution_status': r.get('execution_status') or 'PENDING',
+                'order_no': r.get('order_no'),
+                'execution_result': dict(r.get('execution_result') or {}),
+            }
+        return len(records)
+
+    def update_trade_execution_result(self, user_id, execution_date, stock_code, trade_type,
+                                      execution_status, order_no=None, error_message=None,
+                                      raw_result=None):
+        row = self.rows.get((user_id, execution_date, stock_code, trade_type))
+        if row is None:
+            return 0
+        row['execution_status'] = execution_status
+        row['order_no'] = order_no or row.get('order_no')
+        row['execution_result'].update({'result_message': raw_result or {}})
+        if error_message:
+            row['execution_result']['error_message'] = error_message
+        return 1
+
+    def status_of(self, user_id, execution_date, stock_code, trade_type='BUY'):
+        row = self.rows.get((user_id, execution_date, stock_code, trade_type))
+        return row['execution_status'] if row else None
+
+
+class TestFastResultRace:
+    """회귀: 결과 메시지가 계획 INSERT 를 앞질러도 최종 상태가 뒤집히지 않아야 한다.
+
+    api-server 가 KIS 를 호출조차 하지 않고 즉시 실패를 내는 경로(계약 위반 메시지,
+    DB claim 실패 등)에서는 `trade.order.result` 가 Stage 6 의 계획 저장보다 먼저
+    도착할 수 있다. 계획 저장이 발행 **뒤** 에 오면:
+      결과 UPDATE 0행 → 배치 INSERT 가 QUEUED 로 (재)생성 → 실패가 영원히 QUEUED.
+    여기서는 컨슈머(프로덕션 코드 `TradeResultConsumer.handle`)를 발행 시점에 끼워
+    넣어 그 순서를 결정적으로 재현한다.
+    """
+
+    TRADE_DATE = date(2026, 8, 5)
+
+    @staticmethod
+    def _features():
+        return _quant_df().merge(_sentiment_df(), on='stock_code').merge(_ts_df(), on='stock_code')
+
+    @staticmethod
+    def _consumer(db_repo):
+        from messaging.trade_result_consumer import TradeResultConsumer
+
+        return TradeResultConsumer(db_repo=db_repo, bootstrap_servers='unused:9092')
+
+    def _arm(self, env, table, executor_factory, buy_codes=('005930',)):
+        """유저 1명 + 매수 주문 + 지정한 실행 대역으로 Stage 6 를 무장한다."""
+        env.orchestrator.db_repo = table
+        env.orchestrator.active_users = [{'user_id': 1, 'order_amount': 100_000, 'max_holdings': 5}]
+        env.orchestrator.user_portfolio_map = {
+            1: {'holdings': [], 'cash': 1_000_000.0, 'holding_codes': []}
+        }
+        env.decision_gen.generate_user_decision = MagicMock(return_value={
+            'buy': [{'stock_code': c, 'reason': 'r'} for c in buy_codes], 'sell': [],
+        })
+        env.executor.execute_for_user = AsyncMock(side_effect=executor_factory)
+
+    def _instant_result_executor(self, table, delivered, status='FAILED', error='계약 위반'):
+        """발행 직후(= Stage 6 가 돌아오기 전) 결과 메시지가 처리되는 실행 대역."""
+        from messaging.messages import build_idempotency_key
+
+        consumer = self._consumer(table)
+
+        async def _execute(user_id, buy_orders, sell_orders, trade_date=None):
+            buy_results = []
+            for o in buy_orders:
+                key = build_idempotency_key(user_id, o['stock_code'], trade_date, 'BUY')
+                buy_results.append({
+                    'stock_code': o['stock_code'],
+                    'result': {'success': True, 'status': 'QUEUED', 'idempotency_key': key},
+                })
+                # ── 레이스 지점: api-server 초고속 실패 → 결과가 즉시 도착 ──
+                await consumer.handle({
+                    'idempotencyKey': key,
+                    'userId': user_id,
+                    'stockCode': o['stock_code'],
+                    'side': 'BUY',
+                    'status': status,
+                    'kisOrderNo': None,
+                    'errorMessage': error,
+                    'processedAt': '2026-08-05T08:55:01+09:00',
+                })
+                delivered.append(dict(consumer.last_result))
+            return {
+                'user_id': user_id,
+                'trade_date': trade_date.isoformat() if trade_date else None,
+                'buy_results': buy_results,
+                'sell_results': [],
+            }
+
+        return _execute
+
+    async def test_immediate_failure_result_is_not_overwritten_by_plan_insert(self, env):
+        """레이스 재현: 즉시 FAILED 결과가 와도 최종 상태는 FAILED 여야 한다 (QUEUED 잔류 금지)."""
+        table = _FakeExecutionPlanTable()
+        delivered = []
+        self._arm(env, table, self._instant_result_executor(table, delivered))
+
+        await env.orchestrator._run_per_user_execution(self._features(), self.TRADE_DATE)
+
+        assert table.status_of(1, self.TRADE_DATE, '005930') == 'FAILED', (
+            '결과가 배치 INSERT 보다 먼저 도착해 실패가 QUEUED 로 덮여 버렸다'
+        )
+
+    async def test_result_consumer_finds_the_row_already_inserted(self, env):
+        """행이 결과 도착 시점에 이미 존재해야 한다 — UPDATE 가 0행이면 안 된다."""
+        table = _FakeExecutionPlanTable()
+        delivered = []
+        self._arm(env, table, self._instant_result_executor(table, delivered))
+
+        await env.orchestrator._run_per_user_execution(self._features(), self.TRADE_DATE)
+
+        assert delivered and delivered[0]['updated_rows'] == 1, (
+            f'결과 UPDATE 가 계획 행을 찾지 못했다: {delivered}'
+        )
+
+    async def test_immediate_success_result_survives_too(self, env):
+        """성공(EXECUTED) 결과가 먼저 도착한 경우도 QUEUED 로 되돌아가면 안 된다."""
+        table = _FakeExecutionPlanTable()
+        delivered = []
+        self._arm(env, table, self._instant_result_executor(table, delivered, status='SUCCESS', error=None))
+
+        await env.orchestrator._run_per_user_execution(self._features(), self.TRADE_DATE)
+
+        assert table.status_of(1, self.TRADE_DATE, '005930') == 'EXECUTED'
+
+    async def test_publish_failure_marks_only_that_row_failed(self, env):
+        """발행 실패 주문은 단건 UPDATE 로 FAILED — 이미 확정된 다른 행을 건드리지 않는다."""
+        from messaging.messages import build_idempotency_key
+
+        table = _FakeExecutionPlanTable()
+        consumer = self._consumer(table)
+
+        async def _execute(user_id, buy_orders, sell_orders, trade_date=None):
+            buy_results = []
+            for o in buy_orders:
+                key = build_idempotency_key(user_id, o['stock_code'], trade_date, 'BUY')
+                if o['stock_code'] == '000660':
+                    # 프로듀서 레벨 실패 — 결과 메시지는 영영 오지 않는다
+                    buy_results.append({'stock_code': o['stock_code'],
+                                        'result': {'success': False, 'status': 'FAILED',
+                                                   'idempotency_key': key}})
+                    continue
+                buy_results.append({'stock_code': o['stock_code'],
+                                    'result': {'success': True, 'status': 'QUEUED',
+                                               'idempotency_key': key}})
+                await consumer.handle({
+                    'idempotencyKey': key, 'userId': user_id, 'stockCode': o['stock_code'],
+                    'side': 'BUY', 'status': 'SUCCESS', 'kisOrderNo': '0000123',
+                    'errorMessage': None, 'processedAt': '2026-08-05T08:55:01+09:00',
+                })
+            return {'user_id': user_id, 'buy_results': buy_results, 'sell_results': []}
+
+        self._arm(env, table, _execute, buy_codes=('005930', '000660'))
+
+        await env.orchestrator._run_per_user_execution(self._features(), self.TRADE_DATE)
+
+        assert table.status_of(1, self.TRADE_DATE, '000660') == 'FAILED'
+        # 이미 EXECUTED 로 확정된 행이 배치 재삽입으로 QUEUED 가 되면 안 된다
+        assert table.status_of(1, self.TRADE_DATE, '005930') == 'EXECUTED'
+
+    async def test_plan_rows_are_inserted_before_publishing(self, env):
+        """호출 순서 자체를 못박는다: save_trade_execution_plan → execute_for_user."""
+        calls = []
+        table = _FakeExecutionPlanTable()
+
+        class _Recording(_FakeExecutionPlanTable):
+            def save_trade_execution_plan(self, user_id, execution_date, records):
+                calls.append('save')
+                return super().save_trade_execution_plan(user_id, execution_date, records)
+
+        recording = _Recording()
+
+        async def _execute(user_id, buy_orders, sell_orders, trade_date=None):
+            calls.append('publish')
+            return {'user_id': user_id, 'buy_results': [
+                {'stock_code': o['stock_code'], 'result': {'success': True, 'status': 'QUEUED'}}
+                for o in buy_orders], 'sell_results': []}
+
+        self._arm(env, recording, _execute)
+        del table
+
+        await env.orchestrator._run_per_user_execution(self._features(), self.TRADE_DATE)
+
+        assert calls == ['save', 'publish'], f'발행이 계획 저장보다 먼저 일어났다: {calls}'
+        assert recording.status_of(1, self.TRADE_DATE, '005930') == 'QUEUED'
+
+
+class TestBuildPlannedRecords:
+    """trade_execution_plan 초기 레코드 변환 (발행 결과 없이 주문 목록만으로)."""
+
+    TRADE_DATE = date(2026, 8, 9)
+
+    def _build(self, buy_orders, sell_orders):
+        return PipelineOrchestrator._build_planned_records(
+            1, self.TRADE_DATE, buy_orders, sell_orders
+        )
 
     def test_buy_and_sell_records(self):
-        exec_result = {
-            'buy_results': [{'stock_code': '005930',
-                             'result': {'success': True,
-                                        'data': {'output': {'ODNO': '0000123'}}}}],
-            'sell_results': [{'stock_code': '000660',
-                              'result': {'success': True,
-                                         'data': {'output': {'odno': '0000456'}}}}],
-        }
-        records = PipelineOrchestrator._build_execution_records(
+        records = self._build(
             [{'stock_code': '005930', 'stock_name': '삼성전자',
               'quantity': 10, 'price': 70000, 'reason': 'buy reason'}],
             [{'stock_code': '000660', 'stock_name': 'SK하이닉스',
               'quantity': 5, 'reason': 'sell reason'}],
-            exec_result,
         )
 
         assert len(records) == 2
@@ -904,45 +1151,111 @@ class TestBuildExecutionRecords:
         assert buy['planned_quantity'] == 10
         assert buy['reference_price'] == 70000
         assert buy['estimated_amount'] == 700000
-        assert buy['execution_status'] == 'EXECUTED'
-        assert buy['order_no'] == '0000123'
+        # 발행 전 초기 상태는 QUEUED — 체결(EXECUTED)은 결과 메시지가 확정한다
+        assert buy['execution_status'] == 'QUEUED'
+        assert buy['order_no'] is None
         assert buy['gemini_rank'] == 1
+        # 멱등키는 결정적이므로 발행 결과 없이도 미리 채울 수 있다
+        assert buy['execution_result']['idempotency_key'] == '1:005930:2026-08-09:BUY'
 
         assert sell['trade_type'] == 'SELL'
         assert sell['planned_quantity'] == 5
         assert sell['reference_price'] is None
         assert sell['estimated_amount'] is None
-        assert sell['order_no'] == '0000456'  # 소문자 odno 도 인식
+        assert sell['execution_status'] == 'QUEUED'
+        assert sell['order_no'] is None
         assert sell['gemini_rank'] == 1  # 매도 랭크는 별도로 1부터
-
-    def test_missing_result_marks_failed(self):
-        records = PipelineOrchestrator._build_execution_records(
-            [{'stock_code': '005930', 'quantity': 1, 'price': 100}], [], {}
-        )
-
-        assert records[0]['execution_status'] == 'FAILED'
-        assert records[0]['order_no'] is None
+        assert sell['execution_result']['idempotency_key'] == '1:000660:2026-08-09:SELL'
 
     def test_zero_price_leaves_nullable_fields_none(self):
-        records = PipelineOrchestrator._build_execution_records(
-            [{'stock_code': '005930', 'quantity': 0, 'price': 0}], [], {}
-        )
+        records = self._build([{'stock_code': '005930', 'quantity': 0, 'price': 0}], [])
 
         assert records[0]['reference_price'] is None
         assert records[0]['estimated_amount'] is None
 
     def test_empty_orders_produce_no_records(self):
-        assert PipelineOrchestrator._build_execution_records([], [], {}) == []
+        assert self._build([], []) == []
 
     def test_ranks_are_sequential(self):
-        records = PipelineOrchestrator._build_execution_records(
+        records = self._build(
             [{'stock_code': 'A', 'quantity': 1, 'price': 1},
              {'stock_code': 'B', 'quantity': 1, 'price': 1}],
             [{'stock_code': 'C', 'quantity': 1}],
-            {},
         )
 
         assert [r['gemini_rank'] for r in records] == [1, 2, 1]
+
+
+class TestPublishFailureMarking:
+    """발행 실패 판정 + 단건 FAILED 확정."""
+
+    TRADE_DATE = date(2026, 8, 9)
+
+    @pytest.mark.parametrize('result,expected', [
+        ({'success': True, 'status': 'QUEUED'}, False),
+        ({'success': False, 'status': 'FAILED'}, True),
+        ({}, True),                       # 결과 자체가 없음 = 발행 안 됨
+        ({'success': True}, False),       # status 없으면 success 플래그로 판정
+        ({'success': False}, True),
+        ({'status': 'QUEUED'}, False),    # status 가 있으면 status 우선
+    ])
+    def test_publish_failure_detection(self, result, expected):
+        assert PipelineOrchestrator._publish_failed(result) is expected
+
+    def _run(self, env, exec_result, buy_orders=None, sell_orders=None):
+        return env.orchestrator._mark_publish_failures(
+            1, self.TRADE_DATE,
+            buy_orders if buy_orders is not None else [{'stock_code': '005930', 'quantity': 1}],
+            sell_orders or [],
+            exec_result,
+        )
+
+    def test_failed_publish_is_updated_one_row_at_a_time(self, env):
+        marked = self._run(env, {'buy_results': [
+            {'stock_code': '005930', 'result': {'success': False, 'status': 'FAILED',
+                                                'error': 'broker unreachable'}},
+        ]})
+
+        assert marked == 1
+        env.db.save_trade_execution_plan.assert_not_called()   # 배치 재삽입 금지
+        kwargs = env.db.update_trade_execution_result.call_args.kwargs
+        assert kwargs['execution_status'] == 'FAILED'
+        assert kwargs['error_message'] == 'broker unreachable'
+        assert kwargs['execution_date'] == self.TRADE_DATE
+
+    def test_successful_publish_is_left_alone(self, env):
+        marked = self._run(env, {'buy_results': [
+            {'stock_code': '005930', 'result': {'success': True, 'status': 'QUEUED'}},
+        ]})
+
+        assert marked == 0
+        env.db.update_trade_execution_result.assert_not_called()
+
+    def test_missing_result_is_treated_as_publish_failure(self, env):
+        """executor 가 통째로 예외를 냈을 때 — 결과가 없으니 전부 FAILED."""
+        marked = self._run(env, {'user_id': 1, 'error': 'execution failed: boom'})
+
+        assert marked == 1
+        assert env.db.update_trade_execution_result.call_args.kwargs['error_message'] == \
+            'execution failed: boom'
+
+    def test_sell_side_is_marked_with_sell_trade_type(self, env):
+        marked = self._run(
+            env,
+            {'sell_results': [{'stock_code': '000660', 'result': {'success': False}}]},
+            buy_orders=[],
+            sell_orders=[{'stock_code': '000660', 'quantity': 3}],
+        )
+
+        assert marked == 1
+        assert env.db.update_trade_execution_result.call_args.kwargs['trade_type'] == 'SELL'
+
+    def test_db_error_does_not_propagate(self, env):
+        env.db.update_trade_execution_result = MagicMock(side_effect=RuntimeError('db down'))
+
+        assert self._run(env, {'buy_results': [
+            {'stock_code': '005930', 'result': {'success': False}},
+        ]}) == 0
 
 
 class TestDartQuarterCalculation:

@@ -6,6 +6,9 @@ apscheduler==3.10.4
 # Async HTTP
 aiohttp==3.9.1
 
+# Messaging (Kafka) — 매매 주문 발행/결과 수신 + 파이프라인 실행 직렬화
+aiokafka==0.10.0
+
 # Data Science
 pandas==2.2.0
 numpy==1.26.3
@@ -45,3 +48,5 @@ pytz==2024.1
 pytest==7.4.4
 pytest-asyncio==0.23.3
 pytest-cov==4.1.0
+httpx==0.26.0                  # FastAPI TestClient / ASGI 통합 테스트
+testcontainers[kafka]==4.8.2   # Kafka 통합 테스트 (Docker 필요, 없으면 skip)

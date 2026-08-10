@@ -46,6 +46,10 @@ spring:
         highlight_sql: true
     open-in-view: false
 
+  # Kafka — ai-agent Stage 6 매매 주문 큐
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
   # Liquibase Configuration
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml

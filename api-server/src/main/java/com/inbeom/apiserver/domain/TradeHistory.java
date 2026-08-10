@@ -27,6 +27,16 @@ public class TradeHistory {
     @Column(name = "order_number", length = 50)
     private String orderNumber;
 
+    /**
+     * Kafka 매매 주문 멱등키 ({@code {userId}:{stockCode}:{tradeDate}:{side}}).
+     *
+     * <p>DB UNIQUE 제약(uk_trade_history_idempotency_key)이 중복 주문의 최종 방어선이다.
+     * Kafka 를 거치지 않는 경로(web-app 수동 주문, /internal REST)는 null 이며,
+     * PostgreSQL UNIQUE 는 NULL 을 중복으로 보지 않으므로 제약에 걸리지 않는다.
+     */
+    @Column(name = "idempotency_key", length = 120, unique = true)
+    private String idempotencyKey;
+
     @Column(name = "stock_code", nullable = false, length = 10)
     private String stockCode;
 

@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     api_server_url: str = "http://api-server:7070"  # base URL (컨텍스트패스 /api 제외)
     internal_api_key: Optional[str] = None  # X-Internal-Api-Key (api-server 와 공유)
 
+    # Kafka — 매매 주문 발행(trade.order.requested) / 결과 수신(trade.order.result) /
+    # 파이프라인 실행 직렬화(pipeline.run.requested)
+    # 컨테이너 내부에서는 kafka:9092, 로컬 실행 시 localhost:9092
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_client_id: str = "ai-agent"
+
     # Logging Configuration
     log_level: str = "INFO"
     log_file: str = "logs/pipeline.log"
