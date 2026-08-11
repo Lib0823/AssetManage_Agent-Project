@@ -46,6 +46,16 @@ public class KisQuoteClient {
             "KIS 점검 또는 일시적 연동 오류로 시세를 불러올 수 없습니다";
 
     /**
+     * KIS 조회에 실패했지만 캐시에 남아 있던 마지막 성공값을 대신 보여주는 경우의 안내.
+     *
+     * <p>"불러올 수 없습니다"({@link #NOTICE_KIS_UNAVAILABLE})와 반드시 구분해야 한다 — 저쪽은
+     * 화면에 값이 <b>없다</b>는 뜻이고, 이쪽은 값이 <b>있지만 지금 시점의 값이 아니라는</b> 뜻이다.
+     * 문구가 섞이면 사용자가 낡은 가격을 현재가로 오인한다.
+     */
+    public static final String NOTICE_KIS_STALE =
+            "KIS 연동 오류로 마지막으로 조회된 값을 표시합니다 (최신 아님)";
+
+    /**
      * 시세 연동 가능 여부 = quote app key/secret 둘 다 설정됨.
      */
     public boolean isEnabled() {
@@ -73,12 +83,20 @@ public class KisQuoteClient {
      *
      * @return KIS 응답 output 맵 (stck_prpr/prdy_vrss/prdy_ctrt 등) 또는 null
      */
-    @SuppressWarnings("unchecked")
     public Map<String, Object> fetchCurrentPrice(String stockCode) {
+        return fetchCurrentPriceResult(stockCode).data();
+    }
+
+    /**
+     * {@link #fetchCurrentPrice} 와 같지만 값이 캐시의 stale 폴백에서 왔는지도 함께 알려준다.
+     * 종목 상세처럼 notice 로 "최신 아님"을 안내해야 하는 화면이 쓴다.
+     */
+    @SuppressWarnings("unchecked")
+    public QuoteResult fetchCurrentPriceResult(String stockCode) {
         try {
             QuoteContext ctx = resolveQuoteContext();
             if (ctx == null) {
-                return null;
+                return QuoteResult.empty();
             }
             Map<String, String> params = new HashMap<>();
             params.put("FID_COND_MRKT_DIV_CODE", MARKET_DIV);
@@ -98,13 +116,14 @@ public class KisQuoteClient {
             if (!isRtOk(body)) {
                 log.warn("KIS inquire-price rt_cd!=0 for stockCode={}: {}", stockCode,
                         body != null ? body.get("msg1") : "null body");
-                return null;
+                return QuoteResult.empty();
             }
             Object output = body.get("output");
-            return (output instanceof Map) ? (Map<String, Object>) output : null;
+            return new QuoteResult((output instanceof Map) ? (Map<String, Object>) output : null,
+                    KisApiClient.isStale(response));
         } catch (Exception e) {
             log.warn("KIS inquire-price call failed for stockCode={}: {}", stockCode, e.getMessage());
-            return null;
+            return QuoteResult.empty();
         }
     }
 
@@ -117,12 +136,17 @@ public class KisQuoteClient {
      *
      * @return KIS 응답 output1 맵 또는 null
      */
-    @SuppressWarnings("unchecked")
     public Map<String, Object> fetchOrderbook(String stockCode) {
+        return fetchOrderbookResult(stockCode).data();
+    }
+
+    /** {@link #fetchOrderbook} 의 stale 여부까지 알려주는 변형. */
+    @SuppressWarnings("unchecked")
+    public QuoteResult fetchOrderbookResult(String stockCode) {
         try {
             QuoteContext ctx = resolveQuoteContext();
             if (ctx == null) {
-                return null;
+                return QuoteResult.empty();
             }
             Map<String, String> params = new HashMap<>();
             params.put("FID_COND_MRKT_DIV_CODE", MARKET_DIV);
@@ -142,13 +166,14 @@ public class KisQuoteClient {
             if (!isRtOk(body)) {
                 log.warn("KIS inquire-asking-price rt_cd!=0 for stockCode={}: {}", stockCode,
                         body != null ? body.get("msg1") : "null body");
-                return null;
+                return QuoteResult.empty();
             }
             Object output1 = body.get("output1");
-            return (output1 instanceof Map) ? (Map<String, Object>) output1 : null;
+            return new QuoteResult((output1 instanceof Map) ? (Map<String, Object>) output1 : null,
+                    KisApiClient.isStale(response));
         } catch (Exception e) {
             log.warn("KIS inquire-asking-price call failed for stockCode={}: {}", stockCode, e.getMessage());
-            return null;
+            return QuoteResult.empty();
         }
     }
 
@@ -180,4 +205,15 @@ public class KisQuoteClient {
     }
 
     private record QuoteContext(String baseUrl, String token, String appKey, String appSecret) {}
+
+    /**
+     * @param data  KIS 응답 output (없으면 null — 기존 degrade 계약 그대로)
+     * @param stale 값이 캐시의 마지막 성공값 폴백이면 true → 호출부가 {@link #NOTICE_KIS_STALE} 안내
+     */
+    public record QuoteResult(Map<String, Object> data, boolean stale) {
+
+        static QuoteResult empty() {
+            return new QuoteResult(null, false);
+        }
+    }
 }

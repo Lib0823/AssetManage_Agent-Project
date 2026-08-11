@@ -39,6 +39,12 @@ public enum ErrorCode {
     KIS_ACCOUNT_DUPLICATE(HttpStatus.CONFLICT, 4005, "Account number already exists"),
     KIS_CREDENTIAL_DECRYPT_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, 4006,
             "Stored KIS credentials could not be decrypted — re-register the account"),
+    /**
+     * 자체 rate limit(토큰 버킷)에 걸려 <b>KIS 를 호출하지 않고</b> 거부한 경우.
+     * KIS 가 응답한 오류(4001~4003)와 구분된다 — 잠시 후 재시도하면 성공할 수 있다.
+     */
+    KIS_API_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, 4007,
+            "KIS API call rate limit exceeded — try again shortly"),
 
     // Trade Errors (5000~5999)
     TRADE_HISTORY_NOT_FOUND(HttpStatus.NOT_FOUND, 5000, "Trade history not found"),

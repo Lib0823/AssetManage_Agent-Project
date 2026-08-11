@@ -59,7 +59,8 @@ public class CompanyInfoService {
         // --- KIS 주식현재가 시세 (실전 시세 도메인) ---
         String kisSector = null;
         boolean kisQuoteAvailable = false;
-        Map<String, Object> price = kisQuoteClient.fetchCurrentPrice(stockCode);
+        KisQuoteClient.QuoteResult priceResult = kisQuoteClient.fetchCurrentPriceResult(stockCode);
+        Map<String, Object> price = priceResult.data();
         if (price != null) {
             kisQuoteAvailable = true;
             builder.currentPrice(parseLong(price.get("stck_prpr")));
@@ -110,10 +111,12 @@ public class CompanyInfoService {
         // 종목명: DART corp_name (KIS 시세 응답엔 한글 종목명 필드가 없음). 없으면 null.
         builder.stockName(resolvedName);
 
-        // notice: KIS 시세 미연동 / DART 회사개황 미연동 사유를 한 문장으로 결합 (모두 정상이면 null)
+        // notice: KIS 시세 미연동/낡음 · DART 회사개황 미연동 사유를 한 문장으로 결합 (모두 정상이면 null)
         List<String> notices = new ArrayList<>();
         if (!kisQuoteAvailable) {
             notices.add(kisQuoteClient.unavailableNotice());
+        } else if (priceResult.stale()) {
+            notices.add(KisQuoteClient.NOTICE_KIS_STALE);
         }
         if (!dartEnabled) {
             notices.add(NOTICE_DART_PROFILE);
@@ -129,12 +132,16 @@ public class CompanyInfoService {
     public FinancialsResponse getFinancials(String stockCode) {
         List<FinancialsResponse.AnnualFinancial> annual = new ArrayList<>();
         FinancialsResponse.Ratios.RatiosBuilder ratios = FinancialsResponse.Ratios.builder();
+        // 4개 KIS 호출 중 하나라도 stale 폴백이면 화면 전체를 "최신 아님"으로 안내한다.
+        // 어느 항목이 낡았는지까지 쪼개 알려도 사용자가 할 수 있는 판단은 같다.
+        boolean anyStale = false;
 
         // --- 손익계산서 (연간) ---
         try {
-            Map<String, Object> income = fetchFinance(stockCode,
+            FinanceResult income = fetchFinance(stockCode,
                     "/uapi/domestic-stock/v1/finance/income-statement", "FHKST66430200");
-            List<Map<String, Object>> rows = extractOutput(income);
+            anyStale |= income.stale();
+            List<Map<String, Object>> rows = extractOutput(income.body());
             if (rows != null) {
                 int count = 0;
                 for (Map<String, Object> row : rows) {
@@ -156,9 +163,10 @@ public class CompanyInfoService {
 
         // --- 재무비율 (ROE, EPS) ---
         try {
-            Map<String, Object> ratio = fetchFinance(stockCode,
+            FinanceResult ratio = fetchFinance(stockCode,
                     "/uapi/domestic-stock/v1/finance/financial-ratio", "FHKST66430300");
-            List<Map<String, Object>> rows = extractOutput(ratio);
+            anyStale |= ratio.stale();
+            List<Map<String, Object>> rows = extractOutput(ratio.body());
             if (rows != null && !rows.isEmpty()) {
                 Map<String, Object> latest = rows.get(0);
                 ratios.roe(parseBigDecimal(latest.get("roe_val")));
@@ -175,9 +183,10 @@ public class CompanyInfoService {
 
         // --- 안정성비율 (부채비율, 유동비율) ---
         try {
-            Map<String, Object> stability = fetchFinance(stockCode,
+            FinanceResult stability = fetchFinance(stockCode,
                     "/uapi/domestic-stock/v1/finance/stability-ratio", "FHKST66430600");
-            List<Map<String, Object>> rows = extractOutput(stability);
+            anyStale |= stability.stale();
+            List<Map<String, Object>> rows = extractOutput(stability.body());
             if (rows != null && !rows.isEmpty()) {
                 Map<String, Object> latest = rows.get(0);
                 ratios.debtRatio(parseBigDecimal(latest.get("lblt_rate")));
@@ -189,8 +198,10 @@ public class CompanyInfoService {
 
         // --- PER / PBR (현재가 시세) ---
         try {
-            Map<String, Object> price = kisQuoteClient.fetchCurrentPrice(stockCode);
+            KisQuoteClient.QuoteResult priceResult = kisQuoteClient.fetchCurrentPriceResult(stockCode);
+            Map<String, Object> price = priceResult.data();
             if (price != null) {
+                anyStale |= priceResult.stale();
                 ratios.per(parseBigDecimal(price.get("per")));
                 ratios.pbr(parseBigDecimal(price.get("pbr")));
             }
@@ -200,12 +211,15 @@ public class CompanyInfoService {
 
         // roa 는 KIS 미제공 → null 유지
 
-        // notice: 시세/재무가 비활성이거나 아무 데이터도 못 받은 경우 안내
+        // notice: 시세/재무가 비활성이거나 아무 데이터도 못 받은 경우 안내.
+        // 데이터는 있는데 캐시 폴백에서 왔다면 "없음"이 아니라 "낡음"으로 구분해 알린다.
         FinancialsResponse.Ratios builtRatios = ratios.build();
         String financialsNotice = null;
         boolean anyData = !annual.isEmpty() || hasAnyRatio(builtRatios);
         if (!kisQuoteService.isQuoteEnabled() || !anyData) {
             financialsNotice = kisQuoteClient.unavailableNotice();
+        } else if (anyStale) {
+            financialsNotice = KisQuoteClient.NOTICE_KIS_STALE;
         }
 
         return FinancialsResponse.builder()
@@ -279,10 +293,10 @@ public class CompanyInfoService {
      * 비활성/실패/rt_cd!=0 시 null.
      */
     @SuppressWarnings("unchecked")
-    private Map<String, Object> fetchFinance(String stockCode, String endpoint, String trId) {
+    private FinanceResult fetchFinance(String stockCode, String endpoint, String trId) {
         QuoteContext ctx = resolveQuoteContext();
         if (ctx == null) {
-            return null;
+            return FinanceResult.empty();
         }
         Map<String, String> params = new HashMap<>();
         params.put("FID_COND_MRKT_DIV_CODE", MARKET_DIV);
@@ -298,9 +312,20 @@ public class CompanyInfoService {
         if (!isRtOk(body)) {
             log.warn("KIS finance {} rt_cd!=0 for stockCode={}: {}", trId, stockCode,
                     body != null ? body.get("msg1") : "null body");
-            return null;
+            return FinanceResult.empty();
         }
-        return body;
+        return new FinanceResult(body, KisApiClient.isStale(response));
+    }
+
+    /**
+     * @param body  KIS 재무 응답 본문 (실패 시 null)
+     * @param stale 캐시의 마지막 성공값 폴백이면 true
+     */
+    private record FinanceResult(Map<String, Object> body, boolean stale) {
+
+        static FinanceResult empty() {
+            return new FinanceResult(null, false);
+        }
     }
 
     /**

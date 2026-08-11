@@ -104,6 +104,28 @@ public class TradeOrderIdempotencyService {
         });
     }
 
+    /**
+     * 선점 취소 — KIS 를 <b>호출하지 않은 채</b> 처리를 포기하고 재시도로 넘길 때만 쓴다
+     * (현재는 자체 rate limit 거부가 유일한 경로).
+     *
+     * <p><b>왜 필요한가</b>: 선점 행을 남긴 채 재시도하면 다음 시도의 {@link #claim} 이 PENDING 행을
+     * 발견하고 "KIS 도달 여부 불확실"로 판단해 DLQ 로 보낸다. 즉 취소하지 않으면 재시도가
+     * 무의미해지고, rate limit 에 걸린 정상 주문이 그대로 유실된다.
+     *
+     * <p>KIS 를 이미 호출한 뒤에는 <b>절대 부르면 안 된다</b>. 행을 지우는 순간 "이 주문은 나갔을 수
+     * 있다"는 유일한 흔적이 사라져 재시도가 중복 주문이 된다. 그래서 PENDING 인 행만 지운다 —
+     * EXECUTED/FAILED 로 확정된 행은 남긴다.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void release(Long tradeHistoryId) {
+        tradeHistoryRepository.findById(tradeHistoryId)
+                .filter(row -> STATUS_PENDING.equals(row.getOrderStatus()))
+                .ifPresent(row -> {
+                    tradeHistoryRepository.delete(row);
+                    log.info("Released unused trade order claim: tradeHistoryId={}", tradeHistoryId);
+                });
+    }
+
     /** 확정 실패. 재시도하지 않으므로 이 상태가 최종이다. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markFailed(Long tradeHistoryId) {

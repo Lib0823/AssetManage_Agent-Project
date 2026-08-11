@@ -92,6 +92,15 @@ class CompanyInfoServiceTest {
         when(kisQuoteService.getQuoteAppSecret()).thenReturn("QUOTE_APP_SECRET");
     }
 
+    /**
+     * 현재가 시세 스텁. 서비스는 stale(캐시 폴백) 여부까지 알아야 해서
+     * {@code fetchCurrentPriceResult} 를 쓰므로, 기본은 "신선한 값"으로 스텁한다.
+     */
+    private void stubPrice(Map<String, Object> output) {
+        when(kisQuoteClient.fetchCurrentPriceResult(STOCK_CODE))
+                .thenReturn(new KisQuoteClient.QuoteResult(output, false));
+    }
+
     private ResponseEntity<Map> kisOk(List<Map<String, Object>> output) {
         Map<String, Object> body = new HashMap<>();
         body.put("rt_cd", "0");
@@ -114,7 +123,7 @@ class CompanyInfoServiceTest {
     @DisplayName("getBasicInfo - KIS 시세 + DART 회사개황 조합 성공")
     void getBasicInfo_Success() {
         // Given
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(priceOutput);
+        stubPrice(priceOutput);
         when(dartApiClient.isEnabled()).thenReturn(true);
         when(dartApiClient.getCorpCode(STOCK_CODE)).thenReturn(CORP_CODE);
         when(dartApiClient.getCompanyProfile(CORP_CODE)).thenReturn(dartProfile);
@@ -152,7 +161,7 @@ class CompanyInfoServiceTest {
     @DisplayName("getBasicInfo - KIS/DART 모두 미연동 시 두 notice 를 ' / ' 로 결합")
     void getBasicInfo_BothUnavailable_JoinsNotices() {
         // Given
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(null);
+        stubPrice(null);
         when(kisQuoteClient.unavailableNotice()).thenReturn(KisQuoteClient.NOTICE_KIS_QUOTE);
         when(dartApiClient.isEnabled()).thenReturn(false);
         when(dartApiClient.getCorpCode(STOCK_CODE)).thenReturn(null);
@@ -174,7 +183,7 @@ class CompanyInfoServiceTest {
     @DisplayName("getBasicInfo - DART 조회 예외 시 예외 전파 없이 KIS 데이터만 반환")
     void getBasicInfo_DartThrows_DegradesGracefully() {
         // Given
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(priceOutput);
+        stubPrice(priceOutput);
         when(dartApiClient.isEnabled()).thenReturn(true);
         when(dartApiClient.getCorpCode(STOCK_CODE)).thenThrow(new RuntimeException("DART timeout"));
 
@@ -194,7 +203,7 @@ class CompanyInfoServiceTest {
     void getBasicInfo_SectorFallsBackToDartInduty() {
         // Given
         priceOutput.remove("bstp_kor_isnm");
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(priceOutput);
+        stubPrice(priceOutput);
         when(dartApiClient.isEnabled()).thenReturn(true);
         when(dartApiClient.getCorpCode(STOCK_CODE)).thenReturn(CORP_CODE);
         when(dartApiClient.getCompanyProfile(CORP_CODE)).thenReturn(dartProfile);
@@ -210,7 +219,7 @@ class CompanyInfoServiceTest {
     @DisplayName("getBasicInfo - corp_code 는 있으나 회사개황이 null 이면 hasDartProfile=false")
     void getBasicInfo_NullDartProfile_HasDartProfileFalse() {
         // Given
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(priceOutput);
+        stubPrice(priceOutput);
         when(dartApiClient.isEnabled()).thenReturn(true);
         when(dartApiClient.getCorpCode(STOCK_CODE)).thenReturn(CORP_CODE);
         when(dartApiClient.getCompanyProfile(CORP_CODE)).thenReturn(null);
@@ -246,7 +255,7 @@ class CompanyInfoServiceTest {
         when(kisApiClient.get(anyString(), eq(STABILITY_ENDPOINT), eq("FHKST66430600"),
                 anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(kisOk(List.of(Map.of("lblt_rate", "25.36", "crnt_rate", "260.14"))));
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(priceOutput);
+        stubPrice(priceOutput);
 
         // When
         FinancialsResponse result = companyInfoService.getFinancials(STOCK_CODE);
@@ -292,7 +301,7 @@ class CompanyInfoServiceTest {
         when(kisApiClient.get(anyString(), eq(STABILITY_ENDPOINT), anyString(),
                 anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(kisOk(List.of()));
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(null);
+        stubPrice(null);
 
         // When
         FinancialsResponse result = companyInfoService.getFinancials(STOCK_CODE);
@@ -310,7 +319,7 @@ class CompanyInfoServiceTest {
     void getFinancials_QuoteDisabled_ReturnsEmptyWithNotice() {
         // Given
         when(kisQuoteService.isQuoteEnabled()).thenReturn(false);
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(null);
+        stubPrice(null);
         when(kisQuoteClient.unavailableNotice()).thenReturn(KisQuoteClient.NOTICE_KIS_QUOTE);
 
         // When
@@ -330,7 +339,7 @@ class CompanyInfoServiceTest {
         // Given
         when(kisQuoteService.isQuoteEnabled()).thenReturn(true);
         when(kisQuoteService.getQuoteAccessToken()).thenReturn(null);
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(null);
+        stubPrice(null);
         when(kisQuoteClient.unavailableNotice()).thenReturn(KisQuoteClient.NOTICE_KIS_UNAVAILABLE);
 
         // When
@@ -350,7 +359,7 @@ class CompanyInfoServiceTest {
         when(kisApiClient.get(anyString(), anyString(), anyString(),
                 anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(kisError());
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(null);
+        stubPrice(null);
         when(kisQuoteClient.unavailableNotice()).thenReturn(KisQuoteClient.NOTICE_KIS_UNAVAILABLE);
 
         // When
@@ -377,7 +386,7 @@ class CompanyInfoServiceTest {
         when(kisApiClient.get(anyString(), eq(STABILITY_ENDPOINT), anyString(),
                 anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(kisOk(List.of(Map.of("lblt_rate", "25.36", "crnt_rate", "260.14"))));
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(null);
+        stubPrice(null);
 
         // When
         FinancialsResponse result = companyInfoService.getFinancials(STOCK_CODE);
@@ -408,7 +417,7 @@ class CompanyInfoServiceTest {
         when(kisApiClient.get(anyString(), eq(STABILITY_ENDPOINT), anyString(),
                 anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(kisOk(List.of()));
-        when(kisQuoteClient.fetchCurrentPrice(STOCK_CODE)).thenReturn(null);
+        stubPrice(null);
 
         // When
         FinancialsResponse result = companyInfoService.getFinancials(STOCK_CODE);

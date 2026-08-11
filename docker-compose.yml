@@ -73,6 +73,29 @@ services:
       retries: 12
       start_period: 20s
 
+  # redis — KIS API 토큰 버킷(rate limit) + 시세/재무 응답 캐시(stale-if-error) 저장소.
+  # api-server 인스턴스가 여러 개여도 버킷이 하나로 유지되어야 하므로 프로세스 메모리가 아닌
+  # 외부 저장소를 쓴다. 캐시/버킷 모두 유실돼도 재구성 가능한 파생 데이터라 영속 볼륨을 두지 않는다
+  # (Postgres/Kafka 와 달리 재기동 시 콜드 스타트가 정상 동작이다).
+  redis:
+    image: redis:7-alpine
+    container_name: financemanage-redis
+    # 로컬 개발이므로 인증 없음 (Postgres/Kafka 와 동일 기조 — 컨테이너 네트워크 내부 전용).
+    command: redis-server --save "" --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
+    environment:
+      TZ: Asia/Seoul
+    ports:
+      - "6379:6379"
+    networks:
+      - financemanage-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   # api-server (Spring Boot) — 인증·매매 실행·조회 API
   api-server:
     build: ./api-server
@@ -87,12 +110,17 @@ services:
       # .env 의 KAFKA_BOOTSTRAP_SERVERS(로컬용 localhost:29092)를 컨테이너 내부 주소로 덮어쓴다.
       # SPRING_DATASOURCE_URL 과 동일한 패턴.
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # .env 의 REDIS_HOST(로컬용 localhost)를 컨테이너 내부 주소로 덮어쓴다.
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
     ports:
       - "7070:7070"
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - financemanage-network

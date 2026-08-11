@@ -50,6 +50,17 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
+  # Redis — KIS 토큰 버킷(rate limit) + 시세/재무 응답 캐시.
+  # Lettuce 는 지연 연결이라 Redis 가 떠 있지 않아도 기동은 성공하고, 실제 호출 시
+  # 짧은 타임아웃으로 실패한 뒤 fail-open(rate limit 통과) · 캐시 미적용으로 degrade 한다.
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # 시세 조회 경로에 매달리지 않도록 짧게. Redis 장애가 KIS 조회 지연으로 번지면 안 된다.
+      timeout: 1s
+      connect-timeout: 1s
+
   # Liquibase Configuration
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
@@ -118,6 +129,27 @@ kis:
   quote-base-url: ${KIS_QUOTE_BASE_URL:https://openapi.koreainvestment.com:9443}
   quote-app-key: ${KIS_QUOTE_APP_KEY:}
   quote-app-secret: ${KIS_QUOTE_APP_SECRET:}
+
+  # 외부 API(KIS) 의존성 격리 — Redis 기반 rate limit + 응답 캐시.
+  # 둘 다 Redis 가 없거나 오류일 때 fail-open 으로 degrade 한다(Redis 장애가 KIS 조회를 막지 않음).
+  resilience:
+    rate-limit:
+      enabled: ${KIS_RATE_LIMIT_ENABLED:true}
+      # KIS 공식 제한 수치는 문서로 확정되지 않았다. ai-agent 가 이미 쓰는 관례
+      # (asyncio.Semaphore(5) = 5 req/sec)와 맞춘 보수적 기본값이며, 실제 한도가 확인되면 조정한다.
+      # capacity = 순간 버스트 허용량, refill-per-second = 초당 충전 토큰 수.
+      capacity: ${KIS_RATE_LIMIT_CAPACITY:5}
+      refill-per-second: ${KIS_RATE_LIMIT_REFILL:5}
+    cache:
+      enabled: ${KIS_CACHE_ENABLED:true}
+      # 시세(FHKST01010100 현재가 / FHKST01010200 호가): 신선도 30초.
+      quote-ttl: 30s
+      # 재무(FHKST664302/3/600 손익·재무비율·안정성비율): 분기마다 바뀌는 값이라 24시간.
+      finance-ttl: 24h
+      # stale-if-error 보관 기간(신선도와 별개). KIS 장애 시 이 기간 안의 마지막 성공값을
+      # "최신 아님" 안내와 함께 돌려준다. 신선 TTL 보다 반드시 길어야 의미가 있다.
+      quote-stale-grace: 24h
+      finance-stale-grace: 7d
 
   # 실시간 시세 WebSocket 브리지 (Phase 1: 호가 + 체결가).
   # - enabled=false(기본): 상향 연결/엔드포인트 미등록 → 브라우저는 REST 스냅샷 유지(graceful degrade).

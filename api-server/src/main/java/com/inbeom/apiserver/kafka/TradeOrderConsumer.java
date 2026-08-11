@@ -2,6 +2,7 @@ package com.inbeom.apiserver.kafka;
 
 import com.inbeom.apiserver.dto.kafka.TradeOrderRequestMessage;
 import com.inbeom.apiserver.dto.kafka.TradeOrderResultMessage;
+import com.inbeom.apiserver.exception.KisRateLimitExceededException;
 import com.inbeom.apiserver.service.TradeOrderIdempotencyService;
 import com.inbeom.apiserver.service.TradeOrderIdempotencyService.ClaimResult;
 import com.inbeom.apiserver.service.TradingService;
@@ -51,6 +52,11 @@ import java.util.Map;
  * </ul>
  * 그래서 "PHASE 2 에서 난 예외는 전부 재시도 금지"라는 <b>위치 기반</b> 규칙이
  * 타입 기반 분기보다 안전하고 단순하다. (a) 는 DLQ 에서 사람이 KIS 실제 체결내역과 대조한다.
+ *
+ * <p><b>예외 하나: {@link KisRateLimitExceededException}</b>. 자체 토큰 버킷이 KIS 로 요청을
+ * 보내기 <b>전에</b> 거부한 경우이므로 위치 기반 규칙의 전제("PHASE 2 = KIS 접촉")가 성립하지
+ * 않는다. 소켓조차 열리지 않았음이 보장되므로 선점을 되돌리고 PHASE 1 처럼 재시도한다 —
+ * 그렇지 않으면 잠깐의 호출 폭주 때문에 유효한 주문이 즉시 DLQ 로 유실된다.
  *
  * <p>기존 REST 경로({@code /api/internal/users/{userId}/trades/{buy|sell}})는 수동/디버깅용으로
  * 그대로 남아 있으며 deprecated 표시만 되어 있다.
@@ -140,6 +146,19 @@ public class TradeOrderConsumer {
             idempotencyService.markAccepted(claim.tradeHistoryId(), kisOrderNo);
             publisher.publishResult(TradeOrderResultMessage.success(request, kisOrderNo));
             log.info("Trade order executed: key={}, kisOrderNo={}", request.idempotencyKey(), kisOrderNo);
+
+        } catch (KisRateLimitExceededException e) {
+            // PHASE 2 안에서 났지만 PHASE 1 로 되돌리는 유일한 예외다.
+            // 자체 토큰 버킷이 KIS 로 요청을 보내기 전에 거부한 것이므로 "KIS 미접촉"이 보장된다
+            // — 이 위치 기반 규칙의 전제(=여기 오면 KIS 를 건드렸다)가 성립하지 않는 유일한 경우.
+            // 이걸 확정 실패로 처리하면 잠깐의 호출 폭주 때문에 유효한 주문이 즉시 DLQ 로 유실된다.
+            //
+            // 선점 행을 반드시 먼저 지운다: 남겨두면 재전달 시 claim() 이 PENDING 을 발견해
+            // "도달 여부 불확실"로 DLQ 를 태우고, 재시도가 무의미해진다.
+            log.warn("Trade order rate-limited before reaching KIS (will retry): key={}",
+                    request.idempotencyKey());
+            idempotencyService.release(claim.tradeHistoryId());
+            throw e;
 
         } catch (Exception e) {
             // (a) 타임아웃/커넥션 리셋 → KIS 도달 불확실, (b) KIS 명시적 거부 → 재시도해도 동일.

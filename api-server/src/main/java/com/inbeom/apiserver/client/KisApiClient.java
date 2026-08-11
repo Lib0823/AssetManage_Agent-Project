@@ -1,9 +1,12 @@
 package com.inbeom.apiserver.client;
 
+import com.inbeom.apiserver.config.KisResilienceProperties;
+import com.inbeom.apiserver.config.KisResilienceProperties.CachePolicy;
 import com.inbeom.apiserver.exception.KisApiException;
-import com.inbeom.apiserver.service.KisAuthService;
+import com.inbeom.apiserver.exception.KisRateLimitExceededException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -14,14 +17,52 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
 
+/**
+ * 모든 KIS 호출이 지나는 단일 관문.
+ *
+ * <p>여기에 <b>rate limit</b>({@link KisRateLimiter})과 <b>응답 캐시 + stale-if-error</b>
+ * ({@link KisResponseCache})가 붙어 있다. 두 기능을 서비스 계층이 아니라 이 지점에 둔 이유는,
+ * KIS 를 부르는 15곳이 넘는 호출부가 전부 이 메서드로 수렴하기 때문이다 — 어느 한 곳이 우회하면
+ * 한도가 새고, 새 호출부가 생길 때마다 적용을 잊는 문제가 구조적으로 사라진다.
+ *
+ * <p>캐시는 <b>allowlist</b> 방식이다({@code KisResilienceProperties.Cache#policyFor}). 관문이
+ * 공통이라는 것은 잔고·주문가능금액·체결내역도 여기를 지난다는 뜻이라, 무엇이든 캐시하면 매매
+ * 판단이 낡은 값으로 이뤄진다. 그래서 종목 상세 화면이 반복 조회하는 읽기 전용 시세/재무 TR 만 연다.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class KisApiClient {
 
+    /**
+     * 캐시에서 나온 응답임을 호출부에 알리는 헤더. {@code KisQuoteClient}/{@code CompanyInfoService}
+     * 가 이 값을 보고 "최신 아님" 안내(notice)를 붙인다.
+     *
+     * <p>반환 타입을 바꾸지 않고 헤더로 실어 보내는 쪽을 택했다 — {@code ResponseEntity} 는 원래
+     * 헤더를 나르는 타입이고(HTTP 캐시 의미론과도 일치), 15곳 넘는 호출부와 기존 테스트가 그대로
+     * 컴파일된다. 헤더가 없으면 자연히 "캐시 아님"으로 읽힌다.
+     */
+    public static final String CACHE_HEADER = "X-Kis-Cache";
+    public static final String CACHE_HIT = "HIT";
+    public static final String CACHE_STALE = "STALE";
+
     // KIS 응답이 느리거나 도달 불가일 때 호출이 수십 초(OS 기본) 매달리지 않도록 타임아웃 지정.
     // 호출부는 예외를 잡아 graceful degrade(빈값/캐시 폴백) 하므로 빠른 실패가 바람직하다.
     private final RestTemplate restTemplate = buildRestTemplate();
+
+    /**
+     * rate limit / 캐시는 없어도 동작해야 하는 부가 계층이다(설정으로 끌 수 있고, Redis 가 없는
+     * 단위 테스트는 {@code new KisApiClient()} 로 이 클래스를 직접 만든다). 그래서 생성자 필수
+     * 의존이 아니라 선택 주입으로 받고, null 이면 조용히 우회한다.
+     */
+    @Autowired(required = false)
+    private KisRateLimiter rateLimiter;
+
+    @Autowired(required = false)
+    private KisResponseCache responseCache;
+
+    @Autowired(required = false)
+    private KisResilienceProperties resilienceProperties;
 
     private static RestTemplate buildRestTemplate() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
@@ -108,12 +149,69 @@ public class KisApiClient {
             Class<T> responseType
     ) {
         String resolvedBaseUrl = (baseUrl != null && !baseUrl.isBlank()) ? baseUrl : kisBaseUrl;
-        String url = resolvedBaseUrl + endpoint;
 
         // TR_ID 자동 변환: 이 호출의 도메인(resolvedBaseUrl) 기준 Virtual→VTTC* / Real→TTTC*. FHKST*/해외 TR 등은 변환되지 않음.
         String convertedTrId = convertTrId(trId, resolvedBaseUrl);
         log.debug("KIS call: baseUrl={}, trId: {} → {}", resolvedBaseUrl, trId, convertedTrId);
 
+        CachePolicy policy = cachePolicyFor(method, convertedTrId);
+        String cacheKey = (policy != null) ? responseCache.keyOf(resolvedBaseUrl, endpoint, convertedTrId) : null;
+
+        // 1) 신선한 캐시가 있으면 KIS 를 호출하지 않는다 (토큰도 소비하지 않는다).
+        KisResponseCache.Entry<T> cached =
+                (policy != null) ? responseCache.find(cacheKey, responseType, policy) : null;
+        if (cached != null && cached.fresh()) {
+            log.debug("KIS cache hit: trId={}, endpoint={}", convertedTrId, endpoint);
+            return cachedResponse(cached.body(), CACHE_HIT);
+        }
+
+        // 2) 토큰 버킷. 여기서 거부되면 소켓조차 열리지 않는다 —
+        //    호출부(특히 Kafka 매매 컨슈머)가 "KIS 미접촉"을 구분할 수 있어야 하므로 전용 예외를 던진다.
+        if (rateLimiter != null && !rateLimiter.tryAcquire(appKey)) {
+            if (cached != null) {
+                log.warn("KIS rate limited; serving stale cache: trId={}, endpoint={}", convertedTrId, endpoint);
+                return cachedResponse(cached.body(), CACHE_STALE);
+            }
+            throw new KisRateLimitExceededException(
+                    "KIS 호출 한도를 초과해 요청을 보내지 않았습니다 (trId=" + convertedTrId + ")");
+        }
+
+        // 3) 실제 호출. 실패하면 grace 기간 안의 마지막 성공값으로 폴백한다(stale-if-error).
+        try {
+            ResponseEntity<T> response = exchange(resolvedBaseUrl + endpoint, endpoint, method,
+                    convertedTrId, kisToken, appKey, appSecret, requestBody, responseType);
+            if (policy != null) {
+                if (isSuccessBody(response.getBody())) {
+                    responseCache.put(cacheKey, response.getBody(), policy);
+                } else if (cached != null) {
+                    // rt_cd != 0 도 "조회 실패"다. 그대로 넘기면 화면이 빈 값으로 degrade 하므로
+                    // 마지막 성공값이 있으면 그쪽이 사용자에게 더 쓸모 있다.
+                    log.warn("KIS returned rt_cd!=0; serving stale cache: trId={}", convertedTrId);
+                    return cachedResponse(cached.body(), CACHE_STALE);
+                }
+            }
+            return response;
+        } catch (KisApiException e) {
+            if (cached != null) {
+                log.warn("KIS call failed ({}); serving stale cache: trId={}", e.getMessage(), convertedTrId);
+                return cachedResponse(cached.body(), CACHE_STALE);
+            }
+            throw e;
+        }
+    }
+
+    /** 캐시/rate limit 을 거치지 않는 순수 HTTP 호출. 실패는 전부 {@link KisApiException} 으로 정규화된다. */
+    private <T> ResponseEntity<T> exchange(
+            String url,
+            String endpoint,
+            HttpMethod method,
+            String convertedTrId,
+            String kisToken,
+            String appKey,
+            String appSecret,
+            Object requestBody,
+            Class<T> responseType
+    ) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("authorization", "Bearer " + kisToken);
@@ -146,6 +244,38 @@ public class KisApiClient {
             log.error("KIS API call failed: {} {}", method, endpoint, e);
             throw KisApiException.serverError("KIS API call failed: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * 이 호출이 캐시 대상인지. GET 만 대상이다 — POST 는 주문/취소 같은 부작용 있는 요청이라
+     * 캐시하면 "주문이 나간 것처럼 보이지만 실제로는 안 나간" 상태가 만들어진다.
+     *
+     * @return 캐시 비활성이거나 allowlist 밖의 TR 이면 null
+     */
+    private CachePolicy cachePolicyFor(HttpMethod method, String trId) {
+        if (responseCache == null || resilienceProperties == null || !HttpMethod.GET.equals(method)) {
+            return null;
+        }
+        return resilienceProperties.getCache().policyFor(trId);
+    }
+
+    /**
+     * KIS 는 HTTP 200 이면서 본문 {@code rt_cd} 로 성공/실패를 알린다. 성공(0)만 캐시한다 —
+     * 오류 본문을 캐시하면 TTL 동안 같은 오류를 되돌려주고 stale 폴백까지 오염된다.
+     */
+    private boolean isSuccessBody(Object body) {
+        return body instanceof Map<?, ?> map && "0".equals(String.valueOf(map.get("rt_cd")));
+    }
+
+    private <T> ResponseEntity<T> cachedResponse(T body, String cacheStatus) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(CACHE_HEADER, cacheStatus);
+        return new ResponseEntity<>(body, headers, HttpStatus.OK);
+    }
+
+    /** 이 응답이 신선하지 않은 캐시(stale)에서 나왔는지 — 호출부가 "최신 아님" 안내를 붙일 때 쓴다. */
+    public static boolean isStale(ResponseEntity<?> response) {
+        return response != null && CACHE_STALE.equals(response.getHeaders().getFirst(CACHE_HEADER));
     }
 
     /**
