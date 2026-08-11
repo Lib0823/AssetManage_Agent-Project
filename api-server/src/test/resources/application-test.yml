@@ -68,6 +68,13 @@ kis:
     enabled: false
     fills:
       enabled: false
+  # 기본 `test` 태스크는 Redis 없이 도는 단위/컨텍스트 테스트다. 켜두면 매 호출마다
+  # localhost:6379 연결 시도 → 타임아웃(1s)만큼 느려진다. 실제 경로는 `./gradlew redisTest`로 검증.
+  resilience:
+    rate-limit:
+      enabled: false
+    cache:
+      enabled: false
 
 dart:
   api-key: ""

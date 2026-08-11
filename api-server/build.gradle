@@ -39,6 +39,10 @@ dependencies {
     // 동기 HTTP(/internal/**) 경로의 "실패 시 주문 영구 유실"을 대체한다.
     implementation 'org.springframework.kafka:spring-kafka'
 
+    // Redis — KIS API 토큰 버킷(rate limit) + 시세/재무 응답 캐시(stale-if-error).
+    // 인스턴스가 여러 개여도 버킷/캐시가 하나로 공유되어야 하므로 프로세스 메모리를 쓰지 않는다.
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
     // JWT Authentication
     implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.3'
@@ -86,12 +90,16 @@ dependencies {
 
     // Kafka 매매 주문 컨슈머 통합 테스트 전용 (Docker 필요, `kafkaTest`로만 실행).
     testImplementation 'org.testcontainers:kafka:1.21.4'
+
+    // KIS rate limit / 응답 캐시 통합 테스트 전용 (Docker 필요, `redisTest`로만 실행).
+    testImplementation 'org.testcontainers:testcontainers:1.21.4'
 }
 
 tasks.named('test') {
     useJUnitPlatform {
         excludeTags 'timescaledb'
         excludeTags 'kafka'
+        excludeTags 'redis'
     }
     finalizedBy jacocoTestReport
 }
@@ -116,6 +124,19 @@ tasks.register('kafkaTest', Test) {
     group = 'verification'
     useJUnitPlatform {
         includeTags 'kafka'
+    }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    shouldRunAfter test
+}
+
+// KIS rate limit(토큰 버킷) · 응답 캐시(stale-if-error) 통합 테스트. 실제 Redis 컨테이너를
+// 띄우므로 기본 `test`에서 제외한다 — kafkaTest/timescaledbTest 와 동일한 이유.
+tasks.register('redisTest', Test) {
+    description = 'Runs KIS rate-limit / response-cache integration tests (requires Docker).'
+    group = 'verification'
+    useJUnitPlatform {
+        includeTags 'redis'
     }
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath

@@ -4,6 +4,7 @@ import com.inbeom.apiserver.client.KisApiClient;
 import com.inbeom.apiserver.domain.TradeHistory;
 import com.inbeom.apiserver.dto.kafka.TradeOrderRequestMessage;
 import com.inbeom.apiserver.exception.KisApiException;
+import com.inbeom.apiserver.exception.KisRateLimitExceededException;
 import com.inbeom.apiserver.repository.TradeHistoryRepository;
 import com.inbeom.apiserver.service.KisAuthService;
 import com.inbeom.apiserver.service.TradeOrderIdempotencyService;
@@ -363,6 +364,85 @@ class TradeOrderConsumerIntegrationTest {
         assertThat(awaitMessage(TradeOrderTopics.RESULT, key)).contains("\"status\":\"FAILED\"");
 
         Mockito.reset(idempotencyService);
+    }
+
+    // ==================================================================
+    // (f) 자체 rate limit 거부 — KIS 미접촉이므로 재시도 가능(PHASE 1)
+    // ==================================================================
+
+    @Test
+    @DisplayName("(f) rate limit 거부는 재시도되고, 버킷이 회복되면 주문이 정상 체결된다")
+    void rateLimitRejectionIsRetriedAndEventuallySucceeds() {
+        String key = idempotencyKey("005490", "BUY");
+
+        // 1회차: 토큰 버킷이 KIS 로 요청을 보내기 전에 거부. 2회차(재시도): 버킷 회복 → 성공.
+        Map<String, Object> accepted = new HashMap<>();
+        accepted.put("rt_cd", "0");
+        accepted.put("output", new HashMap<>(Map.of("ODNO", "0000120000")));
+        when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
+                any(), eq(Map.class)))
+                .thenThrow(new KisRateLimitExceededException(
+                        "KIS 호출 한도를 초과해 요청을 보내지 않았습니다 (trId=VTTC0802U)"))
+                .thenReturn(new ResponseEntity<>(accepted, HttpStatus.OK));
+
+        publishOrder(key, "005490", "BUY", 4);
+
+        // 재시도 끝에 성공해야 한다 — 즉시 DLQ 로 유실되면 이 단언에서 걸린다.
+        TradeHistory row = awaitTradeHistory(key);
+        assertThat(row.getOrderStatus()).isEqualTo(TradeOrderIdempotencyService.STATUS_EXECUTED);
+        assertThat(row.getOrderNumber()).isEqualTo("0000120000");
+
+        assertThat(awaitMessage(TradeOrderTopics.RESULT, key)).contains("\"status\":\"SUCCESS\"");
+
+        // 재전달이 실제로 일어났음을 리스너 진입 지표(claim 호출 횟수)로 확인한다.
+        verify(idempotencyService, times(2))
+                .claim(argThat(msg -> key.equals(msg.idempotencyKey())));
+
+        // 그리고 결정적으로 — DLQ 로는 가지 않았다. PHASE 2 로 오분류되면 1회차에서 즉시 실렸을 것이다.
+        assertThat(findMessage(TradeOrderTopics.DLQ, key))
+                .as("rate limit 거부는 확정 실패가 아니므로 DLQ 로 가면 안 된다")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("(f-2) rate limit 이 계속되면 '재시도 소진'으로 DLQ 에 가고, 즉시 DLQ(PHASE 2) 가 아니다")
+    void persistentRateLimitExhaustsRetriesInsteadOfImmediateDlq() {
+        String key = idempotencyKey("009150", "SELL");
+
+        when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
+                any(), eq(Map.class)))
+                .thenThrow(new KisRateLimitExceededException(
+                        "KIS 호출 한도를 초과해 요청을 보내지 않았습니다 (trId=VTTC0801U)"));
+
+        publishOrder(key, "009150", "SELL", 6);
+
+        String dlq = awaitMessage(TradeOrderTopics.DLQ, key, Duration.ofSeconds(60));
+
+        // PHASE 1 경로(재시도 소진 → DlqRecoverer)로 들어왔음을 사유 문구와 retryCount 로 구분한다.
+        // PHASE 2 로 오분류됐다면 "KIS 호출 단계 실패" + retryCount=0 이 찍혔을 것이다.
+        assertThat(dlq).contains("재시도 소진");
+        assertThat(dlq).doesNotContain("KIS 호출 단계 실패");
+        assertThat(dlq).contains("\"retryCount\":" + RETRY_MAX_ATTEMPTS);
+
+        assertThat(claimCountFor(key))
+                .as("최초 1회 + 재시도 %d회 만큼 재전달되어야 한다", RETRY_MAX_ATTEMPTS)
+                .isEqualTo(RETRY_MAX_ATTEMPTS + 1);
+
+        // 선점 행이 매번 반납되므로, 재시도가 "이전 시도가 PENDING" 으로 막히지 않는다.
+        // 반납이 빠지면 2회차부터 claim 이 duplicate 로 끊겨 위 재전달 횟수 단언이 무의미해진다.
+        assertThat(tradeHistoryRepository.findByIdempotencyKey(key))
+                .as("KIS 를 건드리지 않았으므로 PENDING 잔여 행이 남아서는 안 된다")
+                .isEmpty();
+    }
+
+    private long claimCountFor(String key) {
+        return Mockito.mockingDetails(idempotencyService).getInvocations().stream()
+                .filter(inv -> "claim".equals(inv.getMethod().getName()))
+                .filter(inv -> {
+                    Object arg = inv.getArgument(0);
+                    return arg instanceof TradeOrderRequestMessage msg && key.equals(msg.idempotencyKey());
+                })
+                .count();
     }
 
     // ==================================================================
