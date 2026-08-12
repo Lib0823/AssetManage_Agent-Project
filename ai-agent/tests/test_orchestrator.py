@@ -514,6 +514,41 @@ class TestCompletePipeline:
         assert env.order_log.index('gemini') < env.order_log.index('safety')
         assert env.order_log.index('safety') < env.order_log.index('execute')
 
+    async def test_user_lookup_failures_surface_in_the_result(self, env):
+        """유저 조회 실패는 '잔고 0/보유 없음' 과 구분돼 결과에 남아야 한다."""
+        env.internal.degradations = [
+            {'operation': 'get_user_portfolio', 'user_id': 2, 'reason': 'HTTP 429'},
+        ]
+
+        result = await env.orchestrator.run_complete_pipeline(date(2026, 8, 5))
+
+        assert result['internal_api_failures'] == [
+            {'operation': 'get_user_portfolio', 'user_id': 2, 'reason': 'HTTP 429'},
+        ]
+
+    async def test_clean_run_reports_no_lookup_failures(self, env):
+        env.internal.degradations = []
+
+        result = await env.orchestrator.run_complete_pipeline(date(2026, 8, 5))
+
+        assert result['internal_api_failures'] == []
+
+    async def test_lookup_failures_survive_an_aborted_pipeline(self, env):
+        env.internal.degradations = [
+            {'operation': 'get_active_auto_trading_users', 'user_id': None, 'reason': 'HTTP 503'},
+        ]
+        env.kis.is_market_open = AsyncMock(return_value=False)
+
+        result = await env.orchestrator.run_complete_pipeline(date(2026, 8, 15))
+
+        assert result['success'] is False
+        assert len(result['internal_api_failures']) == 1
+
+    async def test_previous_run_failures_are_reset(self, env):
+        await env.orchestrator.run_complete_pipeline(date(2026, 8, 5))
+
+        env.internal.reset_degradations.assert_called()
+
     async def test_dataframe_is_stripped_from_api_response(self, env):
         result = await env.orchestrator.run_complete_pipeline(date(2026, 8, 5))
 

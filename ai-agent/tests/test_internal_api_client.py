@@ -69,6 +69,24 @@ def patch_session(session):
     )
 
 
+class FakeSequenceSession(FakeSession):
+    """호출마다 다른 응답을 돌려주는 세션 스텁 (재시도 경로 검증용)."""
+
+    def __init__(self, responses):
+        super().__init__()
+        self._responses = list(responses)
+
+    def _handle(self, method, url, kwargs):
+        self.requests.append({'method': method, 'url': url, **kwargs})
+        return self._responses[min(len(self.requests) - 1, len(self._responses) - 1)]
+
+
+@pytest.fixture(autouse=True)
+def no_retry_backoff(monkeypatch):
+    """재시도 대기시간 제거 — 테스트는 시도 횟수만 검증한다."""
+    monkeypatch.setattr(InternalApiClient, 'RETRY_BACKOFF_SECONDS', (0, 0))
+
+
 @pytest.fixture
 def client():
     return InternalApiClient(base_url='http://api-server:7070/', api_key='secret-key')
@@ -271,6 +289,97 @@ class TestGetUserPortfolio:
             portfolio = await client.get_user_portfolio(1)
 
         assert portfolio == EMPTY_PORTFOLIO
+
+
+class TestFailureIsDistinguishableFromEmpty:
+    """"조회 실패로 비었다"와 "실제로 보유/잔고가 0이다"는 구분돼야 한다.
+
+    반환값만 보면 둘 다 빈 리스트/현금 0 이라, 그대로 두면 cash=0 → 매수 스킵,
+    holdings=[] → 매도 후보 전멸이 조용히 일어난다.
+    """
+
+    async def test_rate_limited_users_fetch_is_retried_then_recorded(self, client):
+        session = FakeSession(FakeResponse(429, {'message': 'slow down'}))
+        with patch_session(session):
+            assert await client.get_active_auto_trading_users() == []
+
+        assert len(session.requests) == 3  # 일시적 실패 → 재시도
+        assert len(client.degradations) == 1
+        assert client.degradations[0]['operation'] == 'get_active_auto_trading_users'
+        assert '429' in client.degradations[0]['reason']
+
+    async def test_server_error_is_retried(self, client):
+        session = FakeSession(FakeResponse(503, {}))
+        with patch_session(session):
+            await client.get_active_auto_trading_users()
+
+        assert len(session.requests) == 3
+
+    async def test_auth_error_is_not_retried_but_is_recorded(self, client):
+        """401/403 은 재시도해도 결과가 같다 — 즉시 포기하되 실패로 남긴다."""
+        session = FakeSession(FakeResponse(401, {}))
+        with patch_session(session):
+            await client.get_active_auto_trading_users()
+
+        assert len(session.requests) == 1
+        assert '401' in client.degradations[0]['reason']
+
+    async def test_transient_failure_recovers_on_retry(self, client):
+        session = FakeSequenceSession([
+            FakeResponse(500, {}),
+            FakeResponse(200, {'data': [{'user_id': 1}]}),
+        ])
+        with patch_session(session):
+            users = await client.get_active_auto_trading_users()
+
+        assert users == [{'user_id': 1}]
+        assert client.degradations == []  # 최종 성공은 degrade 가 아니다
+
+    async def test_genuinely_empty_result_is_not_a_degradation(self, client):
+        session = FakeSession(FakeResponse(200, {'data': []}))
+        with patch_session(session):
+            assert await client.get_active_auto_trading_users() == []
+
+        assert client.degradations == []
+
+    async def test_holdings_failure_records_the_user(self, client):
+        session = FakeSession(FakeResponse(429, {}))
+        with patch_session(session):
+            assert await client.get_user_holdings(42) == []
+
+        assert client.degradations[0]['operation'] == 'get_user_holdings'
+        assert client.degradations[0]['user_id'] == 42
+
+    async def test_portfolio_failure_records_the_user(self, client):
+        session = FakeSession(FakeResponse(500, {}))
+        with patch_session(session):
+            assert await client.get_user_portfolio(7) == EMPTY_PORTFOLIO
+
+        assert client.degradations[0]['operation'] == 'get_user_portfolio'
+        assert client.degradations[0]['user_id'] == 7
+
+    async def test_empty_portfolio_from_a_200_is_not_a_degradation(self, client):
+        session = FakeSession(FakeResponse(200, {'data': {'holdings': []}}))
+        with patch_session(session):
+            await client.get_user_portfolio(7)
+
+        assert client.degradations == []
+
+    async def test_network_error_is_recorded(self, client):
+        session = FakeSession(exc=aiohttp.ClientConnectionError('refused'))
+        with patch_session(session):
+            await client.get_user_holdings(1)
+
+        assert 'ClientConnectionError' in client.degradations[0]['reason']
+
+    async def test_reset_clears_recorded_failures(self, client):
+        session = FakeSession(FakeResponse(500, {}))
+        with patch_session(session):
+            await client.get_user_holdings(1)
+
+        client.reset_degradations()
+
+        assert client.degradations == []
 
 
 class TestTradeExecution:
