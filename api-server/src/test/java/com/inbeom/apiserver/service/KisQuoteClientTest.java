@@ -1,6 +1,7 @@
 package com.inbeom.apiserver.service;
 
 import com.inbeom.apiserver.client.KisApiClient;
+import com.inbeom.apiserver.exception.KisRateLimitExceededException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -94,6 +95,35 @@ class KisQuoteClientTest {
 
         // Then
         assertThat(kisQuoteClient.unavailableNotice()).isEqualTo(KisQuoteClient.NOTICE_KIS_QUOTE);
+    }
+
+    @Test
+    @DisplayName("unavailableNotice - 우리 쪽 rate limit 거부는 'KIS 점검'이 아니라 별도 문구로 안내한다")
+    void unavailableNotice_RateLimitedUsesOwnMessage() {
+        // Given: 키는 정상. 실패 원인이 자체 토큰 버킷일 뿐 KIS 는 멀쩡하다.
+        when(kisQuoteService.isQuoteEnabled()).thenReturn(true);
+
+        // When / Then
+        assertThat(kisQuoteClient.unavailableNotice(true))
+                .isEqualTo(KisQuoteClient.NOTICE_KIS_BUSY)
+                .isNotEqualTo(KisQuoteClient.NOTICE_KIS_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("fetchCurrentPriceResult - rate limit 거부는 결과에 원인으로 표시된다")
+    void fetchCurrentPriceResult_RateLimited_IsReported() {
+        // Given
+        stubQuoteEnabled();
+        when(kisApiClient.get(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyMap(), eq(Map.class)))
+                .thenThrow(new KisRateLimitExceededException("KIS 호출 한도를 초과해 요청을 보내지 않았습니다"));
+
+        // When
+        KisQuoteClient.QuoteResult result = kisQuoteClient.fetchCurrentPriceResult(STOCK_CODE);
+
+        // Then: 값은 없지만 원인이 "KIS 장애"가 아니라 "우리 쪽 한도"임이 구분된다.
+        assertThat(result.data()).isNull();
+        assertThat(result.rateLimited()).isTrue();
     }
 
     @Test

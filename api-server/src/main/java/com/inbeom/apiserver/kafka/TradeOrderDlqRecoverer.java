@@ -24,6 +24,10 @@ import java.nio.ByteBuffer;
  *
  * <p>여기까지 온 실패는 정의상 "KIS 를 호출하기 전" 단계의 인프라 오류다 — 컨슈머는 KIS 호출
  * 이후에는 예외를 밖으로 던지지 않기 때문이다.
+ *
+ * <p><b>DLQ 발행만은 확인 발행</b>({@code publishDlqOrThrow})을 쓴다. 이 지점에서 DLQ 메시지는
+ * 주문의 마지막 흔적이라, 발행 실패를 삼키고 정상 반환하면 {@code setCommitRecovered(true)} 가
+ * 오프셋을 커밋해 원본 주문이 어디에도 남지 않는다. 예외를 던지면 커밋되지 않아 재전달된다.
  */
 @Slf4j
 @Component
@@ -47,7 +51,7 @@ public class TradeOrderDlqRecoverer implements ConsumerRecordRecoverer {
         if (request == null) {
             log.error("Trade order recovery failed and payload is unparseable. offset={}, payload={}",
                     record.offset(), record.value(), exception);
-            publisher.publishDlq(TradeOrderDlqMessage.unparseable(
+            publisher.publishDlqOrThrow(TradeOrderDlqMessage.unparseable(
                     reason + " / 원문: " + String.valueOf(record.value())));
             return;
         }
@@ -57,7 +61,7 @@ public class TradeOrderDlqRecoverer implements ConsumerRecordRecoverer {
 
         // ai-agent 가 결과를 영영 기다리지 않도록 FAILED 결과도 발행한다.
         publisher.publishResult(TradeOrderResultMessage.failed(request, reason));
-        publisher.publishDlq(request, reason, retryCount);
+        publisher.publishDlqOrThrow(request, reason, retryCount);
     }
 
     private TradeOrderRequestMessage tryParse(ConsumerRecord<?, ?> record) {

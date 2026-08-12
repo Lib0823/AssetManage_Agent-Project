@@ -138,7 +138,10 @@ kis:
       # KIS 공식 제한 수치는 문서로 확정되지 않았다. ai-agent 가 이미 쓰는 관례
       # (asyncio.Semaphore(5) = 5 req/sec)와 맞춘 보수적 기본값이며, 실제 한도가 확인되면 조정한다.
       # capacity = 순간 버스트 허용량, refill-per-second = 초당 충전 토큰 수.
-      capacity: ${KIS_RATE_LIMIT_CAPACITY:5}
+      # capacity 를 refill 의 2배로 두는 이유: 종목 상세 재무 탭이 한 번에 4연속 호출을 내는데,
+      # 둘을 같게 두면 그 묶음이 버킷을 비워 다른 사용자의 첫 조회가 곧바로 거부된다.
+      # 지속 호출률은 refill 이 결정하므로 KIS 에 대한 부하 상한은 그대로다.
+      capacity: ${KIS_RATE_LIMIT_CAPACITY:10}
       refill-per-second: ${KIS_RATE_LIMIT_REFILL:5}
     cache:
       enabled: ${KIS_CACHE_ENABLED:true}

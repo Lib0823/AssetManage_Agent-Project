@@ -5,6 +5,7 @@ import com.inbeom.apiserver.client.KisApiClient;
 import com.inbeom.apiserver.dto.company.BasicInfoResponse;
 import com.inbeom.apiserver.dto.company.DisclosuresResponse;
 import com.inbeom.apiserver.dto.company.FinancialsResponse;
+import com.inbeom.apiserver.exception.KisRateLimitExceededException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -98,7 +99,7 @@ class CompanyInfoServiceTest {
      */
     private void stubPrice(Map<String, Object> output) {
         when(kisQuoteClient.fetchCurrentPriceResult(STOCK_CODE))
-                .thenReturn(new KisQuoteClient.QuoteResult(output, false));
+                .thenReturn(new KisQuoteClient.QuoteResult(output, false, false));
     }
 
     private ResponseEntity<Map> kisOk(List<Map<String, Object>> output) {
@@ -162,7 +163,7 @@ class CompanyInfoServiceTest {
     void getBasicInfo_BothUnavailable_JoinsNotices() {
         // Given
         stubPrice(null);
-        when(kisQuoteClient.unavailableNotice()).thenReturn(KisQuoteClient.NOTICE_KIS_QUOTE);
+        when(kisQuoteClient.unavailableNotice(false)).thenReturn(KisQuoteClient.NOTICE_KIS_QUOTE);
         when(dartApiClient.isEnabled()).thenReturn(false);
         when(dartApiClient.getCorpCode(STOCK_CODE)).thenReturn(null);
 
@@ -320,7 +321,7 @@ class CompanyInfoServiceTest {
         // Given
         when(kisQuoteService.isQuoteEnabled()).thenReturn(false);
         stubPrice(null);
-        when(kisQuoteClient.unavailableNotice()).thenReturn(KisQuoteClient.NOTICE_KIS_QUOTE);
+        when(kisQuoteClient.unavailableNotice(false)).thenReturn(KisQuoteClient.NOTICE_KIS_QUOTE);
 
         // When
         FinancialsResponse result = companyInfoService.getFinancials(STOCK_CODE);
@@ -334,13 +335,52 @@ class CompanyInfoServiceTest {
     }
 
     @Test
+    @DisplayName("getFinancials - 자체 rate limit 으로 degrade 되면 'KIS 점검'이 아니라 한도 문구로 안내한다")
+    void getFinancials_RateLimited_UsesBusyNotice() {
+        // Given: 재무 4개 호출이 전부 우리 쪽 토큰 버킷에 걸린다. KIS 는 멀쩡하므로
+        // "KIS 점검 또는 일시적 연동 오류" 라고 안내하면 원인을 잘못 알리는 셈이다.
+        enableQuote();
+        when(kisApiClient.get(anyString(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+                .thenThrow(new KisRateLimitExceededException("KIS 호출 한도를 초과해 요청을 보내지 않았습니다"));
+        when(kisQuoteClient.fetchCurrentPriceResult(STOCK_CODE))
+                .thenReturn(new KisQuoteClient.QuoteResult(null, false, true));
+        when(kisQuoteClient.unavailableNotice(true)).thenReturn(KisQuoteClient.NOTICE_KIS_BUSY);
+
+        // When
+        FinancialsResponse result = companyInfoService.getFinancials(STOCK_CODE);
+
+        // Then
+        assertThat(result.getAnnual()).isEmpty();
+        assertThat(result.getNotice()).isEqualTo(KisQuoteClient.NOTICE_KIS_BUSY);
+    }
+
+    @Test
+    @DisplayName("getBasicInfo - 시세가 자체 rate limit 으로 비면 한도 문구로 안내한다")
+    void getBasicInfo_RateLimited_UsesBusyNotice() {
+        // Given
+        when(kisQuoteClient.fetchCurrentPriceResult(STOCK_CODE))
+                .thenReturn(new KisQuoteClient.QuoteResult(null, false, true));
+        when(kisQuoteClient.unavailableNotice(true)).thenReturn(KisQuoteClient.NOTICE_KIS_BUSY);
+        when(dartApiClient.isEnabled()).thenReturn(true);
+        when(dartApiClient.getCorpCode(STOCK_CODE)).thenReturn(null);
+
+        // When
+        BasicInfoResponse result = companyInfoService.getBasicInfo(STOCK_CODE);
+
+        // Then
+        assertThat(result.getCurrentPrice()).isNull();
+        assertThat(result.getNotice()).isEqualTo(KisQuoteClient.NOTICE_KIS_BUSY);
+    }
+
+    @Test
     @DisplayName("getFinancials - 토큰 획득 실패 시 재무 호출 없이 degrade")
     void getFinancials_TokenUnavailable_Degrades() {
         // Given
         when(kisQuoteService.isQuoteEnabled()).thenReturn(true);
         when(kisQuoteService.getQuoteAccessToken()).thenReturn(null);
         stubPrice(null);
-        when(kisQuoteClient.unavailableNotice()).thenReturn(KisQuoteClient.NOTICE_KIS_UNAVAILABLE);
+        when(kisQuoteClient.unavailableNotice(false)).thenReturn(KisQuoteClient.NOTICE_KIS_UNAVAILABLE);
 
         // When
         FinancialsResponse result = companyInfoService.getFinancials(STOCK_CODE);
@@ -360,7 +400,7 @@ class CompanyInfoServiceTest {
                 anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(kisError());
         stubPrice(null);
-        when(kisQuoteClient.unavailableNotice()).thenReturn(KisQuoteClient.NOTICE_KIS_UNAVAILABLE);
+        when(kisQuoteClient.unavailableNotice(false)).thenReturn(KisQuoteClient.NOTICE_KIS_UNAVAILABLE);
 
         // When
         FinancialsResponse result = companyInfoService.getFinancials(STOCK_CODE);

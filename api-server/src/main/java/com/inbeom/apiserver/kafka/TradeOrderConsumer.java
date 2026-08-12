@@ -157,7 +157,7 @@ public class TradeOrderConsumer {
             // "도달 여부 불확실"로 DLQ 를 태우고, 재시도가 무의미해진다.
             log.warn("Trade order rate-limited before reaching KIS (will retry): key={}",
                     request.idempotencyKey());
-            idempotencyService.release(claim.tradeHistoryId());
+            safelyRelease(claim.tradeHistoryId());
             throw e;
 
         } catch (Exception e) {
@@ -169,6 +169,19 @@ public class TradeOrderConsumer {
             safelyMarkFailed(claim.tradeHistoryId());
             publisher.publishResult(TradeOrderResultMessage.failed(request, reason));
             publisher.publishDlq(request, "KIS 호출 단계 실패 (재시도 안 함, 실제 체결 여부 대조 필요): " + reason, 0);
+        }
+    }
+
+    /**
+     * 선점 반납이 실패해도 {@link KisRateLimitExceededException} 이 그대로 위로 가게 한다.
+     * 반납 실패 예외가 대신 새어 나가면 재전달 시 {@code claim()} 이 남은 PENDING 을 발견해
+     * "KIS 도달 여부 불확실"로 DLQ 를 태우는데, 실제로는 소켓조차 열리지 않았으므로 사유가 틀린다.
+     */
+    private void safelyRelease(Long tradeHistoryId) {
+        try {
+            idempotencyService.release(tradeHistoryId);
+        } catch (Exception e) {
+            log.error("Failed to release claimed trade_history (id={}); row stays PENDING.", tradeHistoryId, e);
         }
     }
 
