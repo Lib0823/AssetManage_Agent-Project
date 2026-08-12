@@ -65,7 +65,7 @@ class KisRateLimitAndCacheIntegrationTest {
     static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
             .withExposedPorts(6379);
 
-    /** 운영 기본값과 동일. 초과 호출이 실제로 막히는지 보려면 이 값이 낮아야 관측 가능하다. */
+    /** 초과 호출이 실제로 막히는지 보려면 값이 낮아야 관측 가능하다(운영 기본은 capacity 10 / refill 5). */
     private static final int CAPACITY = 5;
 
     /** 캐시 만료 후 재호출을 현실적인 시간에 검증하려고 짧게 줄인다(운영 30초). */

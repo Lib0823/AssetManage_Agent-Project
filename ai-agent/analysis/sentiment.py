@@ -6,6 +6,7 @@ Two-track sentiment analysis using KR-FinBERT:
 
 Output: 1 feature per stock (sentiment_score)
 """
+import asyncio
 import pandas as pd
 from typing import List, Dict
 from datetime import datetime
@@ -101,8 +102,9 @@ class SentimentAnalyzer:
                 else:
                     # Time-weighted sentiment + per-article scores (single inference pass).
                     # sentiment_score 는 기존 analyze_multiple_time_weighted 와 동일한 값.
-                    sentiment_score, per_scores = (
-                        self.kr_finbert.analyze_multiple_time_weighted_with_scores(articles)
+                    # 추론은 동기 CPU 작업이라 스레드로 넘긴다(이벤트 루프 블로킹 방지).
+                    sentiment_score, per_scores = await asyncio.to_thread(
+                        self.kr_finbert.analyze_multiple_time_weighted_with_scores, articles
                     )
                     news_count = len(articles)  # 실제 분석에 사용된 기사 수
 
@@ -192,8 +194,13 @@ class SentimentAnalyzer:
                 logger.warning("No market news collected, using neutral sentiment")
                 return 0.0, 0
 
-            # Simple average for market sentiment
-            market_score = self.kr_finbert.analyze_multiple_simple_average(articles)
+            # Simple average for market sentiment.
+            # 이 트랙은 기사 수 상한이 없다(RSS 전체 수집). 동기 추론을 그대로 await 없이
+            # 돌리면 수십~백 건의 연속 추론이 이벤트 루프를 한 블록으로 붙잡아,
+            # Kafka 하트비트 태스크가 실행 기회를 잃고 컨슈머가 그룹에서 이탈할 수 있다.
+            market_score = await asyncio.to_thread(
+                self.kr_finbert.analyze_multiple_simple_average, articles
+            )
 
             logger.info(f"Market sentiment score: {market_score:.4f} (from {len(articles)} articles)")
 

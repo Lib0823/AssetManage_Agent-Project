@@ -17,6 +17,7 @@ import com.inbeom.apiserver.dto.trade.TradeHistoryResponse;
 import com.inbeom.apiserver.exception.BusinessException;
 import com.inbeom.apiserver.exception.ErrorCode;
 import com.inbeom.apiserver.exception.KisApiException;
+import com.inbeom.apiserver.exception.KisRateLimitExceededException;
 import com.inbeom.apiserver.exception.UserNotFoundException;
 import com.inbeom.apiserver.repository.TradeExecutionPlanRepository;
 import com.inbeom.apiserver.repository.TradeHistoryRepository;
@@ -989,6 +990,43 @@ class TradingServiceTest {
         assertThat(result.getMaxBuyQuantity()).isZero();
         assertThat(result.getOrderableCash()).isZero();
         assertThat(result.getNotice()).isNull();
+    }
+
+    @Test
+    @DisplayName("getOrderable - 자체 rate limit 거부는 notice degrade 가 아니라 그대로 전파한다(4007)")
+    void getOrderable_RateLimited_Propagates() {
+        // Given: 토큰 버킷이 KIS 로 요청을 보내기 전에 거부한다.
+        // 이것까지 notice 로 삼키면 verifyBuyingPower 가 fail-open 으로 검증을 건너뛴다.
+        stubUserWithKisAccount();
+        stubKisAuth();
+        when(kisApiClient.get(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyMap(), eq(Map.class)))
+                .thenThrow(new KisRateLimitExceededException("KIS 호출 한도를 초과해 요청을 보내지 않았습니다"));
+
+        // When / Then
+        assertThatThrownBy(() -> tradingService.getOrderable(userId, "005930", new BigDecimal("70000")))
+                .isInstanceOf(KisRateLimitExceededException.class)
+                .extracting(e -> ((KisRateLimitExceededException) e).getErrorCode())
+                .isEqualTo(ErrorCode.KIS_API_RATE_LIMITED);
+    }
+
+    @Test
+    @DisplayName("executeBuy - 매수여력 조회가 rate limit 이면 주문을 내지 않는다(검증 스킵 금지)")
+    void executeBuy_OrderableRateLimited_DoesNotPlaceOrder() {
+        // Given: 지정가 매수 → verifyBuyingPower 가 getOrderable 을 부르는데 그 GET 이 rate limit 에 걸린다.
+        stubUserWithKisAccount();
+        stubKisAuth();
+        when(kisApiClient.get(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyMap(), eq(Map.class)))
+                .thenThrow(new KisRateLimitExceededException("KIS 호출 한도를 초과해 요청을 보내지 않았습니다"));
+
+        // When / Then: fail-open 으로 통과시키면 검증 없이 주문(POST)이 나간다.
+        assertThatThrownBy(() -> tradingService.executeBuy(
+                userId, kisAccountId, "005930", "삼성전자", 10, new BigDecimal("70000")))
+                .isInstanceOf(KisRateLimitExceededException.class);
+
+        verify(kisApiClient, never()).post(
+                anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
     }
 
     @Test

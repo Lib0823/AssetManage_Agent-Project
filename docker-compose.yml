@@ -56,6 +56,10 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       # 매매 주문은 사후 대조가 필요하므로 기본 7일보다 넉넉히 30일 보관.
       KAFKA_LOG_RETENTION_HOURS: 720
+      # 이미지 기본 log.dirs 는 /tmp/kraft-combined-logs 이며 아래 volumes 마운트(/var/lib/kafka/data)와
+      # 다르다. 지정하지 않으면 볼륨이 비어있는 채로 마운트만 되고 실제 로그는 컨테이너 writable
+      # layer 에 쓰여 `docker compose down` 한 번에 DLQ 를 포함한 전체 토픽 데이터가 소실된다.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
       CLUSTER_ID: financemanage-kafka-cluster
       TZ: Asia/Seoul
     ports:

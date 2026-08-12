@@ -176,6 +176,85 @@ class TestSentimentAnalyzer:
             assert result.loc[0, 'sentiment_score'] == 0.0
 
 
+def _analyzer_without_model():
+    """KR-FinBERT 로딩 없이 SentimentAnalyzer 를 만든다 (추론은 스텁으로 대체)."""
+    analyzer = SentimentAnalyzer.__new__(SentimentAnalyzer)
+    analyzer.kr_finbert = Mock()
+    analyzer.last_market_sentiment = 0.0
+    analyzer.last_market_news_count = 0
+    analyzer.last_stock_news = {}
+    return analyzer
+
+
+class TestEventLoopIsNotBlockedByInference:
+    """KR-FinBERT 추론이 이벤트 루프를 붙잡으면 안 된다.
+
+    기사 수 상한이 없는 시장 전반 트랙(RSS 전체)은 기사가 100건 남짓이면 단일 연속
+    블록이 Kafka `session_timeout_ms`(10초)를 넘길 수 있다. 그동안 하트비트 태스크가
+    실행 기회를 못 얻으면 컨슈머가 그룹에서 이탈한다.
+    """
+
+    BLOCKING_SECONDS = 0.2
+    HEARTBEAT_INTERVAL = 0.01
+
+    async def _count_heartbeats_during(self, coro):
+        """coro 를 기다리는 동안 이벤트 루프가 몇 번 돌았는지 센다."""
+        import asyncio
+
+        beats = []
+
+        async def _heartbeat():
+            while True:
+                beats.append(1)
+                await asyncio.sleep(self.HEARTBEAT_INTERVAL)
+
+        task = asyncio.create_task(_heartbeat())
+        try:
+            result = await coro
+        finally:
+            task.cancel()
+        return result, len(beats)
+
+    async def test_market_track_inference_runs_off_the_event_loop(self):
+        import time
+
+        analyzer = _analyzer_without_model()
+        analyzer.kr_finbert.analyze_multiple_simple_average = Mock(
+            side_effect=lambda articles: (time.sleep(self.BLOCKING_SECONDS), 0.5)[1]
+        )
+        collector = Mock()
+        collector.collect_market_news = AsyncMock(
+            return_value=[{'title': 'a', 'content': 'b'}] * 3
+        )
+
+        (score, count), beats = await self._count_heartbeats_during(
+            analyzer._analyze_market_sentiment(collector)
+        )
+
+        assert score == 0.5
+        assert count == 3
+        assert beats >= 5, f"이벤트 루프가 추론 동안 멈췄다 (heartbeats={beats})"
+
+    async def test_stock_track_inference_runs_off_the_event_loop(self):
+        import time
+
+        analyzer = _analyzer_without_model()
+        analyzer.kr_finbert.analyze_multiple_time_weighted_with_scores = Mock(
+            side_effect=lambda articles: (time.sleep(self.BLOCKING_SECONDS), (0.4, [0.4]))[1]
+        )
+        collector = Mock()
+        collector.collect_stock_news = AsyncMock(
+            return_value=[{'title': 'a', 'content': 'b', 'published': datetime.now()}]
+        )
+
+        df, beats = await self._count_heartbeats_during(
+            analyzer._analyze_stock_specific(['005930'], collector)
+        )
+
+        assert df.loc[0, 'sentiment_score'] == 0.4
+        assert beats >= 5, f"이벤트 루프가 추론 동안 멈췄다 (heartbeats={beats})"
+
+
 class TestFeatureValidation:
     """Test sentiment feature validation."""
 

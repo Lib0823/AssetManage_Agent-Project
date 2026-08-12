@@ -29,6 +29,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -49,6 +50,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -137,6 +139,10 @@ class TradeOrderConsumerIntegrationTest {
     /** PHASE 1(인프라 오류) 시뮬레이션용 — 실제 빈을 감싸서 특정 키에만 예외를 주입한다. */
     @MockitoSpyBean
     private TradeOrderIdempotencyService idempotencyService;
+
+    /** 브로커 측 발행 실패 시뮬레이션용 — 특정 send 만 실패 future 로 바꿔치기한다. */
+    @MockitoSpyBean(name = "tradeOrderKafkaTemplate")
+    private KafkaTemplate<String, String> tradeOrderKafkaTemplate;
 
     private static KafkaProducer<String, String> producer;
     private static KafkaConsumer<String, String> outputConsumer;
@@ -364,6 +370,49 @@ class TradeOrderConsumerIntegrationTest {
         assertThat(awaitMessage(TradeOrderTopics.RESULT, key)).contains("\"status\":\"FAILED\"");
 
         Mockito.reset(idempotencyService);
+    }
+
+    @Test
+    @DisplayName("(d-2) DLQ 발행이 실패하면 오프셋이 커밋되지 않고 재전달된다 — 주문이 흔적 없이 사라지지 않는다")
+    void dlqPublishFailureIsNotCommittedAway() {
+        String key = idempotencyKey("373220", "BUY");
+
+        // PHASE 1(KIS 미접촉) 인프라 오류 → 재시도 소진 → DlqRecoverer 진입.
+        Mockito.doAnswer(invocation -> {
+            TradeOrderRequestMessage msg = invocation.getArgument(0);
+            if (key.equals(msg.idempotencyKey())) {
+                throw new QueryTimeoutException("simulated DB connection failure");
+            }
+            return invocation.callRealMethod();
+        }).when(idempotencyService).claim(any(TradeOrderRequestMessage.class));
+
+        // 첫 DLQ 발행만 브로커 측에서 실패시킨다. KafkaTemplate.send() 는 비동기라 이 실패가
+        // 예외가 아니라 future 의 실패 완료로 나타난다 — 반환값을 버리면 관측조차 되지 않는다.
+        AtomicInteger dlqSendAttempts = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            boolean isTargetDlqSend = TradeOrderTopics.DLQ.equals(invocation.getArgument(0))
+                    && key.equals(invocation.getArgument(1));
+            if (isTargetDlqSend && dlqSendAttempts.incrementAndGet() == 1) {
+                return CompletableFuture.failedFuture(
+                        new org.apache.kafka.common.errors.TimeoutException("simulated broker timeout"));
+            }
+            return invocation.callRealMethod();
+        }).when(tradeOrderKafkaTemplate).send(anyString(), anyString(), anyString());
+
+        publishOrder(key, "373220", "BUY", 1);
+
+        // 발행 실패를 삼키면 setCommitRecovered(true) 가 오프셋을 커밋해 이 메시지는 영영 오지 않는다.
+        String dlq = awaitMessage(TradeOrderTopics.DLQ, key, Duration.ofSeconds(90));
+        assertThat(dlq).contains("재시도 소진");
+
+        // 재전달이 실제로 일어났음을 리스너 진입 지표로 확인한다:
+        // (최초 1회 + 재시도 3회) × 2 사이클 = 8. 커밋돼 버렸다면 4에서 멈춘다.
+        assertThat(claimCountFor(key))
+                .as("DLQ 발행 실패 후 재전달되어 재시도 사이클이 한 번 더 돌아야 한다")
+                .isEqualTo((RETRY_MAX_ATTEMPTS + 1) * 2L);
+
+        Mockito.reset(idempotencyService);
+        Mockito.reset(tradeOrderKafkaTemplate);
     }
 
     // ==================================================================

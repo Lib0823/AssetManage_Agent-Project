@@ -5,7 +5,7 @@
 동시에 두 번 돌지 않는다.
 """
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, Optional
 
 from .consumer import KafkaConsumerWorker
@@ -21,6 +21,10 @@ class PipelineRunConsumer(KafkaConsumerWorker):
     topic = TOPIC_PIPELINE_RUN_REQUESTED
     group_id = GROUP_PIPELINE_RUNNER
 
+    # 발행 후 이 시간을 넘긴 요청은 실행하지 않는다. 08:50 트리거가 자정을 넘겨 도는
+    # 경우는 없으므로, 한 거래일 안에서 밀린 요청은 흡수하되 하루 단위 재생은 막는 폭.
+    MAX_REQUEST_AGE_HOURS = 6
+
     def __init__(self, orchestrator, **kwargs):
         """
         Args:
@@ -34,6 +38,24 @@ class PipelineRunConsumer(KafkaConsumerWorker):
 
     async def handle(self, value: Dict) -> None:
         request = PipelineRunRequest.from_message(value)
+
+        stale_reason = self._staleness_reason(request)
+        if stale_reason:
+            logger.error(
+                f"[PipelineRunConsumer] Skipping stale run request "
+                f"(trade_date={request.trade_date}, trigger={request.trigger_type}, "
+                f"requested_at={request.requested_at}): {stale_reason}"
+            )
+            self.last_run = {
+                "trade_date": request.trade_date.isoformat(),
+                "trigger_type": request.trigger_type,
+                "success": False,
+                "skipped": True,
+                "error": stale_reason,
+                "finished_at": datetime.now().isoformat(),
+            }
+            return
+
         started_at = datetime.now()
         self.current_run = request.trade_date.isoformat()
 
@@ -66,3 +88,49 @@ class PipelineRunConsumer(KafkaConsumerWorker):
                 f"[PipelineRunConsumer] Pipeline failed for {request.trade_date}: "
                 f"{(result or {}).get('error')}"
             )
+
+    def _staleness_reason(self, request: PipelineRunRequest) -> Optional[str]:
+        """재생된 오래된 요청이면 사유 문자열, 실행해도 되면 None.
+
+        ai-agent 가 하루 이상 내려가 있다 재기동하면 밀린 트리거가 순차 재생된다.
+        `is_market_open(trade_date=...)` 은 과거 평일을 정상 통과시키고, 멱등키에도
+        재생된 `tradeDate` 가 그대로 들어가 api-server 입장에선 처음 보는 키가 되므로
+        중복 방어에도 걸리지 않는다. 즉 여기서 막지 않으면 과거 날짜로 실주문이 나간다.
+
+        `date.today()` 기준으로 비교한다 — 발행 측(scheduler/트리거 엔드포인트)도
+        같은 함수로 tradeDate 를 만들기 때문에 타임존 설정과 무관하게 일관된다.
+
+        Args:
+            request: 파싱된 실행 요청.
+
+        Returns:
+            Optional[str]: 스킵 사유. 실행 가능하면 None.
+        """
+        today = date.today()
+        if request.trade_date != today:
+            return f"tradeDate {request.trade_date} is not today ({today})"
+
+        age = self._request_age(request.requested_at)
+        if age is not None and age > timedelta(hours=self.MAX_REQUEST_AGE_HOURS):
+            return (
+                f"requestedAt is {age.total_seconds() / 3600:.1f}h old "
+                f"(limit {self.MAX_REQUEST_AGE_HOURS}h)"
+            )
+        return None
+
+    @staticmethod
+    def _request_age(requested_at: Optional[str]) -> Optional[timedelta]:
+        """발행 시각으로부터 흐른 시간. 값이 없거나 파싱 불가면 None(가드 미적용).
+
+        `requestedAt` 은 계약상 선택 필드라, 없다는 이유로 실행을 막지는 않는다.
+        그 경우 tradeDate 검사만으로 재생을 걸러낸다.
+        """
+        if not requested_at:
+            return None
+        try:
+            published = datetime.fromisoformat(str(requested_at))
+        except ValueError:
+            logger.warning(f"[PipelineRunConsumer] Unparseable requestedAt: {requested_at!r}")
+            return None
+        now = datetime.now(published.tzinfo) if published.tzinfo else datetime.now()
+        return now - published

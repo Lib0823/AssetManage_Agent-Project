@@ -325,6 +325,11 @@ class PipelineOrchestrator:
             'stages': {}
         }
 
+        # 유저 조회 실패는 빈 결과로 degrade 되어 반환값으로는 정상과 구분되지 않는다
+        # (cash=0 → 매수 스킵, holdings=[] → 매도 후보 전멸). 이번 실행분만 모아
+        # 결과에 실어 보낸다.
+        self.internal_api.reset_degradations()
+
         try:
             # Stage 1: Filtering
             logger.info("[Stage 1] Stock Filtering")
@@ -566,6 +571,16 @@ class PipelineOrchestrator:
             logger.exception(error_msg)
             pipeline_result['error'] = error_msg
             return pipeline_result
+
+        finally:
+            # 어느 경로로 끝나든 조회 실패 목록은 결과에 남긴다.
+            failures = list(self.internal_api.degradations)
+            pipeline_result['internal_api_failures'] = failures
+            if failures:
+                logger.warning(
+                    f"[Pipeline] {len(failures)} user lookup(s) degraded to empty results — "
+                    f"매수/매도 후보가 실제보다 적을 수 있다: {failures}"
+                )
 
     async def _run_per_user_execution(self, features_df: pd.DataFrame, trade_date: date) -> List[Dict]:
         """

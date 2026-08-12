@@ -22,15 +22,21 @@ class KafkaConsumerWorker:
     topic: str = ""
     group_id: str = ""
 
+    # 브로커가 아직 안 떴을 때 기동을 다시 시도하는 간격 (지수 backoff, 상한 있음).
+    START_RETRY_INITIAL_SECONDS = 1.0
+    START_RETRY_MAX_SECONDS = 30.0
+
     def __init__(
         self,
         bootstrap_servers: Optional[str] = None,
         client_id: Optional[str] = None,
         auto_offset_reset: str = "earliest",
+        max_poll_interval_ms: Optional[int] = None,
     ):
         self.bootstrap_servers = bootstrap_servers or settings.kafka_bootstrap_servers
         self.client_id = client_id or settings.kafka_client_id
         self.auto_offset_reset = auto_offset_reset
+        self.max_poll_interval_ms = max_poll_interval_ms or settings.kafka_max_poll_interval_ms
         self._consumer: Optional[AIOKafkaConsumer] = None
         self.processed_count = 0
         self.failed_count = 0
@@ -53,6 +59,9 @@ class KafkaConsumerWorker:
             auto_offset_reset=self.auto_offset_reset,
             # 한 번에 1건씩만 가져와 처리 경계를 단순하게 유지한다.
             max_poll_records=1,
+            # handle() 이 파이프라인 전체를 도는 동안 fetch 가 멈춰 있어도 그룹에서
+            # 이탈하지 않게 한다 (기본 300초 → 파이프라인이 5분만 넘겨도 무한 재처리).
+            max_poll_interval_ms=self.max_poll_interval_ms,
         )
         await consumer.start()
         self._consumer = consumer
@@ -65,9 +74,33 @@ class KafkaConsumerWorker:
         await consumer.stop()
         logger.info(f"Kafka consumer stopped: topic={self.topic}")
 
+    async def _start_with_retry(self) -> None:
+        """기동에 성공할 때까지 backoff 재시도한다 (취소 시에만 중단).
+
+        브로커보다 ai-agent 가 먼저 뜨는 것은 컨테이너 재기동마다 흔한 상황이다.
+        여기서 한 번 실패하고 포기하면 컨슈머가 영영 없는 채로 프로듀서만 살아나
+        "발행은 성공하는데 아무도 소비하지 않는" 상태가 된다.
+        """
+        delay = self.START_RETRY_INITIAL_SECONDS
+        attempt = 0
+        while True:
+            try:
+                await self.start()
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                attempt += 1
+                logger.error(
+                    f"Kafka consumer start failed (topic={self.topic}, attempt={attempt}); "
+                    f"retrying in {delay:.0f}s: {e}"
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, self.START_RETRY_MAX_SECONDS)
+
     async def run(self) -> None:
         """소비 루프. 취소(shutdown)될 때까지 순차 처리한다."""
-        await self.start()
+        await self._start_with_retry()
         try:
             async for message in self._consumer:
                 await self._process(message)

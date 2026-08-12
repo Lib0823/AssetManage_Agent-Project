@@ -16,6 +16,7 @@ import com.inbeom.apiserver.dto.trade.TradeHistoryResponse;
 import com.inbeom.apiserver.exception.BusinessException;
 import com.inbeom.apiserver.exception.ErrorCode;
 import com.inbeom.apiserver.exception.KisApiException;
+import com.inbeom.apiserver.exception.KisRateLimitExceededException;
 import com.inbeom.apiserver.exception.UserNotFoundException;
 import com.inbeom.apiserver.repository.TradeExecutionPlanRepository;
 import com.inbeom.apiserver.repository.TradeHistoryRepository;
@@ -434,7 +435,12 @@ public class TradingService {
     /**
      * 매수가능조회 (VTTC8908R, 모의). userId → KIS 계좌/토큰/자격증명 해석 후 inquire-psbl-order 호출.
      * KIS output 매핑: max_buy_qty→maxBuyQuantity, ord_psbl_cash→orderableCash.
-     * 예외/rt_cd != 0 시 0 + notice 로 graceful degrade 한다 (절대 예외 전파하지 않음).
+     * 예외/rt_cd != 0 시 0 + notice 로 graceful degrade 한다.
+     *
+     * <p>유일한 예외가 {@link KisRateLimitExceededException} 이다 — 이것만 그대로 전파한다.
+     * 자체 토큰 버킷이 KIS 로 요청을 보내기 전에 거부한 것이라 "조회했는데 실패"가 아니라
+     * "아직 묻지 않았다"이고, notice 로 degrade 하면 {@link #verifyBuyingPower} 의 fail-open 이
+     * 매수여력 검증을 조용히 건너뛴다.
      *
      * @param price 주문단가(지정가). null/0 이면 "0" 전송.
      */
@@ -498,6 +504,15 @@ public class TradingService {
                     .maxBuyQuantity(parseLongSafely(asString(outputMap.get("max_buy_qty"))))
                     .orderableCash(parseLongSafely(asString(outputMap.get("ord_psbl_cash"))))
                     .build();
+        } catch (KisRateLimitExceededException e) {
+            // 자체 토큰 버킷이 KIS 로 보내기 전에 거부한 경우다. 이것까지 notice 로 degrade 하면
+            // verifyBuyingPower 가 fail-open 으로 검증을 건너뛴 채 주문을 내보낸다 —
+            // "KIS 가 응답하지 못했다"가 아니라 "우리가 아직 묻지도 않았다"이므로 fail-open 의
+            // 전제(최종 판정은 KIS 가 한다)가 성립하지 않는다. 그대로 던져서 매수 경로는 주문을
+            // 멈추고, 조회 경로는 429(4007)로 원인을 정확히 알린다.
+            log.warn("Orderable lookup rate-limited before reaching KIS for userId={}, stockCode={}",
+                    userId, stockCode);
+            throw e;
         } catch (Exception e) {
             log.warn("Failed to load orderable info from KIS API for userId={}, stockCode={}: {}",
                     userId, stockCode, e.getMessage());
@@ -620,7 +635,10 @@ public class TradingService {
      *
      * <p><b>fail-open</b>: 조회가 degrade 된 경우({@code notice != null} — KIS 장애/모의 미지원/
      * 계좌 미해석)에는 검증을 건너뛴다. 조회 실패를 잔고 부족으로 오인해 정상 주문을 막으면
-     * 안 되기 때문이다. 최종 판정은 언제나 KIS 가 한다.
+     * 안 되기 때문이다. 최종 판정은 언제나 KIS 가 한다. 단 자체 rate limit 거부는 fail-open
+     * 대상이 아니다 — {@link #getOrderable} 이 {@link KisRateLimitExceededException} 을 그대로
+     * 전파하므로 주문이 여기서 멈춘다(우리가 KIS 에 묻지도 않은 상태라 "KIS 가 판정한다"는
+     * 전제 자체가 없다).
      *
      * <p><b>시장가 주문 스킵</b>: {@code orderPrice}가 null/0이면(=시장가, 실제 주문도
      * {@code ORD_DVSN="01"}+{@code ORD_UNPR="0"}으로 나간다) 이 조회를 건너뛴다. {@link #getOrderable}은

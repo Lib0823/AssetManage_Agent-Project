@@ -36,8 +36,18 @@ public class KisResilienceProperties {
 
         private boolean enabled = true;
 
-        /** 버킷 최대 용량 = 순간 버스트 허용량. */
-        private int capacity = 5;
+        /**
+         * 버킷 최대 용량 = 순간 버스트 허용량.
+         *
+         * <p>충전 속도(5/s)의 2배로 둔다. 화면 하나가 KIS 를 여러 번 두드리는 구간이 실제로 있고
+         * (종목 상세 재무 탭 = 손익/재무비율/안정성 + 현재가 4연속), 용량을 충전 속도와 같게 두면
+         * 그 4연속이 버킷을 그대로 비워 뒤따르는 다른 사용자의 첫 조회가 거부된다. 2초치 여유를
+         * 두면 이런 짧은 묶음은 흡수하면서 <b>지속</b> 호출률은 여전히 5/s 로 묶인다.
+         *
+         * <p>더 크게 올리지 않는 이유: KIS 의 실제 한도가 문서로 확정돼 있지 않아, 버스트 여유는
+         * "한 화면이 내는 묶음"을 흡수할 만큼만 두는 편이 안전하다.
+         */
+        private int capacity = 10;
 
         /** 초당 충전 토큰 수. ai-agent 의 {@code asyncio.Semaphore(5)} 관례와 맞춘 값. */
         private double refillPerSecond = 5.0;

@@ -1,6 +1,7 @@
 package com.inbeom.apiserver.service;
 
 import com.inbeom.apiserver.client.KisApiClient;
+import com.inbeom.apiserver.exception.KisRateLimitExceededException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -56,6 +57,16 @@ public class KisQuoteClient {
             "KIS 연동 오류로 마지막으로 조회된 값을 표시합니다 (최신 아님)";
 
     /**
+     * 우리 쪽 호출 한도(토큰 버킷)에 걸려 KIS 로 요청을 보내지 않은 경우의 안내.
+     *
+     * <p>{@link #NOTICE_KIS_UNAVAILABLE}("KIS 점검…")과 반드시 구분한다 — 이 경우 KIS 는 멀쩡하고
+     * 원인은 전적으로 이쪽에 있다. 같은 문구를 쓰면 사용자에게 원인을 잘못 안내할 뿐 아니라,
+     * "잠시 후 다시 시도하면 된다"는 실제 행동 지침도 전달되지 않는다.
+     */
+    public static final String NOTICE_KIS_BUSY =
+            "요청이 많아 잠시 시세를 불러오지 못했습니다 (잠시 후 다시 시도해 주세요)";
+
+    /**
      * 시세 연동 가능 여부 = quote app key/secret 둘 다 설정됨.
      */
     public boolean isEnabled() {
@@ -74,7 +85,18 @@ public class KisQuoteClient {
      * 키 미설정이면 "키 필요", 키는 있으나 조회 실패(점검/일시 오류)면 "점검" 문구를 반환한다.
      */
     public String unavailableNotice() {
-        return isEnabled() ? NOTICE_KIS_UNAVAILABLE : NOTICE_KIS_QUOTE;
+        return unavailableNotice(false);
+    }
+
+    /**
+     * {@link #unavailableNotice()} 의 변형. 실패 원인이 <b>우리 쪽 rate limit</b> 이면
+     * "KIS 점검" 이 아니라 {@link #NOTICE_KIS_BUSY} 로 안내한다.
+     */
+    public String unavailableNotice(boolean rateLimited) {
+        if (!isEnabled()) {
+            return NOTICE_KIS_QUOTE;
+        }
+        return rateLimited ? NOTICE_KIS_BUSY : NOTICE_KIS_UNAVAILABLE;
     }
 
     /**
@@ -120,7 +142,10 @@ public class KisQuoteClient {
             }
             Object output = body.get("output");
             return new QuoteResult((output instanceof Map) ? (Map<String, Object>) output : null,
-                    KisApiClient.isStale(response));
+                    KisApiClient.isStale(response), false);
+        } catch (KisRateLimitExceededException e) {
+            log.warn("KIS inquire-price rate-limited before call for stockCode={}", stockCode);
+            return QuoteResult.blockedByRateLimit();
         } catch (Exception e) {
             log.warn("KIS inquire-price call failed for stockCode={}: {}", stockCode, e.getMessage());
             return QuoteResult.empty();
@@ -170,7 +195,10 @@ public class KisQuoteClient {
             }
             Object output1 = body.get("output1");
             return new QuoteResult((output1 instanceof Map) ? (Map<String, Object>) output1 : null,
-                    KisApiClient.isStale(response));
+                    KisApiClient.isStale(response), false);
+        } catch (KisRateLimitExceededException e) {
+            log.warn("KIS inquire-asking-price rate-limited before call for stockCode={}", stockCode);
+            return QuoteResult.blockedByRateLimit();
         } catch (Exception e) {
             log.warn("KIS inquire-asking-price call failed for stockCode={}: {}", stockCode, e.getMessage());
             return QuoteResult.empty();
@@ -207,13 +235,19 @@ public class KisQuoteClient {
     private record QuoteContext(String baseUrl, String token, String appKey, String appSecret) {}
 
     /**
-     * @param data  KIS 응답 output (없으면 null — 기존 degrade 계약 그대로)
-     * @param stale 값이 캐시의 마지막 성공값 폴백이면 true → 호출부가 {@link #NOTICE_KIS_STALE} 안내
+     * @param data        KIS 응답 output (없으면 null — 기존 degrade 계약 그대로)
+     * @param stale       값이 캐시의 마지막 성공값 폴백이면 true → 호출부가 {@link #NOTICE_KIS_STALE} 안내
+     * @param rateLimited 우리 쪽 토큰 버킷에 걸려 KIS 를 부르지 못한 경우 true
+     *                    → 호출부가 {@link #NOTICE_KIS_BUSY} 안내
      */
-    public record QuoteResult(Map<String, Object> data, boolean stale) {
+    public record QuoteResult(Map<String, Object> data, boolean stale, boolean rateLimited) {
 
         static QuoteResult empty() {
-            return new QuoteResult(null, false);
+            return new QuoteResult(null, false, false);
+        }
+
+        static QuoteResult blockedByRateLimit() {
+            return new QuoteResult(null, false, true);
         }
     }
 }

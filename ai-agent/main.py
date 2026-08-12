@@ -41,6 +41,61 @@ publisher: Optional[KafkaMessagePublisher] = None
 pipeline_run_consumer: Optional[PipelineRunConsumer] = None
 trade_result_consumer: Optional[TradeResultConsumer] = None
 consumer_tasks: List[asyncio.Task] = []
+consumer_workers: Dict[str, Any] = {}  # task name → worker (상태 조회용)
+
+PIPELINE_CONSUMER_NAME = "pipeline-run-consumer"
+TRADE_RESULT_CONSUMER_NAME = "trade-result-consumer"
+
+
+def _log_consumer_task_result(task: asyncio.Task) -> None:
+    """컨슈머 백그라운드 태스크가 끝났을 때 원인을 남긴다.
+
+    태스크 참조만 리스트에 담아두고 예외를 회수하지 않으면, 컨슈머가 죽어도 아무
+    로그가 남지 않는다. 컨슈머는 정상 운영 중엔 끝나지 않으므로 취소가 아닌 종료는
+    전부 이상 상황이다.
+    """
+    if task.cancelled():
+        logger.info(f"Kafka consumer task cancelled: {task.get_name()}")
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(f"Kafka consumer task died: {task.get_name()}: {exc}", exc_info=exc)
+    else:
+        logger.error(f"Kafka consumer task exited unexpectedly: {task.get_name()}")
+
+
+def _spawn_consumer(worker, name: str) -> asyncio.Task:
+    """컨슈머를 백그라운드 태스크로 띄우고 사망 감지 콜백을 붙인다."""
+    task = asyncio.create_task(worker.run(), name=name)
+    task.add_done_callback(_log_consumer_task_result)
+    consumer_workers[name] = worker
+    return task
+
+
+def _consumer_status() -> Dict[str, Any]:
+    """각 Kafka 컨슈머의 생사 상태.
+
+    프로듀서 상태(`kafka_connected`)만 노출하면 컨슈머가 죽어도 정상으로 보인다.
+
+    Returns:
+        Dict[str, Any]: {consumer_name: {alive, connected, processed, failed, error}}
+    """
+    tasks = {t.get_name(): t for t in consumer_tasks}
+    status: Dict[str, Any] = {}
+    for name, worker in consumer_workers.items():
+        task = tasks.get(name)
+        error = None
+        if task is not None and task.done() and not task.cancelled():
+            exc = task.exception()
+            error = f"{type(exc).__name__}: {exc}" if exc else "exited without error"
+        status[name] = {
+            "alive": task is not None and not task.done(),
+            "connected": bool(getattr(worker, "running", False)),
+            "processed": getattr(worker, "processed_count", 0),
+            "failed": getattr(worker, "failed_count", 0),
+            "error": error,
+        }
+    return status
 
 
 @asynccontextmanager
@@ -55,8 +110,11 @@ async def lifespan(app: FastAPI):
          - trade.order.result     → trade_execution_plan 상태 확정
       4. APScheduler 기동 (실행이 아니라 '발행'만 한다)
 
-    Kafka 접속 실패 시 앱 기동 자체는 막지 않는다(조회 API 는 계속 서비스). 이 경우
-    트리거 엔드포인트가 503 을 반환한다.
+    Kafka 접속 실패 시 앱 기동 자체는 막지 않는다(조회 API 는 계속 서비스).
+    **프로듀서 기동 실패는 컨슈머 기동을 막지 않는다** — 컨슈머는 프로듀서에
+    의존하지 않고, 각자 backoff 로 브로커에 다시 붙는다. 예전처럼 프로듀서 실패 시
+    컨슈머를 아예 만들지 않으면, 브로커가 나중에 복구됐을 때 스케줄 발행만
+    "성공"하고 소비자는 영원히 없는 상태가 된다.
     """
     global scheduler, orchestrator, publisher, pipeline_run_consumer, trade_result_consumer, consumer_tasks
 
@@ -64,27 +122,26 @@ async def lifespan(app: FastAPI):
     logger.info("Starting AI Agent application...")
 
     publisher = KafkaMessagePublisher()
-    kafka_ready = False
     try:
         await ensure_topics()
         await publisher.start()
-        kafka_ready = True
     except Exception as e:
-        logger.error(f"Kafka producer startup failed — pipeline triggers will be unavailable: {e}")
+        logger.error(
+            f"Kafka producer startup failed — triggers retry the connection on demand: {e}"
+        )
 
     # Initialize orchestrator (reused by the pipeline consumer; OAuth token cached)
     orchestrator = PipelineOrchestrator(publisher=publisher)
     logger.info("PipelineOrchestrator initialized (OAuth token will be cached)")
 
-    consumer_tasks = []
-    if kafka_ready:
-        pipeline_run_consumer = PipelineRunConsumer(orchestrator=orchestrator)
-        trade_result_consumer = TradeResultConsumer(db_repo=DatabaseRepository())
-        consumer_tasks = [
-            asyncio.create_task(pipeline_run_consumer.run(), name="pipeline-run-consumer"),
-            asyncio.create_task(trade_result_consumer.run(), name="trade-result-consumer"),
-        ]
-        logger.info("Kafka consumers started (pipeline.run.requested, trade.order.result)")
+    consumer_workers.clear()
+    pipeline_run_consumer = PipelineRunConsumer(orchestrator=orchestrator)
+    trade_result_consumer = TradeResultConsumer(db_repo=DatabaseRepository())
+    consumer_tasks = [
+        _spawn_consumer(pipeline_run_consumer, PIPELINE_CONSUMER_NAME),
+        _spawn_consumer(trade_result_consumer, TRADE_RESULT_CONSUMER_NAME),
+    ]
+    logger.info("Kafka consumers started (pipeline.run.requested, trade.order.result)")
 
     # Initialize scheduler (publishes run requests; never runs the pipeline itself)
     scheduler = PipelineScheduler(publisher=publisher)
@@ -130,7 +187,8 @@ class PipelineStatusResponse(BaseModel):
     scheduler_running: bool
     next_run_time: Optional[str]
     latest_execution_date: Optional[str]
-    kafka_connected: bool = False
+    kafka_connected: bool = False  # 프로듀서 상태 (컨슈머 상태는 consumers 참조)
+    consumers: Dict[str, Any] = {}  # 컨슈머별 생사/처리 카운트
     running_trade_date: Optional[str] = None  # 현재 컨슈머가 실행 중인 거래일 (없으면 None)
     last_run: Optional[Dict[str, Any]] = None  # 마지막으로 끝난 실행 요약
 
@@ -169,11 +227,21 @@ async def trigger_pipeline_manual(request: ManualTriggerRequest):
     """
     global publisher
 
-    if publisher is None or not publisher.running:
+    if publisher is None:
         raise HTTPException(
             status_code=503,
             detail="Kafka publisher unavailable; cannot queue pipeline run"
         )
+
+    if not publisher.running:
+        # 기동 시 브로커가 안 떠 있었을 수 있다. 여기서 다시 붙여보고, 그래도 안 되면 503.
+        try:
+            await publisher.ensure_started()
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Kafka publisher unavailable; cannot queue pipeline run: {e}"
+            )
 
     logger.info(f"Manual trigger request received: {request.dict()}")
 
@@ -235,6 +303,7 @@ async def get_pipeline_status():
         next_run_time=next_run_str,
         latest_execution_date=latest_date_str,
         kafka_connected=bool(publisher and publisher.running),
+        consumers=_consumer_status(),
         running_trade_date=(pipeline_run_consumer.current_run if pipeline_run_consumer else None),
         last_run=(pipeline_run_consumer.last_run if pipeline_run_consumer else None),
     )

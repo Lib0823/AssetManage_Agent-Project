@@ -21,7 +21,7 @@ import json
 import threading
 import time
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -320,6 +320,10 @@ class TestTradeResultConsumption:
 
 PIPELINE_SECONDS = 2.0  # 가짜 파이프라인 1회 소요 시간
 
+# 컨슈머의 신선도 가드가 오늘이 아닌 tradeDate 를 스킵하므로, 실행까지 가는
+# 시나리오는 반드시 오늘 날짜로 트리거해야 한다.
+TODAY = date.today().isoformat()
+
 
 class _FakeOrchestrator:
     """run_complete_pipeline 만 흉내내는 오케스트레이터 대역.
@@ -380,13 +384,13 @@ class TestManualTriggerLatency:
 
     def test_trigger_returns_202_immediately(self, app_client, capsys):
         started = time.perf_counter()
-        response = app_client.post('/api/pipeline/trigger', json={'trade_date': '2026-08-09'})
+        response = app_client.post('/api/pipeline/trigger', json={'trade_date': TODAY})
         elapsed = time.perf_counter() - started
 
         assert response.status_code == 202
         body = response.json()
         assert body['status'] == 'QUEUED'
-        assert body['request']['tradeDate'] == '2026-08-09'
+        assert body['request']['tradeDate'] == TODAY
         assert body['request']['triggerType'] == 'MANUAL'
 
         # 파이프라인 1회는 PIPELINE_SECONDS 걸린다 — 그보다 훨씬 빨리 응답해야 한다
@@ -398,11 +402,11 @@ class TestManualTriggerLatency:
 
     def test_trigger_is_fast_even_while_a_pipeline_is_running(self, app_client, capsys):
         """이미 실행 중이어도 트리거는 즉시 202 (대기하지 않는다)."""
-        app_client.post('/api/pipeline/trigger', json={'trade_date': '2026-08-09'})
+        app_client.post('/api/pipeline/trigger', json={'trade_date': TODAY})
         time.sleep(0.5)  # 컨슈머가 첫 실행을 시작할 시간
 
         started = time.perf_counter()
-        response = app_client.post('/api/pipeline/trigger', json={'trade_date': '2026-08-10'})
+        response = app_client.post('/api/pipeline/trigger', json={'trade_date': TODAY})
         elapsed = time.perf_counter() - started
 
         assert response.status_code == 202
@@ -421,7 +425,7 @@ class TestManualTriggerLatency:
     def test_holdings_are_reported_as_ignored(self, app_client):
         response = app_client.post(
             '/api/pipeline/trigger',
-            json={'trade_date': '2026-08-09', 'holdings': ['005930']},
+            json={'trade_date': TODAY, 'holdings': ['005930']},
         )
 
         assert response.status_code == 202
@@ -441,7 +445,7 @@ class TestPipelineSerialization:
         thread.start()
 
         # 수동 경로: 거의 동시에 HTTP 트리거
-        response = app_client.post('/api/pipeline/trigger', json={'trade_date': '2026-08-11'})
+        response = app_client.post('/api/pipeline/trigger', json={'trade_date': TODAY})
         thread.join(timeout=20)
 
         assert response.status_code == 202
@@ -461,8 +465,8 @@ class TestPipelineSerialization:
 
     def test_burst_of_triggers_runs_one_at_a_time(self, app_client, capsys):
         """수동 트리거 3연발도 순차 처리된다."""
-        for day in ('2026-08-09', '2026-08-10', '2026-08-11'):
-            assert app_client.post('/api/pipeline/trigger', json={'trade_date': day}).status_code == 202
+        for _ in range(3):
+            assert app_client.post('/api/pipeline/trigger', json={'trade_date': TODAY}).status_code == 202
 
         assert _wait_for_runs(3), f'3회 실행되지 않았다: {len(_FakeOrchestrator.runs)}'
 
@@ -475,16 +479,49 @@ class TestPipelineSerialization:
             print(f'[측정] 3연속 트리거 최대 동시 실행 수 = {_FakeOrchestrator.max_active}')
 
     def test_status_endpoint_exposes_kafka_and_last_run(self, app_client):
-        app_client.post('/api/pipeline/trigger', json={'trade_date': '2026-08-09'})
+        app_client.post('/api/pipeline/trigger', json={'trade_date': TODAY})
         assert _wait_for_runs(1)
         time.sleep(0.3)
 
         body = app_client.get('/api/pipeline/status').json()
 
         assert body['kafka_connected'] is True
-        assert body['last_run']['trade_date'] == '2026-08-09'
+        assert body['last_run']['trade_date'] == TODAY
         assert body['last_run']['trigger_type'] == 'MANUAL'
         assert body['last_run']['success'] is True
+        assert body['consumers']['pipeline-run-consumer']['alive'] is True
+        assert body['consumers']['trade-result-consumer']['alive'] is True
+
+
+class TestStaleTriggerIsNotExecuted:
+    """(f) 재생된 과거 트리거는 브로커를 거쳐 들어와도 실행되지 않는다.
+
+    ai-agent 가 하루 이상 내려가 있다 재기동하면 밀린 트리거가 순차 재생되는데,
+    그대로 실행하면 과거 날짜 멱등키로 실주문이 나간다.
+    """
+
+    def test_yesterdays_trigger_is_consumed_but_not_run(self, app_client):
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+
+        response = app_client.post('/api/pipeline/trigger', json={'trade_date': yesterday})
+        assert response.status_code == 202  # 발행 자체는 정상
+
+        assert not _wait_for_runs(1, timeout=6.0), '과거 날짜 트리거가 실행됐다'
+
+        body = app_client.get('/api/pipeline/status').json()
+        assert body['last_run']['skipped'] is True
+        assert body['last_run']['trade_date'] == yesterday
+        # 컨슈머는 계속 살아 있어야 한다 (스킵은 오프셋을 커밋하고 넘어간다)
+        assert body['consumers']['pipeline-run-consumer']['alive'] is True
+
+    def test_a_fresh_trigger_still_runs_after_a_stale_one(self, app_client):
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+
+        app_client.post('/api/pipeline/trigger', json={'trade_date': yesterday})
+        app_client.post('/api/pipeline/trigger', json={'trade_date': TODAY})
+
+        assert _wait_for_runs(1), '스킵 뒤에 온 정상 트리거가 실행되지 않았다'
+        assert len(_FakeOrchestrator.runs) == 1
 
 
 # ===========================================================================

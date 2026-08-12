@@ -5,6 +5,7 @@ import com.inbeom.apiserver.client.KisApiClient;
 import com.inbeom.apiserver.dto.company.BasicInfoResponse;
 import com.inbeom.apiserver.dto.company.DisclosuresResponse;
 import com.inbeom.apiserver.dto.company.FinancialsResponse;
+import com.inbeom.apiserver.exception.KisRateLimitExceededException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -114,7 +115,7 @@ public class CompanyInfoService {
         // notice: KIS 시세 미연동/낡음 · DART 회사개황 미연동 사유를 한 문장으로 결합 (모두 정상이면 null)
         List<String> notices = new ArrayList<>();
         if (!kisQuoteAvailable) {
-            notices.add(kisQuoteClient.unavailableNotice());
+            notices.add(kisQuoteClient.unavailableNotice(priceResult.rateLimited()));
         } else if (priceResult.stale()) {
             notices.add(KisQuoteClient.NOTICE_KIS_STALE);
         }
@@ -135,12 +136,15 @@ public class CompanyInfoService {
         // 4개 KIS 호출 중 하나라도 stale 폴백이면 화면 전체를 "최신 아님"으로 안내한다.
         // 어느 항목이 낡았는지까지 쪼개 알려도 사용자가 할 수 있는 판단은 같다.
         boolean anyStale = false;
+        // 데이터를 하나도 못 받았을 때 그 원인이 "KIS 장애"인지 "우리 쪽 호출 한도"인지 구분한다.
+        boolean anyRateLimited = false;
 
         // --- 손익계산서 (연간) ---
         try {
             FinanceResult income = fetchFinance(stockCode,
                     "/uapi/domestic-stock/v1/finance/income-statement", "FHKST66430200");
             anyStale |= income.stale();
+            anyRateLimited |= income.rateLimited();
             List<Map<String, Object>> rows = extractOutput(income.body());
             if (rows != null) {
                 int count = 0;
@@ -166,6 +170,7 @@ public class CompanyInfoService {
             FinanceResult ratio = fetchFinance(stockCode,
                     "/uapi/domestic-stock/v1/finance/financial-ratio", "FHKST66430300");
             anyStale |= ratio.stale();
+            anyRateLimited |= ratio.rateLimited();
             List<Map<String, Object>> rows = extractOutput(ratio.body());
             if (rows != null && !rows.isEmpty()) {
                 Map<String, Object> latest = rows.get(0);
@@ -186,6 +191,7 @@ public class CompanyInfoService {
             FinanceResult stability = fetchFinance(stockCode,
                     "/uapi/domestic-stock/v1/finance/stability-ratio", "FHKST66430600");
             anyStale |= stability.stale();
+            anyRateLimited |= stability.rateLimited();
             List<Map<String, Object>> rows = extractOutput(stability.body());
             if (rows != null && !rows.isEmpty()) {
                 Map<String, Object> latest = rows.get(0);
@@ -199,6 +205,7 @@ public class CompanyInfoService {
         // --- PER / PBR (현재가 시세) ---
         try {
             KisQuoteClient.QuoteResult priceResult = kisQuoteClient.fetchCurrentPriceResult(stockCode);
+            anyRateLimited |= priceResult.rateLimited();
             Map<String, Object> price = priceResult.data();
             if (price != null) {
                 anyStale |= priceResult.stale();
@@ -213,11 +220,12 @@ public class CompanyInfoService {
 
         // notice: 시세/재무가 비활성이거나 아무 데이터도 못 받은 경우 안내.
         // 데이터는 있는데 캐시 폴백에서 왔다면 "없음"이 아니라 "낡음"으로 구분해 알린다.
+        // 못 받은 원인이 우리 쪽 호출 한도라면 "KIS 점검"이 아니라 그 사실대로 안내한다.
         FinancialsResponse.Ratios builtRatios = ratios.build();
         String financialsNotice = null;
         boolean anyData = !annual.isEmpty() || hasAnyRatio(builtRatios);
         if (!kisQuoteService.isQuoteEnabled() || !anyData) {
-            financialsNotice = kisQuoteClient.unavailableNotice();
+            financialsNotice = kisQuoteClient.unavailableNotice(anyRateLimited);
         } else if (anyStale) {
             financialsNotice = KisQuoteClient.NOTICE_KIS_STALE;
         }
@@ -303,28 +311,39 @@ public class CompanyInfoService {
         params.put("FID_INPUT_ISCD", stockCode);
         params.put("FID_DIV_CLS_CODE", "0"); // 0=연간
 
-        ResponseEntity<Map> response = kisApiClient.get(
-                ctx.baseUrl(), endpoint, trId,
-                ctx.token(), ctx.appKey(), ctx.appSecret(),
-                params, Map.class
-        );
-        Map<String, Object> body = response.getBody();
-        if (!isRtOk(body)) {
-            log.warn("KIS finance {} rt_cd!=0 for stockCode={}: {}", trId, stockCode,
-                    body != null ? body.get("msg1") : "null body");
-            return FinanceResult.empty();
+        try {
+            ResponseEntity<Map> response = kisApiClient.get(
+                    ctx.baseUrl(), endpoint, trId,
+                    ctx.token(), ctx.appKey(), ctx.appSecret(),
+                    params, Map.class
+            );
+            Map<String, Object> body = response.getBody();
+            if (!isRtOk(body)) {
+                log.warn("KIS finance {} rt_cd!=0 for stockCode={}: {}", trId, stockCode,
+                        body != null ? body.get("msg1") : "null body");
+                return FinanceResult.empty();
+            }
+            return new FinanceResult(body, KisApiClient.isStale(response), false);
+        } catch (KisRateLimitExceededException e) {
+            // 호출부가 "KIS 점검"이 아니라 "우리 쪽 한도"로 안내할 수 있도록 원인을 구분해 올린다.
+            log.warn("KIS finance {} rate-limited before call for stockCode={}", trId, stockCode);
+            return FinanceResult.blockedByRateLimit();
         }
-        return new FinanceResult(body, KisApiClient.isStale(response));
     }
 
     /**
-     * @param body  KIS 재무 응답 본문 (실패 시 null)
-     * @param stale 캐시의 마지막 성공값 폴백이면 true
+     * @param body        KIS 재무 응답 본문 (실패 시 null)
+     * @param stale       캐시의 마지막 성공값 폴백이면 true
+     * @param rateLimited 우리 쪽 토큰 버킷에 걸려 KIS 를 부르지 못했으면 true
      */
-    private record FinanceResult(Map<String, Object> body, boolean stale) {
+    private record FinanceResult(Map<String, Object> body, boolean stale, boolean rateLimited) {
 
         static FinanceResult empty() {
-            return new FinanceResult(null, false);
+            return new FinanceResult(null, false, false);
+        }
+
+        static FinanceResult blockedByRateLimit() {
+            return new FinanceResult(null, false, true);
         }
     }
 
