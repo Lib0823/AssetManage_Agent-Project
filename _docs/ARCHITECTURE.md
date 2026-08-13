@@ -6,15 +6,23 @@
 
 ## 1. 구성 요소 (Components)
 
+전체 그림은 아래 다이어그램 참고 (원본 벡터: [`ARCHITECTURE.svg`](ARCHITECTURE.svg)):
+
+<p align="center"><img src="ARCHITECTURE.svg" alt="FinanceManage Agent 시스템 아키텍처 다이어그램" width="100%"></p>
+
 | 서비스 | 기술 | 포트 (dev) | 역할 |
 |--------|------|-----------|------|
-| `web-app` | Vue 3, Vite, Tailwind CSS, PWA | 5173 | 사용자 화면 (대시보드, 자산, 봇, 거래내역, 설정) |
-| `api-server` | Spring Boot 4.1, JPA, Spring Security + JWT | 7070 | 인증, 매매 실행, KIS/DART 프록시, REST API |
-| `ai-agent` | FastAPI, scikit-learn, Prophet, KR-FinBERT | 8000 | 일일 분석 파이프라인, Gemini AI 판단 |
-| `postgres` | PostgreSQL 16 | 5432 | 분석 결과·예측·AI 판단·거래 이력 저장 |
-| `elasticsearch` | Elasticsearch 8.x | 9200 | (확장 예정) 검색 |
+| `web-app` | Vue 3, Vite, Tailwind CSS, PWA | 5173 (compose: 3000) | 사용자 화면 (대시보드, 자산, 봇, 거래내역, 설정) |
+| `api-server` | Spring Boot 4.1, JPA, Spring Security + JWT | 7070 | 인증, 매매 실행, KIS WebSocket 브리지, KIS/DART 프록시, REST API |
+| `ai-agent` | FastAPI, scikit-learn, Prophet, KR-FinBERT | 8000 | 일일 분석 파이프라인(Stage 0~6), Gemini AI 판단 |
+| `postgres` | PostgreSQL 16 + TimescaleDB extension | 5432 | 분석 결과·예측·AI 판단·거래 이력 저장 (4개 hypertable) |
+| `kafka` | Apache Kafka 4.0 (KRaft, 단일 노드) | 29092 (외부) / 9092 (내부) | ai-agent → api-server 매매 주문 큐 (`trade-order` 토픽 + DLQ) |
+| `redis` | Redis 7 | 6379 | api-server의 KIS API rate-limit 토큰버킷 + 시세/재무 응답 캐시 |
+| `elasticsearch` | Elasticsearch 8.x | 9200 | (확장 예정, 현재 미사용) |
 
-> **`docker-compose.yml`에 4개 서비스(postgres·api-server·ai-agent·web-app)가 모두 정의**되어 있어 `docker compose up -d --build` 한 번으로 전체를 기동할 수 있습니다(web-app은 :3000, nginx가 `/api`를 api-server로 프록시). `elasticsearch`는 코드 미사용이라 주석 처리 상태입니다. 로컬 개발 시에는 `docker compose up -d postgres`로 DB만 띄우고 세 앱을 로컬 실행하는 것도 가능합니다. 상세는 [`USAGE.md`](USAGE.md).
+> **`docker-compose.yml`에 6개 서비스(postgres·kafka·redis·api-server·ai-agent·web-app)가 모두 정의**되어 있어 `docker compose up -d --build` 한 번으로 전체를 기동할 수 있습니다(web-app은 :3000, nginx가 `/api`를 api-server로 프록시). `elasticsearch`는 코드 미사용이라 주석 처리 상태입니다. 로컬 개발 시에는 `docker compose up -d postgres`로 DB만 띄우고 세 앱을 로컬 실행하는 것도 가능합니다. 상세는 [`USAGE.md`](USAGE.md).
+>
+> **Kafka**는 ai-agent Stage 6(매매 실행)가 발행한 주문을 api-server가 소비해 KIS에 실제 주문을 넣는 경로에 쓰입니다 — 무겁고 동기적이던 매매 실행 플로우에 재시도·DLQ(Dead Letter Queue)·멱등키 기반 재처리를 도입해 안정성을 높인 부분입니다. **Redis**는 KIS API 사용량을 낮추기 위한 rate-limit 토큰버킷과 stale-if-error 캐시로 쓰이며, **KIS OAuth 토큰 발급 자체는 이 rate-limit 게이트를 우회**합니다(토큰 발급 실패가 전체 파이프라인을 막지 않도록). **TimescaleDB**는 시계열 성격의 테이블(예: `stock_filter_score`, `prophet_forecast`, `news_analysis`, `asset_daily_snapshot`)을 hypertable로 관리합니다.
 
 ---
 
@@ -26,8 +34,10 @@ graph TD
     Web["web-app (Vue 3, :5173)"]
     API["api-server (Spring Boot, :7070)"]
     AI["ai-agent (FastAPI, :8000)"]
-    DB[("PostgreSQL :5432")]
-    KIS["KIS Open API<br/>(모의투자)"]
+    DB[("PostgreSQL + TimescaleDB :5432")]
+    Redis[("Redis :6379")]
+    Kafka{{"Kafka trade-order 토픽 + DLQ"}}
+    KIS["KIS Open API<br/>(모의투자, REST+WS)"]
     DART["DART API<br/>(재무)"]
     GEM["Gemini API"]
     NEWS["뉴스 (RSS / 네이버)"]
@@ -37,15 +47,17 @@ graph TD
     Web -->|"REST: 시장 분석·차트·종목 상세"| API
 
     API -->|JPA| DB
-    API -->|"주문·잔고·시세"| KIS
+    API -->|"rate-limit bucket + cache"| Redis
+    API -->|"주문·잔고·시세 + WS upstream"| KIS
     API -->|"재무·공시"| DART
+    Kafka -->|"consume trade-order + DLQ"| API
 
     AI -->|"분석 결과·예측·판단 저장"| DB
-    AI -->|"시세·수급·주문"| KIS
+    AI -->|"시세·수급 수집"| KIS
     AI -->|"분기 재무"| DART
-    AI -->|"매매 판단"| GEM
+    AI -->|"11피처 매매 판단"| GEM
     AI -->|"감성 분석 입력"| NEWS
-    AI -.->|"매매 실행 요청 (is_active=true)"| API
+    AI -->|"publish trade-order (Stage6)"| Kafka
 ```
 
 **요약 표:**
@@ -53,13 +65,14 @@ graph TD
 | From → To | 내용 |
 |-----------|------|
 | Vue3 → Spring Boot (7070) | 대시보드, 자산, 거래내역, 설정, 인증, 시장 분석, 종목 상세 |
-| Spring Boot ⇄ PostgreSQL | 사용자·인증·설정·거래 이력 + AI 분석 결과 조회 |
-| Spring Boot → KIS API | 주문 실행, 잔고/시세 조회 |
+| Spring Boot ⇄ PostgreSQL(+TimescaleDB) | 사용자·인증·설정·거래 이력 + AI 분석 결과 조회 |
+| Spring Boot ⇄ Redis | KIS API rate-limit 토큰버킷, 시세/재무 응답 캐시 (stale-if-error) |
+| Spring Boot → KIS API | 주문 실행, 잔고/시세 조회, 실시간 WebSocket 브리지 upstream |
 | Spring Boot → DART API | 기업 재무·공시 조회 |
-| ai-agent ⇄ PostgreSQL | 스코어링·재무·감성·예측·AI 판단·안전망 필터 저장 |
+| ai-agent ⇄ PostgreSQL(+TimescaleDB) | 스코어링·재무·감성·예측·AI 판단·안전망 필터 저장 |
 | ai-agent → KIS / DART / News | 분석용 원천 데이터 수집 |
 | ai-agent → Gemini API | 11개 피처 기반 매수/매도 판단 |
-| ai-agent → Spring Boot | `is_active=true`일 때 매매 실행 요청 |
+| ai-agent → Kafka → Spring Boot | Stage 6에서 매매 주문을 `trade-order` 토픽에 발행 → api-server가 소비해 KIS 주문 실행 (DLQ + 멱등키 재처리) |
 
 > **분석 결과는 ai-agent가 DB에 쓰고, web-app은 Spring Boot를 통해 그 결과를 조회**하는 구조입니다. (web-app이 ai-agent를 직접 호출하지 않음 — `MarketAnalysisController`, `MarketDataController`, `CompanyController`가 DB/외부 API를 중계.)
 
@@ -140,7 +153,9 @@ score = |foreign_net_buy|*0.3 + |institutional_net_buy|*0.3 + vol_avg_multiple*0
 | Backend | Spring Boot 4.1.0-SNAPSHOT, Java 21, Spring Data JPA, Spring Security + JWT(jjwt 0.12.3), Jasypt(AES-256), Liquibase, Gradle |
 | AI Pipeline | Python 3.11+, FastAPI, APScheduler, pandas, NumPy, scikit-learn, Prophet, transformers(KR-FinBERT), matplotlib |
 | AI Model | Gemini API (무료 티어) |
-| Database | PostgreSQL 16 (17 tables + 4 views) |
-| Search | Elasticsearch 8.x (확장 예정) |
+| Database | PostgreSQL 16 + TimescaleDB extension (21 tables + 4 views, 4개 hypertable) |
+| Message Queue | Apache Kafka 4.0 (KRaft 단일 노드) — `trade-order` 토픽 + DLQ |
+| Cache | Redis 7 — rate-limit 토큰버킷 + 응답 캐시 |
+| Search | Elasticsearch 8.x (확장 예정, 현재 미사용) |
 | Infra | Docker, Docker Compose |
-| 외부 API | KIS Developers (모의투자), DART (재무·공시) |
+| 외부 API | KIS Developers (모의투자), DART (재무·공시), Gemini (AI 판단) |
