@@ -24,7 +24,9 @@
 
 ## 시스템 한눈에 보기 (At a Glance)
 
-수집·분석·판단 / 매매 실행 / 표시 / 저장을 분리한 **4개 서비스**를 하나의 모노레포(Docker Compose)로 운영합니다.
+수집·분석·판단 / 매매 실행 / 표시 / 저장을 분리한 서비스들을 하나의 모노레포(Docker Compose)로 운영합니다. 전체 구조는 [`_docs/ARCHITECTURE.md`](_docs/ARCHITECTURE.md)에 상세히 정리되어 있습니다.
+
+<p align="center"><img src="_docs/ARCHITECTURE.svg" alt="FinanceManage Agent 시스템 아키텍처" width="900"></p>
 
 | 디렉터리 | 역할 | 기술 스택 | 포트 |
 |---------|------|----------|------|
