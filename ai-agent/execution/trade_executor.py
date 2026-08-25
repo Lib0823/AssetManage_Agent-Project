@@ -4,7 +4,7 @@
 api-server 가 이 토픽을 소비해 대행하며(사용자 KIS 키는 api-server DB 에만 있다),
 ai-agent 는 **체결 결과를 기다리지 않고** 발행 직후 다음 주문으로 넘어간다.
 
-기존 REST 직접 호출(`InternalApiClient.execute_buy/execute_sell`)과 달라진 점:
+기존 REST 직접 호출과 달라진 점:
   - 주문 유실 방지: 브로커가 메시지를 보관하므로 api-server 가 죽어 있어도 주문이 남는다.
   - 재시도: 프로듀서 재시도(acks=all) + 컨슈머 재처리로 api-server 쪽에서 흡수한다.
   - 상태: 발행 성공은 `QUEUED` 일 뿐 체결이 아니다. 최종 상태는 `trade.order.result`

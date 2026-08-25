@@ -1,4 +1,5 @@
 """Unit tests for SafetyFilter threshold wiring (feature_threshold_config)."""
+import pandas as pd
 import pytest
 
 from filters.safety_filter import SafetyFilter
@@ -331,3 +332,74 @@ class TestRepositoryFallback:
         # 폴백 없이 그대로 SafetyFilter 에 주입 가능한 형태인지
         sf = SafetyFilter(thresholds=result)
         assert sf.per_max == 30.0
+
+
+class TestFilterResultsShape:
+    """`filter_decisions` 가 만드는 filter_results 가 repository 가 읽는 키를 갖는지.
+
+    `save_safety_filter_results` 는 `stock_name` / `current_price` / `max_quantity` 를
+    `.get()` 으로 읽으므로, 생산자에 키가 없으면 조용히 빈 값이 DB 에 남는다.
+    """
+
+    CODE = '000660'          # STOCK_NAMES 등록 종목
+    NAME = 'SK하이닉스'
+
+    def _features_df(self, code=None):
+        return pd.DataFrame([{'stock_code': code or self.CODE, **_passing_buy_features()}])
+
+    def _run(self, decisions, features_df=None, stock_prices=None, order_amount=None):
+        return SafetyFilter(thresholds=_seed_rows()).filter_decisions(
+            decisions,
+            features_df if features_df is not None else self._features_df(),
+            stock_prices=stock_prices,
+            order_amount=order_amount,
+        )
+
+    def test_buy_result_carries_name_price_and_quantity(self):
+        result = self._run(
+            {'buy_top3': [{'stock_code': self.CODE, 'reason': 'r'}]},
+            stock_prices={self.CODE: 80_000},
+            order_amount=1_000_000,
+        )
+
+        row = result['filter_results'][0]
+        assert row['stock_name'] == self.NAME
+        assert row['current_price'] == 80_000
+        assert row['max_quantity'] == 12
+
+    def test_sell_result_carries_name_price_and_quantity_key(self):
+        result = self._run(
+            {'sell_top3': [{'stock_code': self.CODE, 'reason': 'r'}]},
+            stock_prices={self.CODE: 80_000},
+        )
+
+        row = result['filter_results'][0]
+        assert row['stock_name'] == self.NAME
+        assert row['current_price'] == 80_000
+        # 매도 수량은 보유 수량에서 나오며 이 필터는 보유 정보를 받지 않는다
+        assert row['max_quantity'] is None
+
+    @pytest.mark.parametrize('side', ['buy_top3', 'sell_top3'])
+    def test_features_not_found_result_still_carries_the_keys(self, side):
+        result = self._run({side: [{'stock_code': self.CODE}]},
+                           features_df=self._features_df('051910'))
+
+        row = result['filter_results'][0]
+        assert row['failure_reason'] == 'Features not found'
+        assert row['stock_name'] == self.NAME
+        assert 'current_price' in row and 'max_quantity' in row
+
+    def test_current_price_is_present_even_without_order_amount(self):
+        """투자한도 체크를 건너뛰어도(order_amount 없음) 현재가는 기록된다."""
+        result = self._run({'buy_top3': [{'stock_code': self.CODE}]},
+                           stock_prices={self.CODE: 80_000})
+
+        row = result['filter_results'][0]
+        assert row['current_price'] == 80_000
+        assert row['max_quantity'] is None
+
+    def test_unknown_stock_code_yields_empty_name_not_a_key_error(self):
+        df = pd.DataFrame([{'stock_code': '005930', **_passing_buy_features()}])
+        result = self._run({'buy_top3': [{'stock_code': '005930'}]}, features_df=df)
+
+        assert result['filter_results'][0]['stock_name'] == ''

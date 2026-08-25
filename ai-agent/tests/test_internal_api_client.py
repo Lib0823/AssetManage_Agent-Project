@@ -382,68 +382,6 @@ class TestFailureIsDistinguishableFromEmpty:
         assert client.degradations == []
 
 
-class TestTradeExecution:
-    async def test_execute_buy_posts_expected_payload(self, client):
-        session = FakeSession(FakeResponse(200, {'success': True, 'data': {'orderNo': 'A1'}}))
-        with patch_session(session):
-            result = await client.execute_buy(3, '005930', '삼성전자', 10, 70000)
-
-        assert result == {'success': True, 'data': {'orderNo': 'A1'}}
-        req = session.requests[0]
-        assert req['method'] == 'POST'
-        assert req['url'] == 'http://api-server:7070/api/internal/users/3/trades/buy'
-        assert req['json'] == {
-            'stock_code': '005930', 'stock_name': '삼성전자',
-            'quantity': 10, 'price': 70000,
-        }
-
-    async def test_execute_sell_uses_sell_path(self, client):
-        session = FakeSession(FakeResponse(200, {'success': True, 'data': None}))
-        with patch_session(session):
-            result = await client.execute_sell(3, '005930', '삼성전자', 5)
-
-        assert result['success'] is True
-        assert session.requests[0]['url'].endswith('/trades/sell')
-        # price 미지정 시 0 으로 전송 (시장가)
-        assert session.requests[0]['json']['price'] == 0
-
-    async def test_quantity_coerced_to_int(self, client):
-        session = FakeSession(FakeResponse(200, {'success': True}))
-        with patch_session(session):
-            await client.execute_buy(1, '005930', '삼성전자', 3.9, 0)
-
-        assert session.requests[0]['json']['quantity'] == 3
-
-    async def test_http_error_returns_failure_with_message(self, client):
-        session = FakeSession(FakeResponse(400, {'success': False, 'message': '주문 수량 오류'}))
-        with patch_session(session):
-            result = await client.execute_buy(1, '005930', '삼성전자', 0)
-
-        assert result == {'success': False, 'error': '주문 수량 오류'}
-
-    async def test_http_error_without_message_uses_status(self, client):
-        session = FakeSession(FakeResponse(500, {}))
-        with patch_session(session):
-            result = await client.execute_sell(1, '005930', '삼성전자', 1)
-
-        assert result == {'success': False, 'error': 'HTTP 500'}
-
-    async def test_200_with_success_false_is_failure(self, client):
-        session = FakeSession(FakeResponse(200, {'success': False, 'message': '잔고 부족'}))
-        with patch_session(session):
-            result = await client.execute_buy(1, '005930', '삼성전자', 1)
-
-        assert result == {'success': False, 'error': '잔고 부족'}
-
-    async def test_exception_returns_failure_with_error_text(self, client):
-        session = FakeSession(exc=aiohttp.ClientError('connection reset'))
-        with patch_session(session):
-            result = await client.execute_buy(1, '005930', '삼성전자', 1)
-
-        assert result['success'] is False
-        assert 'connection reset' in result['error']
-
-
 class TestToFloat:
     @pytest.mark.parametrize('value,expected', [
         (None, 0.0),

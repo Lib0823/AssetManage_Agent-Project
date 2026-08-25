@@ -207,14 +207,17 @@ class KISClient:
                         logger.error(f"KIS API error: {error_msg}")
                         raise RuntimeError(f"KIS API error: {error_msg}")
 
-                    # Rate limiting delay
-                    await asyncio.sleep(KIS_REQUEST_DELAY)
-
                     return result
 
             except aiohttp.ClientError as e:
                 logger.error(f"KIS API request failed: {method} {endpoint} - {e}")
                 raise RuntimeError(f"KIS API request failed: {e}")
+
+            finally:
+                # 실패한 요청도 KIS 쪽에서는 1건으로 집계되므로, 성공 경로에만 지연을
+                # 두면 오류율이 높을수록 실제 요청률이 올라간다. 세마포어를 놓기 전에
+                # 항상 간격을 확보한다.
+                await asyncio.sleep(KIS_REQUEST_DELAY)
 
     async def is_market_open(self, trade_date: Optional[datetime.date] = None) -> bool:
         """
@@ -833,31 +836,26 @@ class KISClient:
             # 유효 동시성이 반토막 나고, 동시 호출 수가 세마포어 크기에 도달하면
             # 모든 호출이 서로의 두 번째 획득을 기다리며 교착된다.
             result = await self.request('GET', endpoint, tr_id, params)
-            await asyncio.sleep(0.2)  # 5 req/sec
 
-            if result.get('rt_cd') == '0':  # Success
-                output = result['output']
-                current_price = int(output['stck_prpr'])  # 주식 현재가
+            # request() 는 rt_cd != '0' 이면 RuntimeError 를 던지므로 여기서는 성공만 온다.
+            output = result['output']
+            current_price = int(output['stck_prpr'])  # 주식 현재가
 
-                per = self._parse_kis_float(output.get('per'))
-                pbr = self._parse_kis_float(output.get('pbr'))
-                eps = self._parse_kis_float(output.get('eps'))
+            per = self._parse_kis_float(output.get('per'))
+            pbr = self._parse_kis_float(output.get('pbr'))
+            eps = self._parse_kis_float(output.get('eps'))
 
-                logger.debug(
-                    f"Price/valuation for {stock_code}: {current_price:,}원, "
-                    f"PER={per}, PBR={pbr}, EPS={eps}"
-                )
+            logger.debug(
+                f"Price/valuation for {stock_code}: {current_price:,}원, "
+                f"PER={per}, PBR={pbr}, EPS={eps}"
+            )
 
-                return {
-                    'current_price': current_price,
-                    'per': per,
-                    'pbr': pbr,
-                    'eps': eps
-                }
-            else:
-                error_msg = result.get('msg1', 'Unknown error')
-                logger.error(f"Failed to fetch current price for {stock_code}: {error_msg}")
-                return {'current_price': 0, 'per': None, 'pbr': None, 'eps': None}
+            return {
+                'current_price': current_price,
+                'per': per,
+                'pbr': pbr,
+                'eps': eps
+            }
 
         except Exception as e:
             logger.exception(f"Exception while fetching current price for {stock_code}: {e}")
@@ -1032,10 +1030,12 @@ class KISClient:
 
     async def fetch_stock_data_parallel(self, stock_codes: List[str]) -> pd.DataFrame:
         """
-        Fetch supply/demand and OHLCV data for multiple stocks in batches.
+        Fetch supply/demand and OHLCV data for multiple stocks.
 
-        Processes stocks in batches of 10 to prevent overwhelming the KIS API.
-        Each batch respects the rate limit (5 req/sec) via Semaphore.
+        이름과 달리 **순차 처리**한다. 종목을 하나씩 돌며 수급 → OHLCV 순으로
+        요청하고 종목 사이에 0.1초를 쉰다. Semaphore(5) 로 동시 요청을 열어도 KIS
+        API 성공률이 떨어져 순차로 되돌린 것이며(:1106 주석 참조), 이름은 호출부
+        호환을 위해 유지한다.
 
         Args:
             stock_codes: List of 6-digit stock codes

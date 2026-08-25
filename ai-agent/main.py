@@ -243,7 +243,7 @@ async def trigger_pipeline_manual(request: ManualTriggerRequest):
                 detail=f"Kafka publisher unavailable; cannot queue pipeline run: {e}"
             )
 
-    logger.info(f"Manual trigger request received: {request.dict()}")
+    logger.info(f"Manual trigger request received: {request.model_dump()}")
 
     # Parse trade date if provided
     trade_date_obj = date.today()
