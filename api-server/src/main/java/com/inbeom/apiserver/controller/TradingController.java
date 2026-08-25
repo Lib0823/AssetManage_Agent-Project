@@ -44,7 +44,7 @@ public class TradingController {
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
         Long kisAccountId = jwtTokenProvider.getKisAccountIdFromToken(token);
 
-        Map<String, Object> result = tradingService.executeBuy(
+        Map<String, Object> result = tradingService.placeManualBuy(
                 userId,
                 kisAccountId,
                 request.getStockCode(),
@@ -71,7 +71,7 @@ public class TradingController {
         Long userId = jwtTokenProvider.getUserIdFromToken(token);
         Long kisAccountId = jwtTokenProvider.getKisAccountIdFromToken(token);
 
-        Map<String, Object> result = tradingService.executeSell(
+        Map<String, Object> result = tradingService.placeManualSell(
                 userId,
                 kisAccountId,
                 request.getStockCode(),

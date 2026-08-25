@@ -40,7 +40,7 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
             Map<String, Object> attributes) {
 
         String token = extractToken(request);
-        if (token == null || token.isBlank() || !jwtTokenProvider.validateToken(token)) {
+        if (token == null || token.isBlank() || !jwtTokenProvider.validateAccessToken(token)) {
             log.warn("[realtime] handshake rejected: invalid or missing token");
             return false;
         }

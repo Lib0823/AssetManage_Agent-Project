@@ -155,7 +155,7 @@ public class FillFrameParser {
                 .qty(lng(f, KrFill.CNTG_QTY))
                 .price(bd(f, KrFill.CNTG_UNPR))
                 .filledAt(trimOrNull(at(f, KrFill.CNTG_HOUR)))
-                .isFill(isFill)
+                .fill(isFill)
                 .ts(System.currentTimeMillis())
                 .build();
     }
@@ -175,7 +175,7 @@ public class FillFrameParser {
                 .qty(lng(f, UsFill.CNTG_QTY))
                 .price(bd(f, UsFill.CNTG_UNPR))
                 .filledAt(trimOrNull(at(f, UsFill.CNTG_HOUR)))
-                .isFill(isFill)
+                .fill(isFill)
                 .ts(System.currentTimeMillis())
                 .build();
     }

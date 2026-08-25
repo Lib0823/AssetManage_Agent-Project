@@ -18,11 +18,15 @@ import java.math.BigDecimal;
  *
  * <p>JSON 형태(브라우저 수신):
  * <pre>{"type":"fill","market":"KR","symbol":"005930","side":"buy",
- *      "order_no":"0000123456","qty":10,"price":70100,
- *      "filled_at":"093015","is_fill":true,"ts":1699999999999}</pre>
+ *      "orderNo":"0000123456","qty":10,"price":70100,
+ *      "filledAt":"093015","isFill":true,"ts":1699999999999}</pre>
  *
- * <p>{@code is_fill} 은 체결 여부(CNTG_YN=="2") — 주문접수/정정/취소 통보(CNTG_YN=="1")와 실체결을
- * 구별한다. 프론트는 {@code is_fill==true} 인 메시지만 "체결" 토스트로 표시한다.
+ * <p>{@code isFill} 은 체결 여부(CNTG_YN=="2") — 주문접수/정정/취소 통보(CNTG_YN=="1")와 실체결을
+ * 구별한다. 프론트는 {@code isFill==true} 인 메시지만 "체결" 토스트로 표시한다.
+ *
+ * <p><b>{@code isFill} 의 {@code @JsonProperty} 는 지우면 안 된다</b> — Lombok 게터가
+ * {@code isFill()} 이라 Jackson 이 boolean 프리픽스를 벗겨 와이어 키를 {@code "fill"} 로 추론한다.
+ * 값을 명시해야 키가 고정된다.
  */
 @Data
 @Builder
@@ -50,7 +54,7 @@ public class FillMessage {
     private String side;
 
     /** 주문번호 (KIS ODER_NO). */
-    @JsonProperty("order_no")
+    @JsonProperty("orderNo")
     private String orderNo;
 
     /** 체결 수량 (CNTG_QTY). 접수/정정 통보에는 없을 수 있음 → nullable. */
@@ -62,12 +66,19 @@ public class FillMessage {
     private BigDecimal price;
 
     /** 체결 시각 (STCK_CNTG_HOUR, HHMMSS 문자열). */
-    @JsonProperty("filled_at")
+    @JsonProperty("filledAt")
     private String filledAt;
 
-    /** 실체결 여부 (CNTG_YN=="2"). 접수/정정/취소 통보는 false. */
-    @JsonProperty("is_fill")
-    private boolean isFill;
+    /**
+     * 실체결 여부 (CNTG_YN=="2"). 접수/정정/취소 통보는 false.
+     *
+     * <p>필드명이 {@code fill} 인 것은 의도적이다. Lombok 게터가 {@code isFill()} 이라 Jackson 이
+     * 이 게터를 암묵 이름 {@code fill} 로 읽는데, 필드명을 {@code isFill} 로 두면 필드와 게터가
+     * <b>서로 다른 프로퍼티</b>로 인식돼 {@code isFill} 과 {@code fill} 두 키가 모두 나간다.
+     * 필드명을 {@code fill} 로 맞춰 하나로 합친 뒤 {@code @JsonProperty} 로 와이어 키를 고정한다.
+     */
+    @JsonProperty("isFill")
+    private boolean fill;
 
     /** 서버 수신 시각 (epoch millis). */
     @JsonProperty("ts")

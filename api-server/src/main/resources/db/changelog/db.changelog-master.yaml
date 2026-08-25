@@ -138,6 +138,11 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.26-trade-execution-plan-user-scoped-key.yaml
       context: mvp
 
+  # Phase 26: refresh_tokens "유저당 활성 토큰 1개" 부분 유니크 인덱스 (동시 로그인 레이스 차단)
+  - include:
+      file: classpath:db/changelog/mvp/v1.27-refresh-token-single-active.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================

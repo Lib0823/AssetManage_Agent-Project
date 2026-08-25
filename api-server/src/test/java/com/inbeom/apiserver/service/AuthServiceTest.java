@@ -483,7 +483,7 @@ class AuthServiceTest {
             String newAccessToken = "new-access-token";
             long expiresIn = 3600000L;
 
-            given(jwtTokenProvider.validateToken(anyString())).willReturn(true);
+            given(jwtTokenProvider.validateRefreshToken(anyString())).willReturn(true);
             given(refreshTokenRepository.findByToken(anyString())).willReturn(Optional.of(refreshToken));
             given(jwtTokenProvider.getUsernameFromToken(anyString())).willReturn("testuser");
             given(userRepository.findByUsername(anyString())).willReturn(Optional.of(testUser));
@@ -509,7 +509,7 @@ class AuthServiceTest {
         @DisplayName("토큰 갱신 실패 - 잘못된 토큰")
         void refreshToken_Fail_InvalidToken() {
             // given
-            given(jwtTokenProvider.validateToken(anyString())).willReturn(false);
+            given(jwtTokenProvider.validateRefreshToken(anyString())).willReturn(false);
 
             // when & then
             assertThatThrownBy(() -> authService.refreshToken(refreshRequest))
@@ -523,7 +523,7 @@ class AuthServiceTest {
         @DisplayName("토큰 갱신 실패 - 토큰을 찾을 수 없음")
         void refreshToken_Fail_TokenNotFound() {
             // given
-            given(jwtTokenProvider.validateToken(anyString())).willReturn(true);
+            given(jwtTokenProvider.validateRefreshToken(anyString())).willReturn(true);
             given(refreshTokenRepository.findByToken(anyString())).willReturn(Optional.empty());
 
             // when & then
@@ -539,7 +539,7 @@ class AuthServiceTest {
         void refreshToken_Fail_RevokedToken() {
             // given
             refreshToken.revoke();
-            given(jwtTokenProvider.validateToken(anyString())).willReturn(true);
+            given(jwtTokenProvider.validateRefreshToken(anyString())).willReturn(true);
             given(refreshTokenRepository.findByToken(anyString())).willReturn(Optional.of(refreshToken));
 
             // when & then

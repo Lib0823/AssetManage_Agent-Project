@@ -1,0 +1,61 @@
+databaseChangeLog:
+  # "유저당 활성 리프레시 토큰 1개" 정책(AUTHENTICATION_FLOW.md §3)을 DB 로 강제한다.
+  #
+  # 배경:
+  #   AuthService.login 은 기존 활성 토큰을 찾아 revoke 한 뒤 새 토큰을 저장하는
+  #   read-then-write 이며 행 잠금이 없다. 동시 로그인이 겹치면 활성 행이 2개가 될 수 있다.
+  #
+  # 왜 고쳐야 하는가 — 결과가 되돌릴 수 없는 계정 잠김이다:
+  #   조회는 RefreshTokenRepository#findByUserAndRevokedAtIsNull → Optional 이라 2행이면
+  #   IncorrectResultSizeDataAccessException 이 나고, 그 유저는 DB 를 사람이 정리하기 전까지
+  #   로그인이 영구히 500 으로 고착된다. (2026-08-25 검증에서 결정론적으로 재현됨.)
+  #
+  # 부분 유니크 인덱스인 이유:
+  #   revoked_at IS NOT NULL 인 과거 토큰은 유저당 여러 개 남아야 정상이다(이력).
+  #   제약 대상은 "살아 있는" 토큰뿐이므로 WHERE 절로 범위를 좁힌다.
+  #   Liquibase 의 createIndex 에는 부분 인덱스 문법이 없어 raw SQL 을 쓴다(PostgreSQL 전용).
+  - changeSet:
+      id: 1.27.1-revoke-duplicate-active-refresh-tokens
+      author: claude
+      context: mvp
+      comment: "Revoke all but the newest active refresh token per user so the partial unique index can be created"
+      # 선행 정리가 없으면 이미 중복 활성 행이 있는 DB 에서 다음 changeset 이 실패해 기동이 막힌다.
+      # 유저별로 가장 최근 행(created_at, id 내림차순 1건)만 남기고 나머지를 revoke 한다.
+      changes:
+        - sql:
+            dbms: postgresql
+            splitStatements: false
+            sql: |
+              UPDATE refresh_tokens t
+              SET revoked_at = NOW()
+              WHERE t.revoked_at IS NULL
+                AND t.id <> (
+                    SELECT k.id
+                    FROM refresh_tokens k
+                    WHERE k.user_id = t.user_id
+                      AND k.revoked_at IS NULL
+                    ORDER BY k.created_at DESC, k.id DESC
+                    LIMIT 1
+                );
+      rollback:
+        # 어떤 행이 정리 대상이었는지 복원할 근거가 없다(revoked_at 만 남는다).
+        # 되돌릴 것이 없으므로 명시적으로 no-op 으로 둔다.
+        - empty
+
+  - changeSet:
+      id: 1.27.2-add-single-active-refresh-token-index
+      author: claude
+      context: mvp
+      comment: "Enforce at most one active (revoked_at IS NULL) refresh token per user"
+      changes:
+        - sql:
+            dbms: postgresql
+            splitStatements: false
+            sql: |
+              CREATE UNIQUE INDEX uk_refresh_tokens_active_user
+              ON refresh_tokens (user_id)
+              WHERE revoked_at IS NULL;
+      rollback:
+        - sql:
+            dbms: postgresql
+            sql: DROP INDEX IF EXISTS uk_refresh_tokens_active_user;

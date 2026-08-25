@@ -80,7 +80,8 @@ public class AssetController {
 
     /**
      * GET /api/assets/history?days=30
-     * 자산 추이(일별 총자산 스냅샷) 조회 — 날짜 오름차순
+     * 자산 추이(일별 총자산 스냅샷) 조회 — 날짜 오름차순.
+     * {@code days} 는 1~365 로 클램프된다(범위 밖 값은 거부하지 않고 가장 가까운 경계로 맞춘다).
      */
     @GetMapping("/history")
     public ResponseEntity<ApiResponse<List<AssetHistoryResponse>>> getHistory(

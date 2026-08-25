@@ -20,6 +20,14 @@ public class JwtTokenProvider {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
+    /**
+     * 토큰 용도 구분 클레임. access/refresh 가 같은 키로 서명되므로 이 클레임이 없으면
+     * 리프레시 토큰으로도 보호 리소스에 접근할 수 있다(로그아웃이 세션을 끊지 못한다).
+     */
+    private static final String TOKEN_TYPE_CLAIM = "type";
+    public static final String TOKEN_TYPE_ACCESS = "access";
+    public static final String TOKEN_TYPE_REFRESH = "refresh";
+
     private final SecretKey secretKey;
     private final long accessTokenExpiration;
     private final long refreshTokenExpiration;
@@ -48,6 +56,7 @@ public class JwtTokenProvider {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("kisAccountId", kisAccountId);
+        claims.put(TOKEN_TYPE_CLAIM, TOKEN_TYPE_ACCESS);
 
         return Jwts.builder()
                 .subject(username)
@@ -67,6 +76,7 @@ public class JwtTokenProvider {
 
         return Jwts.builder()
                 .subject(username)
+                .claim(TOKEN_TYPE_CLAIM, TOKEN_TYPE_REFRESH)
                 .issuedAt(now)
                 .expiration(expiryDate)
                 .signWith(secretKey)
@@ -163,6 +173,32 @@ public class JwtTokenProvider {
             log.error("JWT claims string is empty: {}", e.getMessage());
         }
         return false;
+    }
+
+    /**
+     * 액세스 토큰 전용 검증. 서명·만료에 더해 {@code type=access} 인지 확인한다.
+     */
+    public boolean validateAccessToken(String token) {
+        return validateTokenOfType(token, TOKEN_TYPE_ACCESS);
+    }
+
+    /**
+     * 리프레시 토큰 전용 검증. 서명·만료에 더해 {@code type=refresh} 인지 확인한다.
+     */
+    public boolean validateRefreshToken(String token) {
+        return validateTokenOfType(token, TOKEN_TYPE_REFRESH);
+    }
+
+    private boolean validateTokenOfType(String token, String expectedType) {
+        if (!validateToken(token)) {
+            return false;
+        }
+        String actualType = getAllClaimsFromToken(token).get(TOKEN_TYPE_CLAIM, String.class);
+        if (!expectedType.equals(actualType)) {
+            log.warn("Rejected JWT: expected type '{}' but token carries '{}'", expectedType, actualType);
+            return false;
+        }
+        return true;
     }
 
     public long getAccessTokenExpiration() {
