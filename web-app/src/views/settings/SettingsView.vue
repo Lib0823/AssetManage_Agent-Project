@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import { userApi } from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
 import toast from '@/utils/toast'
 import {
   applyTheme,
@@ -13,6 +14,7 @@ import {
 } from '@/utils/uiSettings'
 
 const router = useRouter()
+const authStore = useAuthStore()
 
 const settings = ref({
   darkMode: false,
@@ -147,8 +149,9 @@ const handleWithdraw = async () => {
     loading.value = true
     await userApi.deleteAccount()
 
-    // 로컬 저장소 클리어
-    localStorage.clear()
+    // 정규 로그아웃과 동일하게 인증 키만 지운다 — localStorage.clear()는 uiSettings까지
+    // 날리고 sessionStorage(자동 로그인 OFF일 때의 토큰 저장소)는 그대로 두는 문제가 있었다.
+    authStore.clearAuthData()
 
     toast.success('회원 탈퇴가 완료되었습니다')
     router.push('/welcome')
