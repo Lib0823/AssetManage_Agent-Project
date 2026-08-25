@@ -316,6 +316,21 @@ class TestRequest:
 
         mock_sleep.assert_awaited_once_with(0.2)
 
+    @pytest.mark.parametrize('session_factory', [
+        lambda: FakeSession(FakeResponse(200, {'rt_cd': '1', 'msg1': 'rate limited'})),
+        lambda: FakeSession(FakeResponse(429, raise_exc=http_error(429))),
+        lambda: FakeSession(exc=aiohttp.ServerTimeoutError('timeout')),
+    ], ids=['rt_cd_error', 'http_error', 'client_error'])
+    async def test_rate_limit_delay_also_applies_on_failure(self, client, session_factory):
+        """실패한 요청도 KIS 쪽에서는 1건이다 — 간격을 건너뛰면 오류율이 높을수록 폭주한다."""
+        with patch.object(kis_module, 'KIS_REQUEST_DELAY', 0.2), \
+             patch.object(kis_module.asyncio, 'sleep', new_callable=AsyncMock) as mock_sleep, \
+             patch_session(session_factory()):
+            with pytest.raises(RuntimeError):
+                await client.request('GET', '/uapi/test', 'FHKST01010900')
+
+        mock_sleep.assert_awaited_once_with(0.2)
+
     async def test_semaphore_caps_concurrency_at_five(self, client):
         """5 req/sec 세마포어: 동시 진행 요청이 5개를 넘지 않아야 한다."""
         state = {'current': 0, 'peak': 0}

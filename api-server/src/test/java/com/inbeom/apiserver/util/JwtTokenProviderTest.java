@@ -167,6 +167,58 @@ class JwtTokenProviderTest {
     }
 
     @Nested
+    @DisplayName("토큰 타입 구분 테스트")
+    class TokenTypeTest {
+
+        @Test
+        @DisplayName("발급된 토큰에 type 클레임이 access/refresh 로 담긴다")
+        void tokensCarryTypeClaim() {
+            String accessToken = jwtTokenProvider.generateAccessToken("testuser", 1L, 10L);
+            String refreshToken = jwtTokenProvider.generateRefreshToken("testuser");
+
+            assertThat(jwtTokenProvider.getAllClaimsFromToken(accessToken).get("type", String.class))
+                    .isEqualTo(JwtTokenProvider.TOKEN_TYPE_ACCESS);
+            assertThat(jwtTokenProvider.getAllClaimsFromToken(refreshToken).get("type", String.class))
+                    .isEqualTo(JwtTokenProvider.TOKEN_TYPE_REFRESH);
+        }
+
+        @Test
+        @DisplayName("validateAccessToken - 리프레시 토큰은 거부한다 (로그아웃 우회 차단)")
+        void validateAccessToken_RejectsRefreshToken() {
+            String refreshToken = jwtTokenProvider.generateRefreshToken("testuser");
+
+            assertThat(jwtTokenProvider.validateAccessToken(refreshToken)).isFalse();
+            assertThat(jwtTokenProvider.validateAccessToken(
+                    jwtTokenProvider.generateAccessToken("testuser", 1L, 10L))).isTrue();
+        }
+
+        @Test
+        @DisplayName("validateRefreshToken - 액세스 토큰은 거부한다")
+        void validateRefreshToken_RejectsAccessToken() {
+            String accessToken = jwtTokenProvider.generateAccessToken("testuser", 1L, 10L);
+
+            assertThat(jwtTokenProvider.validateRefreshToken(accessToken)).isFalse();
+            assertThat(jwtTokenProvider.validateRefreshToken(
+                    jwtTokenProvider.generateRefreshToken("testuser"))).isTrue();
+        }
+
+        @Test
+        @DisplayName("type 클레임이 없는 토큰은 양쪽 모두 거부한다")
+        void tokenWithoutTypeClaim_RejectedByBoth() {
+            String legacyToken = Jwts.builder()
+                    .subject("testuser")
+                    .issuedAt(new Date())
+                    .expiration(new Date(System.currentTimeMillis() + 60_000))
+                    .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+                    .compact();
+
+            assertThat(jwtTokenProvider.validateToken(legacyToken)).isTrue();
+            assertThat(jwtTokenProvider.validateAccessToken(legacyToken)).isFalse();
+            assertThat(jwtTokenProvider.validateRefreshToken(legacyToken)).isFalse();
+        }
+    }
+
+    @Nested
     @DisplayName("토큰 검증 테스트")
     class ValidateTokenTest {
 

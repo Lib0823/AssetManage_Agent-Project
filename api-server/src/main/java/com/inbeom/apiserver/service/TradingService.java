@@ -1,6 +1,7 @@
 package com.inbeom.apiserver.service;
 
 import com.inbeom.apiserver.client.KisApiClient;
+import com.inbeom.apiserver.domain.TradeHistory;
 import com.inbeom.apiserver.domain.User;
 import com.inbeom.apiserver.dto.kis.KisBalanceResponse;
 import com.inbeom.apiserver.dto.kis.KisDailyCcldResponse;
@@ -15,6 +16,7 @@ import com.inbeom.apiserver.dto.trade.ReservedOrderResultResponse;
 import com.inbeom.apiserver.dto.trade.TradeHistoryResponse;
 import com.inbeom.apiserver.exception.BusinessException;
 import com.inbeom.apiserver.exception.ErrorCode;
+import com.inbeom.apiserver.exception.KisAccountNotFoundException;
 import com.inbeom.apiserver.exception.KisApiException;
 import com.inbeom.apiserver.exception.KisRateLimitExceededException;
 import com.inbeom.apiserver.exception.UserNotFoundException;
@@ -51,6 +53,19 @@ public class TradingService {
     private final TradeExecutionPlanRepository tradeExecutionPlanRepository;
 
     /**
+     * 유저에게 연결된 KIS 계정 ID 를 꺼낸다.
+     *
+     * <p>토큰 발급 후 KIS 계정이 제거되면 {@code getKisAccount()} 가 null 이라 NPE → 500 이 된다.
+     * {@link OverseasTradingService} 와 동일하게 4000(KIS_ACCOUNT_NOT_FOUND)으로 통일한다.
+     */
+    private Long requireKisAccountId(User user, Long userId) {
+        if (user.getKisAccount() == null) {
+            throw new KisAccountNotFoundException("KIS account not registered for userId: " + userId);
+        }
+        return user.getKisAccount().getId();
+    }
+
+    /**
      * 홈 알림용 최근 거래내역 (DB trade_history 기반, 최신순 최대 8건).
      * KIS 라이브 호출이 아니므로 KIS 장애와 무관하게 빠르고 안정적이며, 실패해도 빈 목록을 반환한다.
      */
@@ -77,8 +92,67 @@ public class TradingService {
     }
 
     /**
+     * 웹앱 수동 매수. KIS 주문을 낸 뒤 {@code trade_history} 에 원장을 남긴다.
+     *
+     * <p>Kafka 경로는 {@link TradeOrderIdempotencyService} 가 주문 <b>전에</b> 멱등키로 행을 선점하므로
+     * 이 메서드를 쓰지 않는다 — {@link #executeBuy} 자체에 기록을 넣으면 그 경로가 이중 기록된다.
+     */
+    public Map<String, Object> placeManualBuy(Long userId, Long kisAccountId, String stockCode, String stockName,
+                                              Integer quantity, BigDecimal orderPrice) {
+        Map<String, Object> result = executeBuy(userId, kisAccountId, stockCode, stockName, quantity, orderPrice);
+        recordManualOrder(userId, "buy", stockCode, stockName, quantity, orderPrice, extractOrderNumber(result));
+        return result;
+    }
+
+    /**
+     * 웹앱 수동 매도. 기록 규칙은 {@link #placeManualBuy} 와 같다.
+     */
+    public Map<String, Object> placeManualSell(Long userId, Long kisAccountId, String stockCode, String stockName,
+                                               Integer quantity, BigDecimal orderPrice) {
+        Map<String, Object> result = executeSell(userId, kisAccountId, stockCode, stockName, quantity, orderPrice);
+        recordManualOrder(userId, "sell", stockCode, stockName, quantity, orderPrice, extractOrderNumber(result));
+        return result;
+    }
+
+    /**
+     * 수동 주문 원장 기록.
+     *
+     * <p>KIS 가 이미 주문을 접수한 뒤이므로 기록 실패로 주문을 되돌릴 수 없다. 예외를 삼키고
+     * 경고만 남긴다 — 여기서 던지면 실제로 체결된 주문이 실패로 보고된다.
+     *
+     * <p>{@code idempotencyKey} 는 null 이다(Kafka 경로가 아니다). PostgreSQL UNIQUE 는 NULL 을
+     * 중복으로 보지 않으므로 {@code uk_trade_history_idempotency_key} 에 걸리지 않는다.
+     */
+    private void recordManualOrder(Long userId, String orderType, String stockCode, String stockName,
+                                   Integer quantity, BigDecimal orderPrice, String orderNumber) {
+        try {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new UserNotFoundException(userId));
+            LocalDateTime now = LocalDateTime.now();
+
+            tradeHistoryRepository.save(TradeHistory.builder()
+                    .user(user)
+                    .orderNumber(orderNumber)
+                    .stockCode(stockCode)
+                    .stockName(stockName != null && !stockName.isBlank() ? stockName : stockCode)
+                    .orderType(orderType)
+                    .orderStatus("EXECUTED")
+                    .quantity(quantity)
+                    .orderPrice(orderPrice != null ? orderPrice : BigDecimal.ZERO)
+                    .orderedAt(now)
+                    .executedAt(now)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Manual {} order sent to KIS but trade_history write failed for userId={}, stockCode={}: {}",
+                    orderType, userId, stockCode, e.getMessage());
+        }
+    }
+
+    /**
      * Execute buy order via KIS API (VTTC0802U)
-     * Note: Trade history is fetched from KIS API directly, not stored in DB
+     *
+     * <p>이 메서드는 {@code trade_history} 에 쓰지 않는다. 경로마다 기록 주체가 다르기 때문이다 —
+     * 수동 주문은 {@link #placeManualBuy}, Kafka 주문은 {@link TradeOrderIdempotencyService} 가 남긴다.
      *
      * @throws BusinessException 수량이 1 미만/누락이면 {@link ErrorCode#INVALID_TRADE_QUANTITY}(5002),
      *         KIS 매수가능조회로 확인된 최대매수수량을 초과하면 {@link ErrorCode#INSUFFICIENT_BALANCE}(5001)
@@ -123,7 +197,8 @@ public class TradingService {
 
     /**
      * Execute sell order via KIS API (VTTC0801U)
-     * Note: Trade history is fetched from KIS API directly, not stored in DB
+     *
+     * <p>{@link #executeBuy} 와 같이 {@code trade_history} 에 쓰지 않는다 — {@link #placeManualSell} 참조.
      *
      * @throws BusinessException 수량이 1 미만/누락이면 {@link ErrorCode#INVALID_TRADE_QUANTITY}(5002).
      *         보유수량 초과 여부는 KIS 가 판정한다(rt_cd != 0 → KIS_API_SERVER_ERROR).
@@ -170,7 +245,7 @@ public class TradingService {
                 .orElseThrow(() -> new UserNotFoundException(userId));
 
         // 1. Get KIS account from user
-        Long kisAccountId = user.getKisAccount().getId();
+        Long kisAccountId = requireKisAccountId(user, userId);
 
         // 2. Get KIS credentials and token
         String kisToken = kisAuthService.getKisAccessToken(kisAccountId);
@@ -250,7 +325,7 @@ public class TradingService {
                     .orElseThrow(() -> new UserNotFoundException(userId));
 
             // 1. Get KIS account from user
-            Long kisAccountId = user.getKisAccount().getId();
+            Long kisAccountId = requireKisAccountId(user, userId);
 
             // 2. Get KIS credentials and token
             String kisToken = kisAuthService.getKisAccessToken(kisAccountId);
@@ -450,7 +525,7 @@ public class TradingService {
                     .orElseThrow(() -> new UserNotFoundException(userId));
 
             // 1. Get KIS account from user
-            Long kisAccountId = user.getKisAccount().getId();
+            Long kisAccountId = requireKisAccountId(user, userId);
 
             // 2. Get KIS credentials and token
             String kisToken = kisAuthService.getKisAccessToken(kisAccountId);
@@ -786,7 +861,7 @@ public class TradingService {
                     .orElseThrow(() -> new UserNotFoundException(userId));
 
             // 1. Get KIS account from user
-            Long kisAccountId = user.getKisAccount().getId();
+            Long kisAccountId = requireKisAccountId(user, userId);
 
             // 2. Get KIS credentials and token
             String kisToken = kisAuthService.getKisAccessToken(kisAccountId);
@@ -990,7 +1065,7 @@ public class TradingService {
                 .orElseThrow(() -> new UserNotFoundException(userId));
 
         // 1. Get KIS account from user
-        Long kisAccountId = user.getKisAccount().getId();
+        Long kisAccountId = requireKisAccountId(user, userId);
 
         // 2. Get KIS credentials and token
         String kisToken = kisAuthService.getKisAccessToken(kisAccountId);

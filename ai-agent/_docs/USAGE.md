@@ -17,7 +17,7 @@ FastAPI 기동 (port 8000)
   → 서버 상주
 ```
 
-> 자동 스케줄이 **전체 파이프라인(Stage 1~6)**을 실행한다(`_job_wrapper` → `run_complete_pipeline_sync`). 수동 트리거 API(`POST /api/pipeline/trigger`)도 동일한 전체 경로다. 자세한 내용은 [STATUS.md](STATUS.md) 참고.
+> 스케줄러(`_job_wrapper`)는 Kafka `pipeline.run.requested` 이벤트를 **발행만** 하고, **전체 파이프라인(Stage 1~6) 실행은 `messaging/pipeline_run_consumer.py`의 컨슈머**가 담당한다. 수동 트리거 API(`POST /api/pipeline/trigger`)도 같은 토픽에 발행하므로 두 경로가 같은 컨슈머로 합류한다. 자세한 내용은 [ARCHITECTURE.md](ARCHITECTURE.md) 참고.
 
 ---
 
@@ -114,8 +114,8 @@ docker-compose logs -f ai-agent
 | --- | --- | --- |
 | GET | `/` | 서비스 정보 |
 | GET | `/health` | 헬스 체크 |
-| GET | `/api/pipeline/status` | 스케줄러 상태 + 다음 실행 시각 + 최근 실행일 |
-| POST | `/api/pipeline/trigger` | **전체 파이프라인(Stage 1~6) 수동 실행** |
+| GET | `/api/pipeline/status` | 스케줄러 상태 + Kafka 연결/컨슈머 상태 + 진행 중·직전 실행 + 최근 실행일 |
+| POST | `/api/pipeline/trigger` | **전체 파이프라인(Stage 1~6) 실행 요청 큐잉** (202 Accepted) |
 | GET | `/api/pipeline/results/{trade_date}` | 특정일 필터 결과 전체 |
 | GET | `/api/pipeline/selected/{trade_date}` | 특정일 선정 종목 코드 |
 
@@ -128,13 +128,28 @@ curl http://localhost:8000/api/pipeline/status
 # {
 #   "scheduler_running": true,
 #   "next_run_time": "2026-06-22T08:50:00+09:00",
-#   "latest_execution_date": "2026-06-21"
+#   "latest_execution_date": "2026-06-21",
+#   "kafka_connected": true,                    // 프로듀서 연결 상태
+#   "consumers": {                              // 컨슈머별 생사/처리 카운트
+#     "pipeline-run": {"alive": true, "connected": true, "processed": 3, "failed": 0, "error": null},
+#     "trade-result": {"alive": true, "connected": true, "processed": 6, "failed": 0, "error": null}
+#   },
+#   "running_trade_date": null,                 // 지금 실행 중인 거래일 (없으면 null)
+#   "last_run": {"trade_date": "2026-06-21", "success": true}   // 마지막으로 끝난 실행 요약
 # }
 ```
 
-### 4-2. 수동 트리거 (전체 파이프라인 실행)
+> `running_trade_date`가 `null`이 아니면 파이프라인이 진행 중이다. 컨슈머는 그룹당 1개 +
+> 순차 처리라 동시 실행되지 않으므로, 이 필드가 사실상 "실행 중" 플래그 역할을 한다.
 
-> ⚠️ 이 API는 실제로 전체 파이프라인을 즉시 실행한다. `is_active=true`이면 실제 모의투자 주문까지 전송된다.
+### 4-2. 수동 트리거 (전체 파이프라인 실행 요청)
+
+> ⚠️ 이 API는 실행을 **즉시 수행하지 않는다.** Kafka `pipeline.run.requested` 토픽에
+> 요청을 발행하고 **202 Accepted**로 즉시 반환하며, 실제 실행은 `pipeline_run_consumer`가
+> 이어받는다. 따라서 응답 본문에 분석 결과가 들어 있지 않다 — 진행 상황은
+> `/api/pipeline/status`의 `running_trade_date`/`last_run`으로 확인한다.
+> 실행이 끝나면 `is_active=true`인 유저에 한해 실제 모의투자 주문까지 전송된다.
+> Kafka 프로듀서가 연결되지 않으면 **503**을 반환한다(큐잉 실패를 성공으로 위장하지 않는다).
 
 ```bash
 # 오늘 날짜, 보유 종목 자동 조회

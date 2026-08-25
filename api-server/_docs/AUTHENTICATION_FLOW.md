@@ -164,13 +164,35 @@
 
 | 항목 | 값 |
 |------|-----|
-| permitAll 경로 | `/health`, `/health/**`, `/auth/**`, `/actuator/**`, `/test/**`, `/market/**`, `/company/**` |
+| permitAll 경로 | `/health`, `/health/**`, `/auth/**`, `/actuator/**`, `/market/**`, `/company/**`, `/stocks/**`, `/overseas/stocks/**`, `/news/**`, `/ws/**`, `/internal/**` |
+| `/auth/**`보다 먼저 매칭 | `/auth/webauthn/register/**` = `.authenticated()`, `/auth/webauthn/login/**` = `.permitAll()` |
 | 그 외 경로 | 인증 필요 |
 | 세션 | STATELESS |
 | CSRF | 비활성화 |
 | CORS | WebConfig (origins `localhost:5173`/`5174`/`3000`) |
 | 비밀번호 | `BCryptPasswordEncoder` |
 | 필터 순서 | `JwtAuthenticationFilter` → `UsernamePasswordAuthenticationFilter` 이전 |
+
+### permitAll이 곧 "무인증"은 아니다
+
+두 경로는 Spring Security의 JWT 필터를 태우지 않을 뿐, 각자 다른 인증 수단을 갖는다.
+
+| 경로 | 인증 주체 | 방식 |
+|------|----------|------|
+| `/internal/**` | `InternalAuthFilter` | `X-Internal-Api-Key` 헤더. **fail-closed** — 키가 설정되지 않으면 전체 거부한다. 호출자가 ai-agent 프로세스라 사용자 JWT가 존재하지 않는다 |
+| `/ws/**` | `JwtHandshakeInterceptor` | WebSocket 핸드셰이크는 커스텀 헤더를 붙일 수 없어 쿼리스트링 `?token={JWT}`로 받는다. `type=access`인 토큰만 통과 |
+
+### 토큰 타입 클레임
+
+access/refresh 토큰은 같은 `jwt.secret`으로 서명되므로 **서명 검증만으로는 둘을 구분할 수 없다.** 그래서 JWT에 `type` 클레임(`access` / `refresh`)을 실어 용도를 못박는다.
+
+| 검증 지점 | 요구 타입 |
+|----------|----------|
+| `JwtAuthenticationFilter` (모든 보호 REST 경로) | `access` |
+| `JwtHandshakeInterceptor` (`/ws/realtime`) | `access` |
+| `POST /auth/refresh` | `refresh` |
+
+이 구분이 없으면 리프레시 토큰이 액세스 토큰으로 통용되어 (1) 로그아웃이 세션을 끊지 못하고(revoke된 토큰으로 계속 조회 가능), (2) 유효기간이 1시간 대신 24시간으로 늘어난다. `type` 클레임이 없는 구버전 토큰은 양쪽 모두 거부된다 — MVP·소수 사용자 전제로 하위호환은 두지 않았다.
 
 ---
 

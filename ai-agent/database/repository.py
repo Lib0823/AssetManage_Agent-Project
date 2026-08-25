@@ -650,6 +650,10 @@ class DatabaseRepository:
         """
         Save Gemini AI trading decisions to ai_trade_decision table.
 
+        같은 `decision_date` 의 기존 행을 지우고 다시 넣는다(`save_filter_scores` 와 동일).
+        순수 append 로 두면 같은 거래일 재실행 시 UNIQUE(stock_code, decision_date, decision)
+        위반으로 배치 전체가 롤백되어 그날 새로 나온 결정까지 통째로 유실된다.
+
         Args:
             decisions: Dict with buy_top3 and sell_top3 lists
             trade_date: Trade date
@@ -686,16 +690,24 @@ class DatabaseRepository:
                     'rank': idx + 1
                 })
 
-            if records:
-                df = pd.DataFrame(records)
-                # Use engine if conn not provided
-                db_conn = conn if conn is not None else self.engine
-                df.to_sql('ai_trade_decision', db_conn, if_exists='append', index=False)
-                logger.info(f"Saved {len(records)} AI trading decisions")
-                return True
-            else:
+            if not records:
                 logger.warning("No AI decisions to save")
                 return False
+
+            df = pd.DataFrame(records)
+            delete_sql = text("DELETE FROM ai_trade_decision WHERE decision_date = :decision_date")
+
+            if conn is not None:
+                # 호출자가 이미 트랜잭션을 열어둔 커넥션을 넘긴 경우 그 안에서 수행한다.
+                conn.execute(delete_sql, {'decision_date': trade_date})
+                df.to_sql('ai_trade_decision', conn, if_exists='append', index=False)
+            else:
+                with self.engine.begin() as transaction:
+                    transaction.execute(delete_sql, {'decision_date': trade_date})
+                    df.to_sql('ai_trade_decision', transaction, if_exists='append', index=False)
+
+            logger.info(f"Saved {len(records)} AI trading decisions for {trade_date}")
+            return True
 
         except Exception as e:
             logger.error(f"Error saving AI decisions: {e}")
@@ -707,6 +719,10 @@ class DatabaseRepository:
                                    conn=None) -> bool:
         """
         Save safety filter results to safety_filter_result table.
+
+        같은 `filter_date` 의 기존 행을 지우고 다시 넣는다. 순수 INSERT 로 두면 같은 날
+        재실행 시 겹치는 종목만 UNIQUE 위반으로 떨어지고 신규 종목은 들어가, DB 에
+        낡은 행과 새 행이 뒤섞인 채 반환값은 True 가 된다(호출부 검사로도 못 잡는다).
 
         Args:
             filter_results: List of filter result dicts from
@@ -819,11 +835,14 @@ class DatabaseRepository:
             logger.warning("No valid safety filter results to save after sanitizing")
             return False
 
+        delete_sql = text("DELETE FROM safety_filter_result WHERE filter_date = :filter_date")
+
         db_conn = conn if conn is not None else self.engine
 
-        # Happy path: 단일 트랜잭션 bulk insert
+        # Happy path: DELETE + bulk insert 를 한 트랜잭션으로 (재실행 멱등)
         try:
             with db_conn.begin() as transaction:
+                transaction.execute(delete_sql, {'filter_date': filter_date})
                 transaction.execute(insert_sql, records)
             logger.info(f"Saved {len(records)} safety filter results")
             return True
@@ -832,6 +851,16 @@ class DatabaseRepository:
                 f"Bulk insert of safety filter results failed, "
                 f"falling back to per-row insert: {e}"
             )
+
+        # 위 트랜잭션이 롤백됐으므로 DELETE 부터 다시 수행해야 멱등성이 유지된다.
+        try:
+            with db_conn.begin() as transaction:
+                transaction.execute(delete_sql, {'filter_date': filter_date})
+        except SQLAlchemyError as e:
+            logger.error(
+                f"Failed to clear existing safety filter results for {filter_date}: {e}"
+            )
+            return False
 
         # Fallback: 행 단위 삽입 (한 행이 나빠도 당일의 정상 행은 보존)
         saved = 0
@@ -967,7 +996,9 @@ class DatabaseRepository:
         """
         유저별 매수/매도 실행 결과를 trade_execution_plan 에 기록 (멀티유저, 멱등).
 
-        (user_id, execution_date) 키의 기존 행을 삭제 후 재삽입한다(재실행 중복 방지).
+        (user_id, execution_date) 의 **아직 확정되지 않은** 행만 삭제 후 재삽입한다.
+        `EXECUTED`/`FAILED` 로 확정된 행은 `trade.order.result` 가 다시 오지 않으므로,
+        지우면 KIS 주문번호(order_no)까지 영구히 유실되고 상태가 QUEUED 로 되돌아간다.
 
         Args:
             user_id: 사용자 id
@@ -993,6 +1024,16 @@ class DatabaseRepository:
                  :planned_quantity, :reference_price, :estimated_amount, :gemini_reason,
                  :gemini_rank, :safety_filter_passed, :execution_status, :order_no, now(),
                  CAST(:execution_result AS JSONB))
+            ON CONFLICT (user_id, execution_date, stock_code, trade_type) DO NOTHING
+        """)
+
+        # 확정된 행(EXECUTED/FAILED)은 남긴다 — 위 ON CONFLICT DO NOTHING 이 덮어쓰기도 막는다.
+        delete_sql = text("""
+            DELETE FROM trade_execution_plan
+            WHERE user_id = :u
+              AND execution_date = :d
+              AND (execution_status IS NULL
+                   OR execution_status NOT IN ('EXECUTED', 'FAILED'))
         """)
 
         params = []
@@ -1016,10 +1057,7 @@ class DatabaseRepository:
 
         session = self.session_factory()
         try:
-            session.execute(
-                text("DELETE FROM trade_execution_plan WHERE user_id = :u AND execution_date = :d"),
-                {'u': user_id, 'd': execution_date}
-            )
+            session.execute(delete_sql, {'u': user_id, 'd': execution_date})
             session.execute(insert_sql, params)
             session.commit()
             logger.info(f"Saved {len(params)} trade_execution_plan rows for user {user_id}")

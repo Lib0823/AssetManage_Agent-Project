@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { getToken, setTokens, clearTokens } from '@/utils/tokenStorage'
+import { useAuthStore } from '@/stores/auth'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:7070/api'
 
@@ -35,10 +36,13 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
 
-    // 로그인/회원가입 요청은 인터셉터 처리 제외 (401을 그대로 반환)
+    // 공개 인증 엔드포인트는 인터셉터 처리 제외 (401을 그대로 호출부에 반환).
+    // webauthn login/*은 비로그인 상태에서 호출되므로 refresh 대상이 아니다 — 여기서
+    // 걸러내지 않으면 인증 실패 401이 강제 페이지 리로드로 이어진다.
     if (originalRequest.url?.includes('/auth/login') ||
         originalRequest.url?.includes('/auth/register') ||
-        originalRequest.url?.includes('/auth/reset-password')) {
+        originalRequest.url?.includes('/auth/reset-password') ||
+        originalRequest.url?.includes('/auth/webauthn/login/')) {
       return Promise.reject(error)
     }
 
@@ -48,10 +52,13 @@ api.interceptors.response.use(
 
       // 이미 refresh 중이면 대기
       if (isRefreshing) {
-        return new Promise((resolve) => {
-          refreshSubscribers.push((token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`
-            resolve(api(originalRequest))
+        return new Promise((resolve, reject) => {
+          refreshSubscribers.push({
+            resolve: (token) => {
+              originalRequest.headers.Authorization = `Bearer ${token}`
+              resolve(api(originalRequest))
+            },
+            reject
           })
         })
       }
@@ -73,10 +80,13 @@ api.interceptors.response.use(
 
         // 새 토큰 저장 (기존 저장소 그대로 — 자동 로그인 설정에 맞춰 유지)
         setTokens({ accessToken: newAccessToken })
+        // Pinia 상태도 같이 갱신해야 저장소와 store가 어긋나지 않는다.
+        useAuthStore().accessToken = newAccessToken
 
         // 대기 중인 요청들에 새 토큰 전달
-        refreshSubscribers.forEach((callback) => callback(newAccessToken))
+        const pending = refreshSubscribers
         refreshSubscribers = []
+        pending.forEach(({ resolve }) => resolve(newAccessToken))
 
         // 원래 요청 재시도
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
@@ -84,6 +94,11 @@ api.interceptors.response.use(
       } catch (refreshError) {
         // Refresh 실패 시 로그아웃
         console.error('Token refresh failed:', refreshError)
+        // 대기 큐를 비워 pending 프로미스를 매달아 두지 않는다 (리다이렉트는 비동기라
+        // 언로드 전까지 큐가 살아 있고, 언로드가 취소되면 영구 pending이 된다).
+        const pending = refreshSubscribers
+        refreshSubscribers = []
+        pending.forEach(({ reject }) => reject(refreshError))
         clearTokens()
         window.location.href = '/login'
         return Promise.reject(refreshError)
@@ -103,7 +118,6 @@ export const authApi = {
   resetPassword: (data) => api.post('/auth/reset-password', data),
   checkUsername: (username) => api.get('/auth/check-username', { params: { username } }),
   checkEmail: (email) => api.get('/auth/check-email', { params: { email } }),
-  refreshToken: (refreshToken) => api.post('/auth/refresh', { refreshToken }),
   logout: (refreshToken) => api.post('/auth/logout', { refreshToken }),
   validateKisAccount: (kisData) => api.post('/auth/validate-kis-account', kisData)
 }

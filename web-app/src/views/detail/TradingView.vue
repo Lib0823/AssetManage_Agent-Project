@@ -934,7 +934,7 @@ const realtimeNotice = computed(() => {
           <div class="form-fields">
             <div class="form-row">
               <span class="form-label">구분</span>
-              <span class="form-value">정규장 (지정가)</span>
+              <span class="form-value">정규장 (시장가)</span>
             </div>
             <div class="form-row">
               <span class="form-label">시간</span>

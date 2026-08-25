@@ -190,38 +190,6 @@ class InternalApiClient:
             "holding_codes": [h["stock_code"] for h in holdings],
         }
 
-    async def execute_buy(self, user_id: int, stock_code: str, stock_name: str,
-                          quantity: int, price: float = 0) -> Dict:
-        """특정 사용자 명의 매수 주문 (api-server 가 사용자 KIS 키로 대행)."""
-        return await self._post_trade(user_id, "buy", stock_code, stock_name, quantity, price)
-
-    async def execute_sell(self, user_id: int, stock_code: str, stock_name: str,
-                           quantity: int, price: float = 0) -> Dict:
-        """특정 사용자 명의 매도 주문 (api-server 가 사용자 KIS 키로 대행)."""
-        return await self._post_trade(user_id, "sell", stock_code, stock_name, quantity, price)
-
-    async def _post_trade(self, user_id: int, side: str, stock_code: str, stock_name: str,
-                          quantity: int, price: float) -> Dict:
-        url = f"{self.base_url}/api/internal/users/{user_id}/trades/{side}"
-        payload = {
-            "stock_code": stock_code,
-            "stock_name": stock_name,
-            "quantity": int(quantity),
-            "price": price or 0,
-        }
-        try:
-            async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                async with session.post(url, headers=self._headers, json=payload) as resp:
-                    body = await resp.json(content_type=None)
-                    if resp.status == 200 and (body or {}).get("success"):
-                        logger.info(f"[{side.upper()}] user {user_id} {stock_code} x{quantity} ok")
-                        return {"success": True, "data": (body or {}).get("data")}
-                    logger.error(f"[{side.upper()}] user {user_id} {stock_code} failed: HTTP {resp.status} {body}")
-                    return {"success": False, "error": (body or {}).get("message", f"HTTP {resp.status}")}
-        except Exception as e:
-            logger.error(f"[{side.upper()}] user {user_id} {stock_code} error: {e}")
-            return {"success": False, "error": str(e)}
-
 
 def _to_float(value) -> float:
     """KIS/JSON 수치(숫자 또는 콤마 포함 문자열)를 float 로 안전 변환. 실패 시 0.0."""

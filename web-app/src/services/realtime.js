@@ -20,6 +20,7 @@
  */
 
 import { logger } from '@/utils/logger'
+import { getToken } from '@/utils/tokenStorage'
 
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30000
@@ -54,7 +55,11 @@ function deriveWsUrl() {
 // 전용 this.fillsSub(refCount + 콜백 Set)로 dedupe/라우팅하고, 와이어 프로토콜은
 // {action, type:'fills'}로 보낸다. (별도 문자열 키 불필요)
 
-/** 구독 dedupe 키. (서버 SubKey와 무관 — 클라이언트 측 콜백 라우팅용) */
+/**
+ * 구독 dedupe 키. (서버 SubKey와 무관 — 클라이언트 측 콜백 라우팅용)
+ * exchange는 키에 넣지 않는다: 서버 데이터 프레임에 exchange 필드가 없어
+ * routeKey가 같은 형태를 만들 수 없기 때문이다.
+ */
 function subKey(market, symbol, type) {
   return `${market}:${symbol}:${type}`
 }
@@ -141,9 +146,12 @@ class RealtimeClient {
     }
   }
 
-  /** 현재 토큰 (localStorage accessToken). store와 동일 소스. */
+  /**
+   * 현재 accessToken. 자동 로그인 OFF면 토큰이 sessionStorage에 있으므로 양쪽을 보는
+   * getToken()을 써야 한다 (localStorage 직접 조회는 그 경우 빈 값이 되어 연결이 죽는다).
+   */
   _token() {
-    return localStorage.getItem('accessToken') || ''
+    return getToken('accessToken') || ''
   }
 
   _setState(state, notice) {
@@ -291,7 +299,8 @@ class RealtimeClient {
     }
 
     // 데이터 프레임 라우팅: type(quote→orderbook / tick) + symbol.
-    // 서버 quote 프레임 type은 'quote'지만 클라이언트 구독 type은 'orderbook'.
+    // 서버 QuoteMessage.type 기본값은 이미 'orderbook'이라 그대로 매칭된다.
+    // 'quote' 매핑은 구버전 서버 프레임을 위한 호환 처리.
     const subType = msg.type === 'quote' ? 'orderbook' : msg.type
     if (!subType || msg.symbol == null) return
 
@@ -332,6 +341,10 @@ class RealtimeClient {
         callbacks: new Set()
       }
       this.subscriptions.set(key, sub)
+    } else if (!sub.exchange && exchange) {
+      // 먼저 구독한 쪽이 exchange 없이 붙었으면 뒤늦게 들어온 값으로 채운다
+      // (재연결 시 재구독 프레임과 해제 프레임이 올바른 거래소를 싣도록).
+      sub.exchange = exchange
     }
 
     if (typeof cb === 'function') {

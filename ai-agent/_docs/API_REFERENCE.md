@@ -13,9 +13,11 @@
 | `market_daily_summary` | AI Agent | KOSPI 지수 및 시장 요약 | 매일 |
 | `stock_financial` | AI Agent (DART) | 분기 재무지표 | 분기 |
 | `news_analysis` | AI Agent | 뉴스 감성 점수 | 매일 |
+| `stock_news` | AI Agent | 종목별 뉴스 기사 원문·기사별 감성 (`news_analysis` 집계의 근거) | 매일 |
 | `prophet_forecast` | AI Agent | D+1~D+5 예측 | 매일 |
 | `ai_trade_decision` | AI Agent | Gemini 매수/매도 TOP3 | 매일 |
 | `safety_filter_result` | AI Agent | Safety Filter 검증 결과 | 매일 |
+| `trade_execution_plan` | AI Agent | Stage 6 유저별 주문 계획·상태(`QUEUED`→`EXECUTED`/`FAILED`) | 매일 + 체결 결과 수신 시 |
 | `trade_history` | api-server | KIS 주문 체결 이력 | 거래 시 |
 | `user_trade_config` | api-server | 자동매매 설정(`is_active`, `order_amount`) | 설정 변경 시 |
 

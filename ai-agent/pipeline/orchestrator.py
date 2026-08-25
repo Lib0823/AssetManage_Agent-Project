@@ -503,14 +503,18 @@ class PipelineOrchestrator:
 
             # Stage 4: Gemini AI Decision
             logger.info("[Stage 4] Gemini AI Decision")
-            gemini_decisions = self.decision_generator.generate_decisions(
+            # Gemini SDK 는 동기 API 이고 내부 throttle/백오프도 time.sleep 이라,
+            # 그대로 await 없이 부르면 이벤트 루프가 멈춰 Kafka 하트비트까지 막힌다.
+            gemini_decisions = await asyncio.to_thread(
+                self.decision_generator.generate_decisions,
                 quant_features=quant_df,
                 sentiment_features=sentiment_df,
                 timeseries_features=ts_df
             )
 
             # Save to DB
-            self.db_repo.save_ai_decisions(gemini_decisions, trade_date)
+            if not self.db_repo.save_ai_decisions(gemini_decisions, trade_date):
+                logger.error(f"[Stage 4] Failed to save AI decisions for {trade_date}")
 
             logger.info(f"[Stage 4] Gemini decisions: {len(gemini_decisions.get('buy_top3', []))} buys, {len(gemini_decisions.get('sell_top3', []))} sells")
             pipeline_result['stages']['stage4_gemini'] = gemini_decisions
@@ -540,7 +544,10 @@ class PipelineOrchestrator:
             )
 
             # Save filter results to DB
-            self.db_repo.save_safety_filter_results(filtered_decisions['filter_results'], trade_date)
+            if not self.db_repo.save_safety_filter_results(
+                filtered_decisions['filter_results'], trade_date
+            ):
+                logger.error(f"[Stage 5] Failed to save safety filter results for {trade_date}")
 
             buy_passed = len(filtered_decisions['buy_top3'])
             sell_passed = len(filtered_decisions['sell_top3'])
@@ -623,7 +630,8 @@ class PipelineOrchestrator:
 
             # 1) 유저 맞춤 매수/매도 결정 (Gemini 1콜, throttle/백오프는 클라이언트 내부)
             try:
-                decision = self.decision_generator.generate_user_decision(
+                decision = await asyncio.to_thread(
+                    self.decision_generator.generate_user_decision,
                     candidate_features=features_df,
                     portfolio=portfolio,
                     order_amount=order_amount,

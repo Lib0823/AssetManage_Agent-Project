@@ -141,10 +141,10 @@ export async function isPlatformAuthAvailable() {
 // 현재 로그인된 사용자 기준으로 이 기기에 생체 자격증명(패스키)을 등록.
 // 호출 시점에 유효한 accessToken 이 있어야 한다(register/start 는 JWT 필요).
 export async function registerBiometric() {
-  // 1. 서버에서 생성 옵션 받기
+  // 1. 서버에서 생성 옵션 받기 (ApiResponse 래퍼를 벗기고, options는 JSON 문자열이라 파싱)
   const startRes = await webauthnApi.registerStart()
-  const flowId = startRes.flowId
-  const options = startRes.options
+  const flowId = startRes.data.flowId
+  const options = JSON.parse(startRes.data.options)
 
   // 2. base64url 필드 -> ArrayBuffer 변환
   const publicKey = toCreationOptions(options.publicKey ? options.publicKey : options)
@@ -169,8 +169,8 @@ export async function registerBiometric() {
 export async function loginBiometric() {
   // 1. 서버에서 assertion 옵션 받기 (공개 엔드포인트)
   const startRes = await webauthnApi.loginStart()
-  const flowId = startRes.flowId
-  const options = startRes.options
+  const flowId = startRes.data.flowId
+  const options = JSON.parse(startRes.data.options)
 
   // 2. base64url 필드 -> ArrayBuffer 변환
   const publicKey = toRequestOptions(options.publicKey ? options.publicKey : options)
@@ -188,13 +188,14 @@ export async function loginBiometric() {
     credential: JSON.stringify(serialized)
   })
 
-  // 5. 일반 로그인과 동일하게 토큰 저장
+  // 5. 일반 로그인과 동일하게 토큰 저장 (ApiResponse 래퍼 안의 LoginResponse)
+  const login = loginResponse.data
   const authStore = useAuthStore()
   authStore.setAuthData({
-    accessToken: loginResponse.accessToken,
-    refreshToken: loginResponse.refreshToken,
-    user: loginResponse.user
+    accessToken: login.accessToken,
+    refreshToken: login.refreshToken,
+    user: login.user
   })
 
-  return loginResponse
+  return login
 }

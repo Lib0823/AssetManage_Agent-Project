@@ -36,7 +36,7 @@ database/
 
 > `schema.sql`을 직접 실행하거나 손으로 수정하지 마세요. 항상 changelog가 소스입니다.
 
-> `schema.sql`은 v1.19(`user_holdings` 제거)까지 반영된 스냅샷이다. 이후 changelog가 추가되면 다시 밀릴 수 있으니, 스키마 관련 작업 전에는 재생성 여부를 확인할 것 — schema.sql이 changelog보다 오래된 상태로 방치되면 이 파일을 근거로 정상 동작하는 코드의 컬럼/테이블을 잘못 지우는 사고로 이어질 수 있다(DB 없이 DDL을 손으로 고치는 것도 금지 — 스냅샷 위조가 된다).
+> `schema.sql`은 2026-08 QA 라운드에서 v1.27까지 재생성됐다(TimescaleDB hypertable 전환, `trade_history.idempotency_key`, `trade_execution_plan` 유저 스코프 유니크키, `refresh_tokens` 부분 유니크 인덱스 등 반영). 이후 changelog가 추가되면 다시 밀릴 수 있으니, 스키마 관련 작업 전에는 재생성 여부를 확인할 것 — schema.sql이 changelog보다 오래된 상태로 방치되면 이 파일을 근거로 정상 동작하는 코드의 컬럼/테이블을 잘못 지우는 사고로 이어질 수 있다(DB 없이 DDL을 손으로 고치는 것도 금지 — 스냅샷 위조가 된다).
 
 상위 시스템 데이터 흐름은 [`../_docs/ARCHITECTURE.md`](../_docs/ARCHITECTURE.md) 참고.
 

@@ -14,6 +14,8 @@ import pandas as pd
 import logging
 from typing import List, Dict, Optional, Tuple
 
+from config.constants import STOCK_NAMES
+
 logger = logging.getLogger(__name__)
 
 
@@ -536,9 +538,11 @@ class SafetyFilter:
             if stock_code not in features_dict:
                 filtered_decisions['filter_results'].append({
                     'stock_code': stock_code,
+                    'stock_name': STOCK_NAMES.get(stock_code, ''),
                     'decision': 'BUY',
                     'passed': False,
                     'failure_reason': 'Features not found',
+                    'current_price': (stock_prices or {}).get(stock_code),
                     'max_quantity': 0,
                     'filter_checks': {}
                 })
@@ -547,10 +551,11 @@ class SafetyFilter:
             features = features_dict[stock_code]
             passed, failure_reason, check_details = self.apply_buy_filter(features)
 
+            current_price = (stock_prices or {}).get(stock_code)
+
             # Additional check: Investment limit (if stock_prices and order_amount provided)
             max_quantity = None
             if passed and stock_prices and order_amount:
-                current_price = stock_prices.get(stock_code)
                 if current_price:
                     limit_passed, limit_reason, max_qty = self.check_investment_limit(
                         stock_code, current_price, order_amount
@@ -577,10 +582,12 @@ class SafetyFilter:
 
             filtered_decisions['filter_results'].append({
                 'stock_code': stock_code,
+                'stock_name': STOCK_NAMES.get(stock_code, ''),
                 'decision': 'BUY',
                 'passed': passed,
                 'failure_reason': failure_reason,
                 'feature_values': features,
+                'current_price': current_price,
                 'max_quantity': max_quantity,
                 'filter_checks': check_details
             })
@@ -591,9 +598,12 @@ class SafetyFilter:
             if stock_code not in features_dict:
                 filtered_decisions['filter_results'].append({
                     'stock_code': stock_code,
+                    'stock_name': STOCK_NAMES.get(stock_code, ''),
                     'decision': 'SELL',
                     'passed': False,
                     'failure_reason': 'Features not found',
+                    'current_price': (stock_prices or {}).get(stock_code),
+                    'max_quantity': None,
                     'filter_checks': {}
                 })
                 continue
@@ -606,10 +616,14 @@ class SafetyFilter:
 
             filtered_decisions['filter_results'].append({
                 'stock_code': stock_code,
+                'stock_name': STOCK_NAMES.get(stock_code, ''),
                 'decision': 'SELL',
                 'passed': passed,
                 'failure_reason': failure_reason,
                 'feature_values': features,
+                'current_price': (stock_prices or {}).get(stock_code),
+                # 매도 수량은 보유 수량에서 결정되며 이 필터는 보유 정보를 받지 않는다.
+                'max_quantity': None,
                 'filter_checks': check_details
             })
 

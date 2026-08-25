@@ -19,32 +19,35 @@ web-app/
     ├── App.vue             # 루트: <RouterView> + 조건부 <BottomNav> + onMounted 자동 로그인 복원
     ├── router/index.js     # 라우트 정의 + beforeEach 가드
     ├── services/
-    │   ├── api.js          # axios 인스턴스 + 인터셉터 + 도메인별 API 객체
-    │   └── mockData.js     # 화면용 Mock 데이터 (17개 export)
+    │   ├── api.js          # axios 인스턴스 + 인터셉터 + 도메인별 API 객체(12개)
+    │   ├── mockData.js     # 화면용 Mock 데이터 (export 1개: mockMarketIndices)
+    │   ├── realtime.js     # 실시간 WebSocket 클라이언트 싱글톤 (/ws/realtime)
+    │   └── webauthn.js     # WebAuthn(생체 로그인/패스키) 클라이언트 헬퍼
     ├── stores/
-    │   └── auth.js         # Pinia 스토어: 회원가입 멀티스텝 데이터 + 인증 토큰/유저
+    │   ├── auth.js         # Pinia: 회원가입 멀티스텝 데이터 + 인증 토큰/유저 + 계좌모드
+    │   └── realtime.js     # Pinia: 실시간 호가/체결가/체결통보 상태 + 구독 래퍼
     ├── utils/
+    │   ├── tokenStorage.js # 인증 토큰 저장소 (자동로그인 설정에 따라 local/session 분기)
+    │   ├── uiSettings.js   # 다크모드·자동로그인·자산순서 (localStorage + 인메모리 ref)
+    │   ├── kisStatus.js    # KIS 점검/장애 판별 (graceful degrade 배너용)
+    │   ├── logger.js       # 개발 모드 전용 로깅 래퍼
     │   └── toast.js        # Vant showToast 래퍼 (success/error/warning/info/loading)
     ├── assets/
     │   ├── base.css        # 디자인 토큰(CSS 변수: color/spacing/radius/font 등)
     │   ├── main.css        # 앱 전역 스타일, 반응형, v-calendar 커스텀
     │   └── logo.svg
     ├── components/
-    │   ├── common/         # AppHeader, BottomNav, StockCard, AssetTabs, InvestmentTabs
-    │   ├── icons/          # Icon*.vue (Vite 스캐폴드 잔재)
-    │   ├── HelloWorld.vue  # Vite 스캐폴드 잔재 (라우팅/뷰에서 미참조)
-    │   ├── TheWelcome.vue  # Vite 스캐폴드 잔재
-    │   └── WelcomeItem.vue # Vite 스캐폴드 잔재
+    │   └── common/         # AppHeader, BottomNav, StockCard, AssetTabs,
+    │                       # InvestmentTabs, KisMaintenanceNotice, KisModeBadge
     └── views/
         ├── auth/           # Splash, Welcome, Login, Register, RegisterFinance, Terms, ResetPassword
         ├── main/           # Home, Assets, Bot, Search, Favorites
-        ├── detail/         # AssetDetail, CompanyDetail, Trading, Transactions, News, NewsDetail, Transfer
+        ├── detail/         # AssetDetail, CompanyDetail, Trading, Transactions, News, NewsDetail
         ├── analysis/       # MarketAnalysis
-        ├── settings/       # Profile, Settings
-        └── AboutView.vue   # Vite 스캐폴드 잔재 (라우터에서 미참조)
+        └── settings/       # Profile, Settings
 ```
 
-> 스캐폴드 잔재: `HelloWorld.vue`, `TheWelcome.vue`, `WelcomeItem.vue`, `components/icons/Icon*.vue`, `views/AboutView.vue`는 Vite + Vue 초기 템플릿 산출물로, 라우터(`router/index.js`)나 다른 뷰에서 참조되지 않는다(grep 확인). 실제 화면 로직과 무관.
+> Vite + Vue 초기 템플릿 산출물(`HelloWorld.vue`, `TheWelcome.vue`, `WelcomeItem.vue`, `components/icons/Icon*.vue`, `views/AboutView.vue`)과 범위 밖으로 빠진 `TransferView.vue`는 **모두 삭제됐다**. 현재 `components/`·`views/` 아래에는 실제로 사용되는 파일만 남아 있다.
 
 ## 2. 라우팅 구조
 
@@ -76,7 +79,7 @@ web-app/
 | `/profile` | profile | `settings/ProfileView` | 필요 | ✅ |
 | `/settings` | settings | `settings/SettingsView` | 필요 | — |
 
-¹ **인증 필요(prod)**: `beforeEach` 가드는 `publicPages` 목록(`/`, `/welcome`, `/login`, `/register`, `/register/finance`, `/terms`, `/reset-password`)을 제외한 모든 경로를 인증 필요로 본다. 단 **`import.meta.env.DEV`일 때는 모든 검사를 건너뛴다**. 프로덕션에서 토큰(`localStorage.accessToken`)이 없으면 `/welcome`으로 리다이렉트.
+¹ **인증 필요(prod)**: `beforeEach` 가드는 `publicPages` 목록(`/`, `/welcome`, `/login`, `/register`, `/register/finance`, `/terms`, `/reset-password`)을 제외한 모든 경로를 인증 필요로 본다. 단 **`import.meta.env.DEV`일 때는 모든 검사를 건너뛴다**. 프로덕션에서 토큰(`getToken('accessToken')` — local/session 양쪽 조회)이 없으면 `/welcome`으로 리다이렉트.
 
 ² **bottomNav**: 라우트 `meta.showBottomNav: true`이면 `App.vue`가 하단 네비게이션을 렌더한다.
 
@@ -86,11 +89,29 @@ web-app/
 
 ## 3. 상태관리 (State Management)
 
-- **Pinia 스토어**: `stores/auth.js` 단 하나. setup-store 형태.
-  - 회원가입 멀티스텝 데이터: `registrationData`(`step1` 개인정보 / `step2` 금융정보(KIS) / `validation` 중복확인·인증 상태). 액션: `saveStep1Data`, `saveStep2Data`, `setIdCheckResult`, `setEmailCheckResult`, `setPhoneVerified`, `clearRegistrationData`, `hasStep1Data`.
-  - 인증 상태: `user`, `accessToken`, `refreshToken`. 액션: `setAuthData`(스토어 + `localStorage` 동시 저장), `clearAuthData`, `loadAuthDataFromStorage`(앱 시작 시 `App.vue`가 호출), `logout`(서버 logout 후 로컬 삭제), getter `isAuthenticated`.
-- **localStorage**: 토큰 영속화의 단일 출처. axios 인터셉터·라우터 가드 모두 `localStorage`를 직접 읽는다(`accessToken`, `refreshToken`, `user`).
-- 그 외 화면별 상태는 각 뷰의 `ref`/`computed`로 로컬 관리(전역 store 없음). 화면별 상세는 [SCREENS.md](./SCREENS.md).
+- **Pinia 스토어 2개** (모두 setup-store 형태):
+  - `stores/auth.js`
+    - 회원가입 멀티스텝 데이터: `registrationData`(`step1` 개인정보 / `step2` 금융정보(KIS) / `validation` 중복확인 상태). 액션: `saveStep1Data`, `saveStep2Data`, `setIdCheckResult`, `setEmailCheckResult`, `clearRegistrationData`, `hasStep1Data`.
+    - 인증 상태: `user`, `accessToken`, `refreshToken`, `accountMode`(`'REAL'|'MOCK'|null` — 헤더 배지·실시간 게이트에 사용). 액션: `setAuthData`(스토어 + 저장소 동시 저장), `setAccountMode`, `clearAuthData`, `loadAuthDataFromStorage`(앱 시작 시 `App.vue`가 호출), `logout`(서버 logout 후 로컬 삭제), getter `isAuthenticated`.
+  - `stores/realtime.js` — 실시간 호가/체결가 캐시(`getQuote`/`getTick`)와 구독 래퍼(`subscribe`/`subscribeFills`), 연결 상태·안내 문구. `services/realtime.js` 싱글톤을 감싼다. 소비처는 `App.vue`(체결통보 전역 구독), `TradingView`, `AssetDetailView`, `ProfileView`.
+
+### 토큰 저장소 규칙 (중요)
+
+토큰은 **localStorage 단일 출처가 아니다.** `utils/tokenStorage.js`가 "자동 로그인"(`uiSettings.autoLogin`) 설정에 따라 저장 위치를 가른다:
+
+| autoLogin | 저장 위치 | 수명 |
+|---|---|---|
+| `true`(기본값) | `localStorage` | 브라우저를 껐다 켜도 유지 |
+| `false` | `sessionStorage` | 새로고침은 살아남지만 탭/브라우저를 닫으면 소멸 |
+
+따라서 **저장소를 직접 읽지 말고 반드시 `getToken(key)`를 쓴다** — `getToken`은 `localStorage` → `sessionStorage` 순으로 양쪽을 조회한다. `localStorage.getItem('accessToken')`을 직접 호출하면 자동 로그인 OFF 사용자에게만 `null`이 되는 조용한 버그가 생긴다(실제로 실시간 WebSocket·프로필 화면에서 발생했던 결함).
+
+- 쓰기: `setTokens(pairs)` — 현재 설정에 맞는 저장소에 쓰고 반대쪽 잔여값을 지운다.
+- 삭제: `clearTokens()` — 인증 키 4개(`accessToken`, `refreshToken`, `user`, `accountMode`)만 양쪽에서 제거한다. **`localStorage.clear()`를 쓰면 안 된다** — `uiSettings`(다크모드/자동로그인/자산순서)까지 날아가고 `sessionStorage` 쪽 토큰은 그대로 남는다.
+
+`uiSettings`는 별도 키(`localStorage.uiSettings`)이며 인증과 무관하게 보존된다. `utils/uiSettings.js`는 모듈 로드 시 1회 읽은 인메모리 `ref`를 통해 제공하므로, localStorage에서 지워져도 **다음 페이지 로드 시점에야** 손실이 드러난다.
+
+- 그 외 화면별 상태는 각 뷰의 `ref`/`computed`로 로컬 관리. 화면별 상세는 [SCREENS.md](./SCREENS.md).
 
 ## 4. API 레이어
 
@@ -103,27 +124,44 @@ web-app/
 - 기본 헤더: `Content-Type: application/json`.
 
 ### 인터셉터
-- **요청 인터셉터**: `localStorage.accessToken`이 있으면 `Authorization: Bearer <token>` 자동 주입.
+- **요청 인터셉터**: `getToken('accessToken')`(local/session 양쪽 조회)이 있으면 `Authorization: Bearer <token>` 자동 주입.
 - **응답 인터셉터**:
-  - 성공 시 `response.data`만 반환(뷰에서는 axios 래퍼가 아닌 payload를 직접 받음).
-  - `/auth/login`·`/auth/register`·`/auth/reset-password` 요청은 인터셉터 처리 제외(401 그대로 반환).
-  - 401 + 미재시도 요청이면 **토큰 자동 refresh**: `refreshToken`으로 `POST /auth/refresh` → 새 `accessToken` 저장 후 원요청 재시도. refresh 진행 중 들어온 요청은 큐(`refreshSubscribers`)에 대기시켰다가 새 토큰으로 재개. refresh 실패 시 `localStorage.clear()` 후 `/login`으로 강제 이동.
+  - 성공 시 `response.data`만 반환. 이때 반환되는 것은 api-server의 **`ApiResponse` 래퍼 본문**(`{success, message, data}`)이므로, 실제 페이로드는 한 단계 더 들어간 `res.data`다.
+  - 공개 인증 엔드포인트는 인터셉터 처리 제외(401 그대로 호출부에 반환): `/auth/login`, `/auth/register`, `/auth/reset-password`, `/auth/webauthn/login/`.
+  - 401 + 미재시도 요청이면 **토큰 자동 refresh**: `refreshToken`으로 `POST /auth/refresh` → 새 `accessToken`을 `setTokens`로 저장하고 Pinia `accessToken` ref도 갱신한 뒤 원요청 재시도. refresh 진행 중 들어온 요청은 큐(`refreshSubscribers`)에 대기시켰다가 새 토큰으로 재개하며, refresh가 실패하면 대기 큐를 전부 reject 후 비운다. 이어서 `clearTokens()`(인증 키만 제거) 후 `/login`으로 강제 이동.
 
 ### 도메인별 API 객체
 
+현재 **12개** 객체가 export 돼 있으며, 모두 실제 화면에서 사용된다.
+
 | 객체 | 엔드포인트(메서드) | 비고 |
 |------|-------------------|------|
-| `authApi` | `/auth/login`, `/auth/register`, `/auth/reset-password`, `/auth/check-username`, `/auth/check-email`, `/auth/refresh`, `/auth/logout`, `/auth/validate-kis-account` | 인증·회원가입·KIS 계좌 검증 |
+| `authApi` | `/auth/login`, `/auth/register`, `/auth/reset-password`, `/auth/check-username`, `/auth/check-email`, `/auth/logout`, `/auth/validate-kis-account` | 인증·회원가입·KIS 계좌 검증. refresh는 인터셉터가 raw axios로 직접 호출(재귀 방지) |
+| `webauthnApi` | `/auth/webauthn/register/start`·`/finish`, `/auth/webauthn/login/start`·`/finish` | 생체 로그인/패스키. `register/*`는 JWT 필요, `login/*`은 공개(usernameless) |
 | `userApi` | `/users/me`(GET/PUT/DELETE), `/users/settings`(GET/PUT), `/users/kis-account`(GET/PUT), `/users/trade-config`(GET/PUT) | 프로필·설정·KIS 계좌·자동매매 설정 |
-| `assetApi` | `/assets/holdings`, `/assets/balance` | 보유종목·잔고 |
-| `tradingApi` | `/trading/buy`, `/trading/sell`, `/trading/history`, `/trading/recent`, `/trading/holdings` | 매수/매도·거래내역·최근거래·보유 |
-| `companyApi` | `/company/{code}/basic-info`, `/financials`, `/disclosures` | 기업정보 (Spring Boot) |
-| `newsApi` | `/news`, `/news/{id}`, `/news/by-date` | 뉴스 (주석상 FastAPI 처리) — **현재 뷰에서 미사용** |
+| `assetApi` | `/assets/holdings`, `/assets/balance`, `/assets/snapshot`(POST), `/assets/history` | 보유종목·잔고·총자산 일별 스냅샷/추이 |
+| `tradingApi` | `/trading/buy`, `/sell`, `/history`, `/recent`, `/holdings`, `/pending-orders`, `/orderable`, `/reserved-orders`(GET/POST/DELETE) | 국내 매매·거래내역·미체결·예약주문(실전 계좌 전용) |
+| `stockApi` | `/stocks/search`, `/stocks/top`, `/stocks/{code}/price`, `/stocks/{code}/orderbook` | 국내 종목 검색·인기·시세·호가 |
+| `overseasApi` | `/overseas/stocks/{symbol}/price`·`/orderbook`, `/overseas/balance`, `/history`, `/pending-orders`, `/orderable`, `/buy`, `/sell` | 해외(US) 시세·잔고·매매. `exchange` 파라미터 필요 |
+| `favoriteApi` | `/favorites`(GET/POST), `/favorites/{code}`(DELETE) | 관심종목 |
+| `companyApi` | `/company/{code}/basic-info`, `/financials`, `/disclosures` | 기업정보 |
+| `newsApi` | `/news`(`{symbol?, date?}`), `/news/{id}` | 뉴스 목록·상세. NewsView/NewsDetailView에서 사용 |
 | `marketApi` | `/market/indices`, `/market/exchange-rates`, `/market/news`, `/market/decisions` | 홈 화면 지수·환율·뉴스·AI추천 |
-| `botApi` | `/bot/status`, `/bot/analysis/{symbol}`, `/bot/toggle`, `/bot/settings` | 정의돼 있으나 **현재 뷰에서 미사용** (BotView는 userApi/tradingApi/marketAnalysisApi 사용) |
 | `marketAnalysisApi` | `/market/summary`, `/sentiment`, `/decisions`, `/latest-date`, `/heatmap`, `/stock-analysis/{code}`, `/stock-detail/{code}` | 시장분석 대시보드·종목 상세 |
 
-> 주석 처리된 `stockApi`는 미구현으로 남아 있다(`// TODO: Implement these endpoints in api-server`). 어떤 API가 실제로 호출되는지는 [SCREENS.md](./SCREENS.md)와 [STATUS.md](./STATUS.md) 참조.
+> 과거 문서에 있던 `botApi`는 삭제됐다(BotView는 `userApi`/`tradingApi`/`marketAnalysisApi`를 사용). 어떤 API가 어느 화면에서 호출되는지는 [SCREENS.md](./SCREENS.md)와 [STATUS.md](./STATUS.md) 참조.
+
+### 실시간 WebSocket 계층
+
+REST와 별개로 `/ws/realtime`에 붙는 실시간 계층이 있다.
+
+- `services/realtime.js` — 네이티브 WebSocket 싱글톤. `${wsOrigin}/ws/realtime?token=<accessToken>`으로 JWT 핸드셰이크. 구독 dedupe(refCount) + 지수 백오프 재연결(최대 4회 후 `disabled`로 포기, 사용자 액션 시 재시도).
+  - 프레임: 구독/해제 `{action, market, symbol, type, exchange}`, 데이터 `{type:'orderbook'|'tick', ...}`, 체결통보 `{type:'fills'}`, 상태 `{type:'status', state, notice}`.
+  - **Graceful degrade**: 연결 실패/서버 비활성 상태에서 절대 throw 하지 않고 상태만 알린다. 뷰는 REST 스냅샷을 유지한다.
+  - 실시간은 **실전(REAL) 계좌 모드에서만** 활성화된다(`App.vue`가 `accountMode`를 조회해 `setEnabled`).
+- `stores/realtime.js` — 위 싱글톤을 감싼 Pinia 스토어. 프레임 필드는 **camelCase 계약**(`currentPrice`/`changeAmount`/`changeRate`/`accVolume`, `quote.asks|bids: [{price, quantity}]`)으로, REST 렌더 경로를 그대로 재사용하기 위한 의도된 규약이다.
+
+브라우저는 KIS 소켓에 직접 붙지 않는다 — 항상 Spring 브리지를 경유하며, 서버가 단일 상향 KIS 연결을 심볼 ref-count로 멀티플렉싱한다.
 
 ## 5. 빌드 / PWA / 배포
 
@@ -146,13 +184,17 @@ web-app/
 ```
 Vue3 (axios single instance, baseURL=VITE_API_BASE_URL)
   └─→ /auth/*, /users/*, /assets/*, /trading/*  →  Spring Boot api-server (7070, 인증/거래/자산/사용자)
-  └─→ /company/*                                 →  Spring Boot api-server (기업정보)
+  └─→ /stocks/*, /overseas/*, /favorites/*      →  Spring Boot api-server (시세/해외/관심종목)
+  └─→ /company/*, /news/*                        →  Spring Boot api-server (기업정보·뉴스)
   └─→ /market/*  (summary/sentiment/decisions/   →  api-server가 AI 분석 결과(PostgreSQL)를 중계
                   heatmap/indices/...)               (marketApi·marketAnalysisApi)
+
+Vue3 (native WebSocket)
+  └─→ /ws/realtime?token=<JWT>                   →  Spring 브리지 → KIS 실시간 소켓 (멀티플렉싱)
 ```
 
-- 프런트엔드는 **단일 baseURL**로만 통신한다. 코드상 AI 서버(FastAPI, 8000)나 `/static/charts/*` 이미지에 **직접 접근하는 경로는 발견되지 않았다**. 시장분석·종목 상세 화면의 차트는 모두 클라이언트에서 CSS/HTML/inline SVG로 직접 렌더링하며, 서버 생성 PNG를 `<img>`로 불러오지 않는다.
-- 따라서 AI 분석 결과(센티먼트, Prophet 예측, AI 매매 판단 등)는 `/market/*` 경로를 통해 **JSON 형태로** 받아 프런트에서 시각화하는 구조다. (api-server가 ai-agent의 산출물을 DB에서 읽어 제공하는 것으로 추정 — 프런트 코드만으로는 백엔드 내부 경로 미확인.)
+- 프런트엔드의 HTTP 통신은 **단일 baseURL**로만 나가며, 실시간만 같은 호스트의 WebSocket 엔드포인트를 추가로 쓴다(`VITE_API_BASE_URL`에서 컨텍스트 경로를 떼고 파생). 코드상 AI 서버(FastAPI, 8000)나 `/static/charts/*` 이미지에 **직접 접근하는 경로는 없다**. 시장분석·종목 상세 화면의 차트는 모두 클라이언트에서 CSS/HTML/inline SVG로 직접 렌더링하며, 서버 생성 PNG를 `<img>`로 불러오지 않는다.
+- 따라서 AI 분석 결과(센티먼트, Prophet 예측, AI 매매 판단 등)는 `/market/*` 경로를 통해 **JSON 형태로** 받아 프런트에서 시각화하는 구조다. api-server(`MarketAnalysisController`/`MarketDataController`/`CompanyController`)가 ai-agent의 산출물을 DB에서 읽어 중계하며, **web-app이 ai-agent를 직접 호출하는 경로는 없다**.
 
 ## 7. UI 컴포넌트 / 스타일 토큰
 
@@ -162,5 +204,7 @@ Vue3 (axios single instance, baseURL=VITE_API_BASE_URL)
   - `BottomNav` — 하단 7탭 (위 §2.3).
   - `StockCard` — 보유종목 카드(현재가/매입금/평가손익/수량/손익률 + 뉴스·매매·기업정보 버튼, emit).
   - `AssetTabs` / `InvestmentTabs` — 주식/채권/코인(채권·코인 disabled) + 국내/해외 서브탭. 거의 동일하나 `AssetTabs`는 탭 목록을 prop으로 외부 주입 가능.
+  - `KisMaintenanceNotice` — KIS 점검/장애 시 화면을 깨뜨리지 않고 띄우는 안내 배너. `utils/kisStatus.js`의 판별 함수와 짝을 이룬다(이 프로젝트의 일관된 graceful-degrade UX 패턴).
+  - `KisModeBadge` — 현재 계좌 모드(실전/모의) 배지. `authStore.accountMode` 기반.
 - **스타일**: `assets/base.css`에 디자인 토큰을 CSS 변수로 정의(`--color-*`, `--spacing-*`, `--radius-*`, `--font-*`, `--max-width-mobile`, `--bottom-nav-height` 등). `main.css`가 전역 스타일·반응형(1024px 이상에서 모바일 폭으로 중앙 정렬)·v-calendar 커스텀을 담당. Tailwind 4.1도 의존성에 포함.
 - **Chart.js**: `main.js`에서 전역 register. 사용 화면은 `AssetsView`(Doughnut, Line), `FavoritesView`(Line). 그 외 차트성 표현(시장분석 히트맵, Prophet 예측, 미니 스파크라인)은 Chart.js 없이 CSS/SVG로 직접 구현.

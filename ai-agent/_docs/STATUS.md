@@ -3,7 +3,7 @@
 > 이 문서는 ai-agent 모듈의 **기능별 구현 상태**와 **주요 수정 이력**을 코드 기준으로 정리한다.
 > 기능 설계 상세는 [PIPELINE_DESIGN.md](PIPELINE_DESIGN.md), 구조는 [ARCHITECTURE.md](ARCHITECTURE.md) 참고.
 
-기준 시점: 2026-06 (develop-analysis 브랜치)
+기준 시점: 2026-08 (feature/timeseries-nosql-migration 브랜치)
 
 ---
 
@@ -30,7 +30,7 @@
 
 ### 2-1. 스케줄러는 전체 파이프라인 실행 ✅
 
-`PipelineScheduler._job_wrapper`(`pipeline/scheduler.py`)는 `orchestrator.run_complete_pipeline_sync()`를 호출한다. 즉 **자동 스케줄(평일 08:50)이 전체 파이프라인(Stage 1~6)**을 수행한다(잡 id `full_pipeline_job`).
+`PipelineScheduler._job_wrapper`(`pipeline/scheduler.py`)는 Kafka `pipeline.run.requested` 토픽에 실행 요청을 **발행만** 하고 즉시 끝난다(잡 id `full_pipeline_job`). **전체 파이프라인(Stage 1~6)은 `messaging/pipeline_run_consumer.py`의 컨슈머**가 이 이벤트를 받아 수행한다. 결과적으로 자동 스케줄(평일 08:50)이 전체 파이프라인을 돌리는 것은 맞지만, 스케줄러 스레드가 직접 실행하지는 않는다.
 
 수동 트리거 API `POST /api/pipeline/trigger`(main.py → `run_complete_pipeline()`)도 동일한 전체 경로를 실행한다.
 

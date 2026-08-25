@@ -13,6 +13,7 @@ public enum ErrorCode {
     INVALID_INPUT_VALUE(HttpStatus.BAD_REQUEST, 1001, "Invalid input value"),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, 1002, "Method not allowed"),
     ENTITY_NOT_FOUND(HttpStatus.NOT_FOUND, 1003, "Entity not found"),
+    UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, 1004, "Unsupported media type"),
 
     // Authentication & Authorization Errors (2000~2999)
     AUTHENTICATION_FAILED(HttpStatus.UNAUTHORIZED, 2000, "Authentication failed"),

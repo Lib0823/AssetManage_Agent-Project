@@ -27,6 +27,9 @@ public class AssetService {
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
+    /** 자산 추이 조회 최대 기간(일). */
+    static final int MAX_HISTORY_DAYS = 365;
+
     private final KisAuthService kisAuthService;
     private final KisApiClient kisApiClient;
     private final AssetDailySnapshotRepository assetDailySnapshotRepository;
@@ -105,11 +108,15 @@ public class AssetService {
 
     /**
      * (오늘-days+1 ~ 오늘) 범위의 스냅샷을 날짜 오름차순으로 반환한다.
+     *
+     * <p>{@code days} 는 1~{@value #MAX_HISTORY_DAYS} 로 클램프한다. 상한이 없으면
+     * {@code days=1000000} 같은 요청이 전 기간 스캔이 되고, 자산 추이 차트가 쓰는 범위는
+     * 최대 1년이면 충분하다.
      */
     @Transactional(readOnly = true)
     public List<AssetHistoryResponse> getHistory(Long userId, int days) {
         LocalDate today = LocalDate.now(SEOUL);
-        LocalDate from = today.minusDays(Math.max(days, 1) - 1L);
+        LocalDate from = today.minusDays(Math.clamp(days, 1, MAX_HISTORY_DAYS) - 1L);
 
         return assetDailySnapshotRepository
                 .findByUserIdAndSnapshotDateBetweenOrderBySnapshotDateAsc(userId, from, today)

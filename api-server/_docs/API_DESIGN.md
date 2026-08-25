@@ -91,7 +91,7 @@ ErrorCode 대역 구분:
 
 ### 3.1 거래 사전 검증 (5000s)
 
-주문은 부작용이 있으므로 KIS로 보내기 **전에** 서비스 계층에서 막습니다. `@Valid` DTO 검증은 web-app 경로만 커버하고, ai-agent 내부 경로(`POST /api/internal/trade/buy`)는 우회하기 때문에 서비스 계층 검증이 필요합니다.
+주문은 부작용이 있으므로 KIS로 보내기 **전에** 서비스 계층에서 막습니다. `@Valid` DTO 검증은 web-app 경로만 커버하고, ai-agent가 태우는 경로(Kafka 컨슈머, 그리고 Deprecated된 `POST /api/internal/users/{userId}/trades/buy`)는 우회하기 때문에 서비스 계층 검증이 필요합니다.
 
 | 검증 | 적용 대상 | ErrorCode | HTTP |
 |------|-----------|-----------|------|
@@ -99,7 +99,9 @@ ErrorCode 대역 구분:
 | 매수여력 부족 (KIS `VTTC8908R`의 `max_buy_qty` < 요청 수량, **지정가 주문만**) | `/trading/buy` | `INSUFFICIENT_BALANCE`(5001) | 400 |
 | 단가 누락/0 이하 (해외는 지정가 전용) | `/overseas/buy`·`/overseas/sell` | `INVALID_TRADE_PRICE`(5003) | 400 |
 
-> **매수여력 검증은 지정가 주문에만 적용됩니다.** `orderPrice`가 null/0(=시장가 — 실제 주문도 `ORD_DVSN="01"`+`ORD_UNPR="0"`으로 나감)이면 검증 자체를 건너뜁니다. 매수가능조회(`VTTC8908R`)는 항상 `ORD_DVSN="00"`(지정가) 기준으로 조회하므로, price=0으로 그대로 호출하면 "0원 지정가"라는 실제 주문과 무관한 조합을 KIS에 묻게 되고 `max_buy_qty=0`이 정상 응답으로 돌아와 모든 시장가 매수를 차단할 수 있습니다. 내부 매매 API(`POST /api/internal/trade/buy`, ai-agent Stage 6)는 항상 시장가(price=0)로 호출하므로 이 검증의 실질 적용 대상이 아닙니다 — 최종 판정은 KIS 주문 시점에 이루어집니다.
+> **매수여력 검증은 지정가 주문에만 적용됩니다.** `orderPrice`가 null/0(=시장가 — 실제 주문도 `ORD_DVSN="01"`+`ORD_UNPR="0"`으로 나감)이면 검증 자체를 건너뜁니다. 매수가능조회(`VTTC8908R`)는 항상 `ORD_DVSN="00"`(지정가) 기준으로 조회하므로, price=0으로 그대로 호출하면 "0원 지정가"라는 실제 주문과 무관한 조합을 KIS에 묻게 되고 `max_buy_qty=0`이 정상 응답으로 돌아와 모든 시장가 매수를 차단할 수 있습니다. ai-agent Stage 6는 항상 시장가(price=0)로 주문하므로 이 검증의 실질 적용 대상이 아닙니다 — 최종 판정은 KIS 주문 시점에 이루어집니다.
+>
+> **Stage 6 경로 주의**: 현재 정규 경로는 Kafka 토픽 `trade.order.requested`이며, `TradeOrderConsumer`가 소비합니다. HTTP 내부 매매 API의 실제 경로는 `POST /api/internal/users/{userId}/trades/buy`·`.../sell`이고 **둘 다 `@Deprecated`** 입니다(동기 HTTP는 실패 시 주문이 영구 유실되어 큐로 대체됨). 문서 이전 판에 있던 `POST /api/internal/trade/buy`는 실재한 적 없는 경로입니다.
 >
 > **지정가 주문 매수여력 검증은 fail-open**입니다. 매수가능조회가 degrade된 경우(`notice != null` — KIS 장애/모의 미지원)에는 검증을 건너뜁니다. 조회 실패를 잔고 부족으로 오인해 정상 주문을 막으면 안 되기 때문이며, 최종 판정은 언제나 KIS가 합니다.
 >
@@ -113,10 +115,17 @@ ErrorCode 대역 구분:
 
 | 구분 | 경로 |
 |------|------|
-| PUBLIC (permitAll) | `/health`, `/health/**`, `/auth/**`, `/actuator/**`, `/test/**`, `/market/**`, `/company/**`, `/stocks/**`, `/overseas/stocks/**` |
-| AUTH 필요 | `/users/**`, `/assets/**`, `/trading/**`, `/favorites/**`, `/overseas/**`(`/overseas/stocks/**` 제외) 등 그 외 전부 |
+| PUBLIC (permitAll) | `/health`, `/health/**`, `/auth/**`, `/actuator/**`, `/market/**`, `/company/**`, `/stocks/**`, `/overseas/stocks/**`, `/news/**`, `/ws/**`, `/internal/**` |
+| AUTH 필요 | `/auth/webauthn/register/**`, `/users/**`, `/assets/**`, `/trading/**`, `/favorites/**`, `/overseas/**`(`/overseas/stocks/**` 제외) 등 그 외 전부 |
 
-AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요구하며, 토큰 claims의 `userId` / `kisAccountId`를 서버에서 추출해 사용합니다. (상세는 [AUTHENTICATION_FLOW.md](AUTHENTICATION_FLOW.md))
+`/auth/**`는 광범위한 permitAll이지만 `/auth/webauthn/register/**`가 **그보다 먼저** `.authenticated()`로 매칭되므로 패스키 등록은 로그인 상태에서만 가능합니다(`/auth/webauthn/login/**`는 permitAll).
+
+> ### ⚠️ `/internal/**`과 `/ws/**`는 "인증 없음"이 아니다
+>
+> - **`/internal/**`** — Spring Security에서는 permitAll이지만, 그 앞단의 **`InternalAuthFilter`가 `X-Internal-Api-Key` 헤더를 fail-closed로 검증**합니다(키가 설정되지 않았으면 전체 거부). 호출자가 사람이 아니라 ai-agent 프로세스라 JWT 대신 공유 키를 쓰는 것이며, permitAll은 "JWT 필터를 태우지 않는다"는 뜻입니다.
+> - **`/ws/**`** — WebSocket 핸드셰이크는 헤더를 붙일 수 없어 permitAll로 두고, `JwtHandshakeInterceptor`가 쿼리스트링 `?token={JWT}`를 검증합니다(`type=access`인 토큰만 허용).
+
+AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요구하며, 토큰 claims의 `userId` / `kisAccountId`를 서버에서 추출해 사용합니다. `JwtAuthenticationFilter`는 `type=access`인 토큰만 인증 컨텍스트로 승격하므로 리프레시 토큰으로는 보호 리소스에 접근할 수 없습니다. (상세는 [AUTHENTICATION_FLOW.md](AUTHENTICATION_FLOW.md))
 
 ---
 

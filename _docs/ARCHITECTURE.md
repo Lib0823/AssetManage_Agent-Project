@@ -95,17 +95,17 @@ Browser ⇄ Spring /ws/realtime ⇄ KIS upstream (ws://ops.koreainvestment.com)
 
 ai-agent의 APScheduler가 평일 08:50에 트리거합니다. 상세·설계 근거는 [`ai-agent/_docs/PIPELINE_DESIGN.md`](../ai-agent/_docs/PIPELINE_DESIGN.md) 참고.
 
-> 자동 스케줄(`run_complete_pipeline_sync`)이 아래 **전체 파이프라인(Stage 1~6)**을 실행합니다. 수동 트리거 `POST /api/pipeline/trigger`(`run_complete_pipeline`)도 동일한 전체 경로입니다.
+> APScheduler는 `pipeline.run.requested` Kafka 이벤트를 **발행만** 하고 즉시 끝납니다(`scheduler.py`). 아래 **전체 파이프라인(Stage 1~6)**을 실제로 실행하는 것은 `pipeline_run_consumer.py`의 Kafka 컨슈머입니다. 수동 트리거 `POST /api/pipeline/trigger`도 같은 이벤트를 발행하며 **202 Accepted로 즉시 반환**됩니다(동기 실행이 아님) — 진행 상황은 `GET /api/pipeline/status`(`consumers`/`running_trade_date`/`last_run` 필드)로 확인합니다.
 
 ```mermaid
 flowchart TD
     S0["Stage 0: 휴장일 체크<br/>(주말·공휴일이면 중단)"]
     S1["Stage 1: 종목 필터링<br/>KOSPI 100 → StandardScaler 스코어 → Top 30<br/>(보유 종목 무조건 포함)"]
-    S2["Stage 2: 데이터 수집<br/>KIS(asyncio 병렬, 5 req/s) + 뉴스(RSS·네이버) + DART"]
+    S2["Stage 2: 데이터 수집<br/>KIS(종목별 순차, 상한 5 req/s) + 뉴스(RSS·네이버) + DART"]
     S3["Stage 3: 3-Way 분석<br/>정량(7) · 감성(1, KR-FinBERT) · 시계열(3, Prophet)"]
     S5["Stage 4: Gemini AI 판단<br/>11 피처 → 매수/매도 TOP3 + 이유 → ai_trade_decision"]
     S6["Stage 5: 안전망 필터<br/>임계값 기반 사후 검증 → safety_filter_result"]
-    S7["Stage 6: 매매 실행<br/>is_active=true → Spring Boot → KIS 주문 → trade_execution_plan"]
+    S7["Stage 6: 매매 실행<br/>활성 유저 순회 → Kafka trade.order.requested 발행<br/>→ api-server가 KIS 주문 → trade.order.result 회신 → trade_execution_plan"]
 
     S0 --> S1 --> S2 --> S3 --> S5 --> S6 --> S7
 ```

@@ -206,10 +206,12 @@ class _RecordingResult:
 class RecordingEngine:
     """SQLAlchemy Engine 대역 — `begin()` 트랜잭션과 실행 기록을 흉내낸다."""
 
-    def __init__(self, fail_bulk=False, fail_stock_codes=()):
+    def __init__(self, fail_bulk=False, fail_stock_codes=(), fail_delete_after=None):
         self.executions = []
         self.fail_bulk = fail_bulk
         self.fail_stock_codes = set(fail_stock_codes)
+        self.fail_delete_after = fail_delete_after   # 이 횟수 이후의 DELETE 부터 실패
+        self.deletes = 0
         self.commits = 0
         self.rollbacks = 0
 
@@ -217,10 +219,15 @@ class RecordingEngine:
         return _RecordingTransaction(self)
 
     @property
+    def insert_executions(self):
+        """DELETE 등 부수 문장을 뺀 INSERT 실행만."""
+        return [(sql, params) for sql, params in self.executions if 'INSERT' in sql]
+
+    @property
     def inserted_rows(self):
         """기록된 실행에서 실제로 삽입된 파라미터 행만 평탄화."""
         rows = []
-        for _, params in self.executions:
+        for _, params in self.insert_executions:
             rows.extend(params if isinstance(params, list) else [params])
         return rows
 
@@ -240,6 +247,12 @@ class _RecordingTransaction:
         return False
 
     def execute(self, statement, params):
+        if 'DELETE' in str(statement):
+            self.engine.deletes += 1
+            if (self.engine.fail_delete_after is not None
+                    and self.engine.deletes > self.engine.fail_delete_after):
+                raise SQLAlchemyError('injected delete failure')
+
         is_bulk = isinstance(params, list)
         if is_bulk and self.engine.fail_bulk:
             raise SQLAlchemyError('injected bulk insert failure')
@@ -620,15 +633,25 @@ class TestSaveSafetyFilterResults:
         assert make_repo(engine=engine).save_safety_filter_results(
             [safety_result(decision='BUY')], TRADE_DATE) is True
 
-        sql = ' '.join(engine.executions[0][0].split())
+        sql = ' '.join(engine.insert_executions[0][0].split())
         assert 'decision' in sql
         assert engine.inserted_rows[0]['decision'] == 'BUY'
+
+    def test_delete_precedes_insert_for_idempotency(self):
+        """같은 날 재실행 시 낡은 행이 남지 않도록 filter_date 기준으로 먼저 지운다."""
+        engine = RecordingEngine()
+        make_repo(engine=engine).save_safety_filter_results([safety_result()], TRADE_DATE)
+
+        first_sql, first_params = engine.executions[0]
+        assert 'DELETE FROM safety_filter_result' in ' '.join(first_sql.split())
+        assert first_params == {'filter_date': TRADE_DATE}
+        assert 'INSERT INTO safety_filter_result' in engine.executions[1][0]
 
     def test_insert_column_list_matches_schema(self):
         engine = RecordingEngine()
         make_repo(engine=engine).save_safety_filter_results([safety_result()], TRADE_DATE)
 
-        sql = ' '.join(engine.executions[0][0].split())
+        sql = ' '.join(engine.insert_executions[0][0].split())
         assert 'INSERT INTO safety_filter_result' in sql
         for column in ('stock_code', 'stock_name', 'filter_date', 'decision', 'passed',
                        'failure_reason', 'max_quantity', 'current_price', 'filter_checks'):
@@ -659,9 +682,9 @@ class TestSaveSafetyFilterResults:
         make_repo(engine=engine).save_safety_filter_results(
             [safety_result('000660'), safety_result('051910')], TRADE_DATE)
 
-        assert len(engine.executions) == 1              # 한 번의 executemany
-        assert isinstance(engine.executions[0][1], list)
-        assert engine.commits == 1
+        assert len(engine.insert_executions) == 1       # 한 번의 executemany
+        assert isinstance(engine.insert_executions[0][1], list)
+        assert engine.commits == 1                     # DELETE 와 같은 트랜잭션
 
     def test_empty_list_returns_false(self):
         engine = RecordingEngine()
@@ -693,10 +716,26 @@ class TestSaveSafetyFilterResults:
         assert make_repo(engine=engine).save_safety_filter_results(
             [safety_result('000660'), safety_result('051910')], TRADE_DATE) is True
 
-        # bulk 1회 실패(rollback) 후 행 단위 2회 성공
+        # bulk 1회 실패(rollback) 후 DELETE 재수행 + 행 단위 2회 성공
         assert engine.rollbacks == 1
-        assert engine.commits == 2
+        assert engine.commits == 3
         assert [r['stock_code'] for r in engine.inserted_rows] == ['000660', '051910']
+
+    def test_delete_is_reissued_before_the_per_row_fallback(self):
+        """bulk 트랜잭션이 롤백되면 DELETE 도 함께 되돌아가므로 다시 실행해야 한다."""
+        engine = RecordingEngine(fail_bulk=True)
+        make_repo(engine=engine).save_safety_filter_results([safety_result()], TRADE_DATE)
+
+        deletes = [sql for sql, _ in engine.executions if 'DELETE' in sql]
+        assert len(deletes) == 2
+
+    def test_returns_false_when_the_fallback_delete_fails(self):
+        """낡은 행을 못 지운 채 새 행만 넣으면 뒤섞이므로, 아예 저장하지 않는다."""
+        engine = RecordingEngine(fail_bulk=True, fail_delete_after=1)
+
+        assert make_repo(engine=engine).save_safety_filter_results(
+            [safety_result()], TRADE_DATE) is False
+        assert engine.inserted_rows == []
 
     def test_per_row_fallback_preserves_good_rows(self):
         """한 행이 DB에서 거부돼도 당일의 정상 행은 남는다."""
@@ -1430,17 +1469,31 @@ class TestSaveAiDecisions:
         """KeyError 도 generic except 에 잡혀 False 가 된다."""
         assert repo.save_ai_decisions({'buy_top3': [{'reason': 'x'}]}, TRADE_DATE) is False
 
-    def test_rerun_violates_the_unique_constraint(self, repo, sqlite_engine):
-        """알려진 제약: 이 메서드에는 DELETE-then-INSERT 멱등성이 없다.
+    def test_rerun_replaces_the_same_days_decisions(self, repo, sqlite_engine):
+        """UNIQUE(stock_code, decision_date, decision) 아래에서도 재실행이 멱등해야 한다.
 
-        UNIQUE(stock_code, decision_date, decision) 때문에 같은 날 두 번 저장하면
-        두 번째 호출이 실패(False)한다. 다른 save_* 메서드와 다른 동작.
+        순수 append 였을 때는 겹치는 한 종목 때문에 배치 전체가 롤백돼,
+        2회차에 새로 나온 결정까지 통째로 유실됐다.
         """
-        payload = {'buy_top3': [{'stock_code': KNOWN_CODE, 'reason': 'r'}]}
-        assert repo.save_ai_decisions(payload, TRADE_DATE) is True
-        assert repo.save_ai_decisions(payload, TRADE_DATE) is False
+        assert repo.save_ai_decisions(
+            {'buy_top3': [{'stock_code': KNOWN_CODE, 'reason': 'run1'}]}, TRADE_DATE) is True
+        assert repo.save_ai_decisions(
+            {'buy_top3': [{'stock_code': KNOWN_CODE, 'reason': 'run2'},
+                          {'stock_code': '051910', 'reason': 'new'}]}, TRADE_DATE) is True
 
-        assert len(fetch_all(sqlite_engine, "SELECT id FROM ai_trade_decision")) == 1
+        rows = fetch_all(sqlite_engine,
+                         'SELECT stock_code, reason FROM ai_trade_decision ORDER BY "rank"')
+        assert [(r['stock_code'], r['reason']) for r in rows] == [
+            (KNOWN_CODE, 'run2'), ('051910', 'new')]
+
+    def test_rerun_does_not_touch_other_dates(self, repo, sqlite_engine):
+        other_date = date(2026, 7, 14)
+        repo.save_ai_decisions({'buy_top3': [{'stock_code': KNOWN_CODE}]}, other_date)
+        repo.save_ai_decisions({'buy_top3': [{'stock_code': KNOWN_CODE}]}, TRADE_DATE)
+        repo.save_ai_decisions({'buy_top3': [{'stock_code': KNOWN_CODE}]}, TRADE_DATE)
+
+        rows = fetch_all(sqlite_engine, "SELECT decision_date FROM ai_trade_decision")
+        assert len(rows) == 2
 
     def test_explicit_conn_is_used(self, repo, sqlite_engine):
         with sqlite_engine.begin() as conn:
@@ -1550,6 +1603,24 @@ class TestSaveTradeExecutionPlan:
         assert 'DELETE FROM trade_execution_plan' in session.sql_at(0)
         assert session.params_at(0) == {'u': 7, 'd': TRADE_DATE}
         assert 'INSERT INTO trade_execution_plan' in session.sql_at(1)
+
+    def test_delete_spares_finalized_rows(self):
+        """확정된 주문(EXECUTED/FAILED)은 재실행이 지우지 않는다 — order_no 가 유실된다."""
+        session = RecordingSession()
+        make_repo(session=session).save_trade_execution_plan(1, TRADE_DATE, [plan_record()])
+
+        delete_sql = session.sql_at(0)
+        assert "execution_status NOT IN ('EXECUTED', 'FAILED')" in delete_sql
+        assert 'execution_status IS NULL' in delete_sql
+
+    def test_insert_does_not_overwrite_finalized_rows(self):
+        """DELETE 가 남긴 확정 행과 충돌하면 조용히 건너뛴다(되살리기 금지)."""
+        session = RecordingSession()
+        make_repo(session=session).save_trade_execution_plan(1, TRADE_DATE, [plan_record()])
+
+        insert_sql = session.sql_at(1)
+        assert 'ON CONFLICT (user_id, execution_date, stock_code, trade_type)' in insert_sql
+        assert 'DO NOTHING' in insert_sql
 
     def test_all_fields_are_bound(self):
         session = RecordingSession()

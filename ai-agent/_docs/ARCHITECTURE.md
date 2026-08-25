@@ -23,14 +23,22 @@ ai-agent는 매 거래일 KOSPI 100 종목을 분석해 매수/매도 의사결�
 
 ```
 ai-agent/
-├── main.py                     # FastAPI 앱 + lifespan에서 스케줄러/오케스트레이터 초기화
+├── main.py                     # FastAPI 앱 + lifespan에서 스케줄러/오케스트레이터/Kafka 초기화
 ├── requirements.txt
 ├── run_dev.sh                  # 개발용 실행 스크립트
 ├── .env.example                # 환경 변수 템플릿
 │
 ├── pipeline/
-│   ├── scheduler.py            # APScheduler cron 설정 (PipelineScheduler)
+│   ├── scheduler.py            # APScheduler cron 설정 (PipelineScheduler) — 실행 요청 발행만
 │   └── orchestrator.py         # 전체 파이프라인 오케스트레이션 (PipelineOrchestrator)
+│
+├── messaging/                  # Kafka (aiokafka) — 정규 실행·주문 경로
+│   ├── topics.py               # 토픽/컨슈머그룹 상수 (api-server 와 공유하는 계약)
+│   ├── messages.py             # 메시지 스키마 빌드·검증
+│   ├── producer.py             # 프로듀서 (acks=all, 재시도)
+│   ├── consumer.py             # 컨슈머 공통 베이스 (그룹당 1개 + 순차 처리, 수동 커밋)
+│   ├── pipeline_run_consumer.py  # pipeline.run.requested 소비 → 전체 파이프라인 실행
+│   └── trade_result_consumer.py  # trade.order.result 소비 → 주문 상태 확정
 │
 ├── analysis/
 │   ├── filter.py               # Stage 1: KOSPI 100 → Top 30 스코어링 (StockFilter)
@@ -55,7 +63,7 @@ ai-agent/
 │   └── safety_filter.py        # Stage 5: 피처 기반 매매 검증 (SafetyFilter)
 │
 ├── execution/
-│   └── trade_executor.py       # Stage 6: api-server 통한 주문 실행 (TradeExecutor)
+│   └── trade_executor.py       # Stage 6: Kafka 로 주문 발행 (TradeExecutor)
 │
 ├── database/
 │   ├── models.py               # SQLAlchemy 모델 3종 + engine/SessionLocal
@@ -92,7 +100,7 @@ ai-agent/
 | `ai/gemini_client.py` | `GeminiClient` | `models/gemini-2.5-flash` 호출, JSON 파싱, 키 없으면 mock |
 | `ai/decision_generator.py` | `TradingDecisionGenerator` | 3개 분석 DataFrame 병합 → 프롬프트 → 의사결정 |
 | `filters/safety_filter.py` | `SafetyFilter` | 매수/매도 규칙 검증, 투자한도 기반 max_quantity 산출 |
-| `execution/trade_executor.py` | `TradeExecutor` | `is_active` 확인 후 api-server `/api/trading/execute` 호출 |
+| `execution/trade_executor.py` | `TradeExecutor` | 활성 유저별 주문을 Kafka `trade.order.requested` 토픽에 발행 (api-server 가 소비해 대행) |
 | `database/repository.py` | `DatabaseRepository` | 각 Stage 결과 저장(8개 save 메서드) 및 조회 |
 
 ---
@@ -172,7 +180,52 @@ APScheduler / 수동 트리거
 | 5 | Safety Filter | `safety_filter_result` | `filter_checks` JSONB |
 | 6 | 주문 실행 | `trade_history` (api-server) | `is_active=false`면 skip |
 
-> **스케줄러**: `PipelineScheduler._job_wrapper`가 `run_complete_pipeline_sync()`를 호출해 **전체 파이프라인(Stage 1~6)**을 실행한다. 수동 트리거 API(`POST /api/pipeline/trigger`)는 `run_complete_pipeline()`으로 동일한 전체 경로를 실행한다.
+> **스케줄러**: `PipelineScheduler._job_wrapper`는 Kafka `pipeline.run.requested` 토픽에 실행 요청을 **발행만** 하고 즉시 끝난다(잡 id `full_pipeline_job`). **전체 파이프라인(Stage 1~6) 실행은 `messaging/pipeline_run_consumer.py`의 컨슈머**가 이 이벤트를 받아 수행한다. 수동 트리거 API(`POST /api/pipeline/trigger`)도 같은 토픽에 발행만 하고 202 Accepted 로 즉시 반환한다 — 즉 자동/수동 두 경로가 같은 컨슈머로 합류한다.
+
+---
+
+## 5-2. Kafka 메시징 (`messaging/`)
+
+파이프라인 실행과 매매 주문은 **모두 Kafka 를 정규 경로로 쓴다.** REST 직접 호출은
+남아 있지 않다(api-server 쪽 `/api/internal/.../trades/{side}` 는 `@Deprecated`).
+
+### 토픽 (`messaging/topics.py`)
+
+| 토픽 | 방향 | 용도 | 컨슈머 그룹 |
+| --- | --- | --- | --- |
+| `pipeline.run.requested` | ai-agent → ai-agent | 파이프라인 실행 요청 (스케줄·수동 공통 진입점) | `ai-agent.pipeline-runner` |
+| `trade.order.requested` | ai-agent → api-server | Stage 6 매매 주문 요청 | (api-server 소유) |
+| `trade.order.result` | api-server → ai-agent | 주문 체결/실패 결과 | `ai-agent.trade-result` |
+
+> `pipeline.run.requested` 는 **파티션 1개로 고정**한다. 파티션이 여러 개면 컨슈머가
+> 1개여도 여러 파티션을 동시에 할당받아 파이프라인이 병렬 실행될 수 있다.
+> 토픽 이름과 메시지 스키마는 api-server 와 공유하는 **계약**이므로 변경 시 반드시
+> backend-engineer 와 조율한다.
+
+### 모듈 (`messaging/` 6개)
+
+| 파일 | 역할 |
+| --- | --- |
+| `topics.py` | 토픽·컨슈머그룹·트리거종류 상수, 파티션 고정 정책 |
+| `messages.py` | 메시지 payload 빌드·검증 (필드 계약) |
+| `producer.py` | aiokafka 프로듀서. `acks=all` + 재시도, 동기 발행 헬퍼(`publish_pipeline_run_sync`) 제공 |
+| `consumer.py` | 컨슈머 공통 베이스. 그룹당 1개 + `async for` **순차 처리**, `enable_auto_commit=False`(처리 후 수동 커밋), 브로커 미기동 시 지수 backoff 재시도 |
+| `pipeline_run_consumer.py` | `pipeline.run.requested` 소비 → 전체 파이프라인(Stage 1~6) 실행. `current_run`/`last_run` 노출 |
+| `trade_result_consumer.py` | `trade.order.result` 소비 → `trade_execution_plan` 을 `QUEUED` → `EXECUTED`/`FAILED` 로 확정. 계약상 성공값 `"SUCCESS"` 를 DB 에는 기존 값인 `'EXECUTED'` 로 적는다(뷰 2개가 이 값을 본다) |
+
+### 상태 노출 (`GET /api/pipeline/status`)
+
+`PipelineStatusResponse` 는 **7필드**다 — 스케줄러 3필드에 더해 Kafka 관련 4필드가 있다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `kafka_connected` | 프로듀서 연결 상태 |
+| `consumers` | 컨슈머별 `{alive, connected, processed, failed, error}` |
+| `running_trade_date` | 지금 실행 중인 거래일 (없으면 `null`) — 사실상 "실행 중" 플래그 |
+| `last_run` | 마지막으로 끝난 실행 요약 |
+
+`POST /api/pipeline/trigger` 는 **202 Accepted 로 큐잉만** 하고 즉시 반환한다. 프로듀서가
+연결되지 않으면 503 을 반환해 큐잉 실패를 성공으로 위장하지 않는다.
 
 ---
 
@@ -193,7 +246,7 @@ APScheduler / 수동 트리거
 | KOSPI 지수 | `get_kospi_index(trade_date)` | FHKUP03500100 |
 | 잔고(보유종목) | `get_holdings()` | VTTC8434R |
 
-- **Rate limit**: `asyncio.Semaphore(5)` + 요청 간 0.2초 지연 → 초당 5건.
+- **Rate limit**: `asyncio.Semaphore(5)` + 요청 간 0.2초 지연 → **상한** 초당 5건(성공·실패 모두 지연 적용). 단 Stage 2 주 경로(`fetch_stock_data_parallel`)는 종목을 **순차** 처리하고 종목 사이에 0.1초를 더 쉬므로, 실효 처리량은 이 상한에 한참 못 미친다(동시 요청 시 KIS 성공률이 떨어져 순차로 되돌린 것).
 - **TR_ID 변환**: `convert_tr_id()`가 `VTTC↔TTTC`를 모드(VIRTUAL/REAL)에 따라 자동 변환.
 - **OAuth 캐시**: 24시간 TTL, 동시 요청은 `asyncio.Lock`으로 단일화.
 
@@ -206,7 +259,7 @@ APScheduler / 수동 트리거
 
 ### 6-3. Gemini API (`ai/gemini_client.py`)
 
-- 모델: `models/gemini-2.5-flash` (무료 티어, 일 1회 호출 가정).
+- 모델: `models/gemini-2.5-flash` (무료 티어). 하루 호출 수는 **1(전역 Stage 4) + N(활성 유저 수, Stage 6)** — 유저 수에 비례해 늘어난다. RPM(10/분) 보호를 위해 클라이언트가 호출 간 6.5초 throttle 과 429 지수 백오프를 건다.
 - 입력: 30개 종목 × 11개 피처로 구성한 프롬프트.
 - 출력: `{"buy_top3": [{stock_code, reason}×3], "sell_top3": [...]}` JSON.
 - `GEMINI_API_KEY` 미설정 시 `_get_mock_decision()`이 `[MOCK]` 표시 결과를 반환(파이프라인 흐름 검증용).

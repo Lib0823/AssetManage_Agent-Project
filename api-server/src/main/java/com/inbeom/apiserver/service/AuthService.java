@@ -186,8 +186,8 @@ public class AuthService {
     public RefreshTokenResponse refreshToken(RefreshTokenRequest request) {
         String refreshTokenValue = request.getRefreshToken();
 
-        // 토큰 검증
-        if (!jwtTokenProvider.validateToken(refreshTokenValue)) {
+        // 토큰 검증 (서명·만료 + type=refresh — 액세스 토큰으로는 재발급받을 수 없다)
+        if (!jwtTokenProvider.validateRefreshToken(refreshTokenValue)) {
             throw new BusinessException(ErrorCode.INVALID_TOKEN, "Invalid refresh token");
         }
 

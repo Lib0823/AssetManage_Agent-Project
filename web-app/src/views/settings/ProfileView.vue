@@ -5,6 +5,7 @@ import AppHeader from '@/components/common/AppHeader.vue'
 import { userApi, authApi } from '@/services/api'
 import { useRealtimeStore } from '@/stores/realtime'
 import { useAuthStore } from '@/stores/auth'
+import { getToken } from '@/utils/tokenStorage'
 import toast from '@/utils/toast'
 
 const router = useRouter()
@@ -241,7 +242,7 @@ const formatBirthDate = (date) => {
 }
 
 onMounted(async () => {
-  const token = localStorage.getItem('accessToken')
+  const token = getToken('accessToken')
   if (!token) {
     toast.warning('로그인이 필요합니다')
     return
