@@ -23,6 +23,23 @@ api-server 모듈의 기능·엔드포인트별 구현 진행 상황이다. 코�
 | 로그아웃 | `POST /auth/logout` | 완료 | refresh token revoke |
 | KIS 계정 검증 | `POST /auth/validate-kis-account` | 완료 | KIS `POST /oauth2/tokenP`로 실검증 |
 
+> **토큰 타입 구분**: access/refresh 토큰은 같은 키로 서명되므로 JWT `type` 클레임(`access`/`refresh`)으로 용도를 구분한다. `JwtAuthenticationFilter`/WebSocket 핸드셰이크는 `type=access`만, `POST /auth/refresh`는 `type=refresh`만 받는다. 이 클레임이 없는 토큰(구버전 발급분)은 양쪽 모두 거부된다 — 하위호환은 두지 않았다.
+
+---
+
+## 1b. WebAuthn / 패스키 (WebAuthnController / WebAuthnService)
+
+Yubico `webauthn-server-core` 기반 생체·패스키 인증. 자격증명은 `webauthn_credentials`에 저장한다.
+
+| 기능 | 엔드포인트 | 인증 | 상태 | 비고 |
+|------|-----------|------|------|------|
+| 등록 시작 | `POST /auth/webauthn/register/start` | AUTH | 완료 | `SecurityConfig`에서 `/auth/webauthn/register/**`만 `.authenticated()` — 광범위한 `/auth/**` permitAll보다 먼저 매칭된다 |
+| 등록 완료 | `POST /auth/webauthn/register/finish` | AUTH | 완료 | |
+| 로그인 시작 | `POST /auth/webauthn/login/start` | PUBLIC | 완료 | |
+| 로그인 완료 | `POST /auth/webauthn/login/finish` | PUBLIC | 완료 | 성공 시 access/refresh 토큰 발급 |
+
+> **실패 응답 주의**: 서명 검증 실패·assertion 불일치 등 전형적인 생체 로그인 실패는 `INVALID_CREDENTIALS`(2001) → **HTTP 401**로 나간다. 비로그인 상태에서 401이 나오는 엔드포인트이므로, 401을 일괄 "세션 만료"로 처리하는 프런트 인터셉터는 이 경로를 제외해야 한다. (flow 만료·JSON 파싱 실패는 400.)
+
 ---
 
 ## 2. 사용자 (UserController / UserService)
@@ -47,6 +64,8 @@ api-server 모듈의 기능·엔드포인트별 구현 진행 상황이다. 코�
 |------|-----------|------|------|
 | 보유종목 조회 | `GET /assets/holdings` | 완료 | KIS `VTTC8434R` |
 | 예수금 조회 | `GET /assets/balance` | 완료 | holdings 응답의 잔고 추출 |
+| 자산 스냅샷 기록 | `POST /assets/snapshot` | 진행중 | `asset_daily_snapshot` upsert(유저·날짜 1행). **`totalAsset`은 클라이언트가 보낸 값을 그대로 저장하며 KIS 잔고와 대조하지 않는다** — 자산 추이 차트는 그만큼 클라이언트 신뢰 데이터다(본인 데이터만 영향) |
+| 자산 추이 조회 | `GET /assets/history?days=` | 완료 | 날짜 오름차순 `List<AssetHistoryResponse>`. `days`는 1~365로 클램프(범위 밖 값은 거부하지 않고 경계로 맞춤) |
 
 ---
 
@@ -61,8 +80,15 @@ api-server 모듈의 기능·엔드포인트별 구현 진행 상황이다. 코�
 | 최근 거래(홈) | `GET /trading/recent` | 완료 | DB `trade_history` 최근 8건, KIS 비의존 |
 | 보유 잔고 요약 | `GET /trading/holdings` | 완료 | KIS `VTTC8434R` → `BalanceSummaryResponse` |
 | 매수가능 조회 | `GET /trading/orderable?stockCode=&price=` | 완료 | KIS `VTTC8908R` inquire-psbl-order → `OrderableResponse{maxBuyQuantity, orderableCash, notice}` |
+| 예약주문 등록 | `POST /trading/reserved-orders` | 완료 | KIS `CTSC0008U`. **실전 계좌 전용**(모의 미지원) — 프런트가 계좌 모드로 게이트 |
+| 예약주문 목록 | `GET /trading/reserved-orders` | 완료 | KIS `CTSC0004R` → `List<ReservedOrderResponse>` |
+| 예약주문 취소 | `DELETE /trading/reserved-orders/{seq}` | 완료 | KIS `CTSC0009U` |
 
 > TradingView 화면이 매수/매도/미체결/호가/매수가능까지 전부 실데이터로 연동 완료(목업 없음).
+>
+> **주문 구분**: 국내 정규 매수/매도(`/trading/buy`·`/trading/sell`)는 `ORD_DVSN="01"`+`ORD_UNPR="0"`으로 **항상 시장가**를 보낸다. 요청의 `price`는 매수가능금액 사전검증(`verifyBuyingPower`)에만 쓰이고 KIS 주문 본문에는 들어가지 않는다. 지정가가 필요한 경로는 예약주문(market/limit 분기)과 해외 주문(`ORD_DVSN="00"` 지정가 전용)이다.
+>
+> **거래 원장**: 수동 웹 주문은 KIS 접수 후 `trade_history`에 EXECUTED로 기록된다(`TradingService.placeManualBuy/placeManualSell`, `idempotency_key`는 null). Kafka 경로는 주문 **전에** `TradeOrderIdempotencyService`가 멱등키로 PENDING 행을 선점하므로 기록 주체가 다르다 — `executeBuy`/`executeSell` 자체는 원장에 쓰지 않는다.
 
 ---
 
@@ -83,6 +109,7 @@ PUBLIC(`/stocks/**` permitAll). `stock_master` 카탈로그 검색 + 현재가/�
 | 기능 | 엔드포인트 | 상태 | 비고 |
 |------|-----------|------|------|
 | 종목 검색 | `GET /stocks/search?q=&market=` | 완료 | code prefix OR name contains(ignore-case), 최대 30건 → `List<StockSearchResponse>`. `market=US`면 해외(USD), 그 외/미지정은 국내(KRW) |
+| 인기/상위 종목 | `GET /stocks/top` | 완료 | 검색 화면 초기 노출용 목록 |
 | 종목 현재가 | `GET /stocks/{stockCode}/price` | 완료 | `StockPriceResponse{currentPrice, changeAmount, changeRate, notice?}` |
 | 실시간 호가 (REST) | `GET /stocks/{stockCode}/orderbook` | 완료 | KIS `FHKST01010200` → `OrderbookResponse{currentPrice, asks[10], bids[10], notice}` (10단계 매도/매수 + 잔량) |
 
@@ -117,7 +144,7 @@ KIS WebSocket을 중계하는 브라우저용 엔드포인트. REST 폴링과 �
 
 ## 5d. 해외주식 (OverseasController / OverseasTradingService · OverseasQuoteService)
 
-미국 종목 현재가/잔고/매수/매도. `/overseas/stocks/**`(현재가) PUBLIC, 나머지 AUTH. 조회(현재가/잔고/미체결 등)는 graceful degrade(미연동/실패 시 200 + notice)를 유지하지만, **매수/매도는 국내 주문과 동일하게 실패 시 예외를 던져 4xx/5xx + 최상위 `success=false`, `data=null`로 응답한다**(과거엔 200 + `data.success=false`였으나 국내 패턴에 맞춰 정렬됨 — 상세: `API_DESIGN.md` §3.1, §5.8). 모의 지정가 전용, 해외 호가·실시간 시세·미국 외 타국가 미지원. `convertTrId`가 해외 TR을 변환하지 않으므로 V 변형 직접 사용.
+미국 종목 현재가/잔고/매수/매도. `/overseas/stocks/**`(현재가) PUBLIC, 나머지 AUTH. 조회(현재가/잔고/미체결 등)는 graceful degrade(미연동/실패 시 200 + notice)를 유지하지만, **매수/매도는 국내 주문과 동일하게 실패 시 예외를 던져 4xx/5xx + 최상위 `success=false`, `data=null`로 응답한다**(과거엔 200 + `data.success=false`였으나 국내 패턴에 맞춰 정렬됨 — 상세: `API_DESIGN.md` §3.1, §5.8). 모의 지정가 전용, 미국 외 타국가 미지원. `convertTrId`가 해외 TR을 변환하지 않으므로 V 변형 직접 사용.
 
 | 기능 | 엔드포인트 | 상태 | 비고 |
 |------|-----------|------|------|
@@ -125,6 +152,10 @@ KIS WebSocket을 중계하는 브라우저용 엔드포인트. REST 폴링과 �
 | 해외 잔고 | `GET /overseas/balance` | 완료 | KIS `VTTS3012R`(모의 trading 도메인) → `OverseasBalanceResponse` |
 | 해외 매수 | `POST /overseas/buy` | 완료 | KIS `VTTT1002U` 지정가. 실패 시 예외 전파 → 4xx/5xx + `success=false`(`data=null`) |
 | 해외 매도 | `POST /overseas/sell` | 완료 | KIS `VTTT1006U` 지정가. 실패 시 예외 전파 → 4xx/5xx + `success=false`(`data=null`) |
+| 해외 호가 | `GET /overseas/stocks/{symbol}/orderbook?exchange=` | 완료 | → `OverseasOrderbookResponse` |
+| 해외 거래내역 | `GET /overseas/history` | 완료 | graceful degrade(실패 시 200 + notice) |
+| 해외 미체결 | `GET /overseas/pending-orders` | 완료 | graceful degrade |
+| 해외 주문가능 | `GET /overseas/orderable` | 완료 | graceful degrade |
 
 > TradingView 해외(US) 지정가 매매, AssetDetailView 해외탭, SearchView 해외 검색이 위 엔드포인트로 실데이터 연동됨.
 
@@ -156,12 +187,46 @@ DB에 적재된 AI 분석 결과 조회. 데이터 생성은 `ai-agent` 모듈 �
 
 ---
 
+## 7b. 종목 뉴스 (StockNewsController / StockNewsService)
+
+`/news/**` PUBLIC. ai-agent가 `stock_news`에 적재한 뉴스를 중계한다.
+
+| 기능 | 엔드포인트 | 상태 | 비고 |
+|------|-----------|------|------|
+| 뉴스 목록 | `GET /news` | 완료 | 종목/기간 필터 |
+| 뉴스 상세 | `GET /news/{id}` | 완료 | |
+
+---
+
 ## 8. 운영/개발 보조
 
 | 기능 | 엔드포인트 | 상태 | 비고 |
 |------|-----------|------|------|
 | 헬스 체크 | `GET /health` | 완료 | |
 | DB 헬스 체크 | `GET /health/db` | 완료 | |
+
+---
+
+## 8b. 내부 API (InternalController) — ai-agent 전용
+
+`SecurityConfig`상 `/internal/**`은 permitAll이지만 **인증이 없는 것이 아니다** — 별도의 `InternalAuthFilter`가 `X-Internal-Api-Key` 헤더를 fail-closed로 검사한다(키 미설정 시 전체 거부). JWT 대신 공유 키를 쓰는 이유는 호출자가 사람이 아니라 ai-agent 프로세스이기 때문이다.
+
+| 기능 | 엔드포인트 | 상태 | 비고 |
+|------|-----------|------|------|
+| 자동매매 활성 유저 목록 | `GET /internal/auto-trading/users` | 완료 | Stage 0-1에서 사용 |
+| 유저 보유종목 | `GET /internal/users/{userId}/holdings` | 완료 | 보유 종목을 final 30에 강제 포함하기 위해 조회 |
+| 매수 실행 | `POST /internal/users/{userId}/trades/buy` | **Deprecated** | Stage 6 정규 경로는 Kafka `trade.order.requested`다. 동기 HTTP 경로는 실패 시 주문이 영구 유실되어 대체됨 |
+| 매도 실행 | `POST /internal/users/{userId}/trades/sell` | **Deprecated** | 위와 동일 |
+
+---
+
+## 8c. 인프라 의존성 (Kafka · Redis · TimescaleDB)
+
+| 구성요소 | 용도 | 비고 |
+|---------|------|------|
+| **Kafka** | ai-agent Stage 6 매매 주문 큐 (`trade.order.requested` / `result` / `dlq`) | `TradeOrderConsumer`가 소비. 멱등성 근거는 `trade_history.idempotency_key` + UNIQUE 제약(`uk_trade_history_idempotency_key`)이며, KIS 호출 **전에** PENDING 행을 선점(claim)한다 |
+| **Redis** | KIS API 토큰 버킷(rate limit) + 시세/재무 응답 캐시(stale-if-error) | 인스턴스가 여러 개여도 버킷·캐시가 공유되어야 하므로 프로세스 메모리를 쓰지 않는다. 기본값 capacity 10 / refill 5 per sec |
+| **TimescaleDB** | 시계열 테이블 4종의 hypertable 전환 (v1.20~v1.24) | `asset_daily_snapshot`, `stock_filter_score`, `prophet_forecast`, `news_analysis` |
 
 ---
 
@@ -177,17 +242,22 @@ DB에 적재된 AI 분석 결과 조회. 데이터 생성은 `ai-agent` 모듈 �
 
 ## 자동화 테스트 현황
 
-`src/test/java/com/inbeom/apiserver/`:
+`src/test/java/com/inbeom/apiserver/` 기준 **테스트 클래스 38개 / `@Test` 566개**(2026-08-26 실측). 서비스 레이어 단위 테스트(Mockito)가 대부분이고, 외부 인프라가 필요한 통합 테스트는 JUnit 태그로 분리되어 있다.
 
-| 테스트 | 대상 |
-|--------|------|
-| `ApiServerApplicationTests` | 컨텍스트 로드 |
-| `AuthServiceTest` | 회원가입/로그인/토큰 로직 |
-| `AssetServiceTest` | 잔고·보유종목 조회 |
-| `TradingServiceTest` | 매수/매도/거래내역 |
-| `KisAuthServiceTest` | KIS 토큰 캐싱/복호화 |
+### ⚠️ `./gradlew test`만 돌리면 통합 테스트가 조용히 빠진다
 
-서비스 레이어 단위 테스트 위주이며, 컨트롤러(MockMvc)·리포지토리 통합 테스트는 미작성이다. 실행: `./gradlew test`.
+`build.gradle`의 `test` 태스크는 `timescaledb`/`kafka`/`redis` 태그를 `excludeTags`로 **제외**한다. 이 셋은 실제 Docker 컨테이너를 띄우므로 Docker 없는 환경에서 기본 테스트 루프를 막지 않기 위한 분리다. **전체를 검증하려면 4개 태스크를 모두 실행해야 한다.**
+
+| 태스크 | 포함 | Docker | 대상 |
+|--------|------|--------|------|
+| `./gradlew test` | 태그 없는 전체 | 불필요 | 서비스/유틸/DTO 단위 테스트 |
+| `./gradlew redisTest` | `@Tag("redis")` | 필요 | `KisRateLimitAndCacheIntegrationTest` — 토큰 버킷·응답 캐시(stale-if-error) |
+| `./gradlew kafkaTest` | `@Tag("kafka")` | 필요 | `TradeOrderConsumerIntegrationTest` — 멱등성·재시도·DLQ |
+| `./gradlew timescaledbTest` | `@Tag("timescaledb")` | 필요 | hypertable 전환 무결성 + `TradeExecutionPlanUniqueKeyMigrationTest`(v1.26 유니크 키 교체) |
+
+주요 커버리지: 인증/토큰(`AuthServiceTest`, `JwtTokenProviderTest` — 토큰 타입 클레임 포함), 매매(`TradingServiceTest`, `OverseasTradingServiceTest`), KIS 연동(`KisAuthServiceTest`, `KisApiClient` 계열), 실시간(`KisFillFrameDecryptorTest`, `SubscriptionManagerTest`, `RealtimeMessageSerializationTest` — WebSocket 와이어 키 계약), WebAuthn, 검색/관심종목, 내부 API.
+
+> 이전 문서에 있던 "테스트 클래스 5개 / 컨트롤러·리포지토리 통합 테스트 미작성" 기술은 낡은 정보였다. 또한 "예외 체계 변경 후 일부 테스트가 stale" 이라는 알려진 이슈도 **더 이상 사실이 아니다** — 4개 태스크 전량 재실행 결과 실패 0건이다.
 
 ---
 

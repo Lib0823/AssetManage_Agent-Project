@@ -4,6 +4,8 @@
 
 데이터 출처 표기: **실데이터** = api-server/AI 결과 호출, **Mock** = `services/mockData.js`/하드코딩, **혼합** = 실데이터 + Mock 폴백/부분.
 
+> `services/mockData.js`에 남은 export는 `mockMarketIndices` 하나뿐이며, 소비처도 HomeView(지수 폴백) 한 곳이다. 나머지 화면은 모두 실 API에 연결돼 있다.
+
 ---
 
 ## auth — 인증·온보딩
@@ -15,8 +17,9 @@
 
 ### WelcomeView (`/welcome`)
 - **목적**: 앱 소개 + 진입 분기(로그인 / 회원가입).
-- **API/데이터**: 없음(하드코딩 텍스트).
-- **네비게이션**: `→ /login`, `→ /register`. Face ID 버튼은 `console.log`만 하는 스텁.
+- **API**: `webauthnApi.loginStart/loginFinish`(생체 로그인, `services/webauthn.js` 경유) — **실데이터**.
+- **특이사항**: `isPlatformAuthAvailable()`로 플랫폼 인증기(Face ID/지문/Windows Hello) 지원 여부를 확인해 버튼 노출을 결정한다. usernameless 패스키 로그인이며, 성공 시 `authStore.setAuthData()`로 일반 로그인과 동일하게 토큰을 저장한다.
+- **네비게이션**: `→ /login`, `→ /register`, 생체 로그인 성공 `→ /home`.
 
 ### LoginView (`/login`)
 - **목적**: 아이디/비밀번호 로그인 + 자동로그인 체크박스 + 비밀번호 재설정 링크.
@@ -41,7 +44,7 @@
 ### TermsView (`/terms`)
 - **목적**: 약관 동의 화면.
 - **API/데이터**: 없음(하드코딩 약관 텍스트).
-- **특이사항**: 동의 시 `localStorage`에 **mock-token**을 넣고 `/home`으로 이동(실제 인증 아님 — 플레이스홀더 흐름). 라우터(`router/index.js`)의 정식 가입 흐름은 RegisterView→RegisterFinanceView이며, TermsView는 그 흐름에 연결돼 있지 않음.
+- **특이사항**: 필수 약관 2개 동의 확인 후 `/home`으로 이동하며, **토큰은 발급하지 않는다**(정보성 게이트). 라우터(`router/index.js`)의 정식 가입 흐름은 RegisterView→RegisterFinanceView이며, TermsView는 그 흐름에 연결돼 있지 않음.
 - **네비게이션**: 동의 `→ /home`, 거부 `→ /welcome`.
 
 ### ResetPasswordView (`/reset-password`)
@@ -60,11 +63,11 @@
 - **컴포넌트**: `AppHeader`, `van-popup`(알림 모달), `van-icon`, 환율 미니 스파크라인(inline SVG).
 - **네비게이션**: 뉴스 `→ /news/:id`(또는 외부 링크), AI추천 종목 `→ /company/:symbol?showAiAnalysis=true`.
 
-### AssetsView (`/assets`) — 자산 요약 ⚠️ 전부 Mock
-- **목적**: 총자산·자산유형별(현금/주식/채권/코인) 비중·7일 추이·자산 카드.
-- **API**: 없음. **데이터**: `mockAssetSummary` + 하드코딩 7일 추이 — **Mock 100%**.
-- **컴포넌트**: `AppHeader`, Chart.js `Doughnut`(비중)·`Line`(추이).
-- **TODO**: 새로고침 핸들러는 타임스탬프만 갱신하는 스텁("실제 자산 정보 새로고침 API 호출"). 채권·코인 비활성.
+### AssetsView (`/assets`) — 자산 요약 ✅ 실데이터
+- **목적**: 총자산·자산유형별(현금/주식/채권/코인) 비중·자산 추이·자산 카드.
+- **API**: `assetApi.getBalance()`, `assetApi.getHoldings()`, `assetApi.getHistory(30)`(30일 추이), `overseasApi.getBalance()`, `marketApi.getExchangeRates()` — **실데이터**.
+- **컴포넌트**: `AppHeader`, `KisMaintenanceNotice`, Chart.js `Doughnut`(비중)·`Line`(추이).
+- **특이사항**: 자산 카드 표시 순서는 `uiSettings.assetOrder`(설정 화면의 드래그 정렬)를 따른다. KIS 점검/장애는 `isKisOutageError`로 판별해 배너로 graceful degrade. 채권·코인 비활성.
 - **네비게이션**: `→ /assets/detail?main=<type>` (주식이면 `sub=overseas`).
 
 ### BotView (`/bot`) — AI 봇 제어 ✅ 실데이터 연동
@@ -74,26 +77,27 @@
 - **컴포넌트**: `AppHeader`, `van-popup`(설정), 애니메이션 봇 아바타(inline SVG).
 - **네비게이션**: `→ /news?symbol=`, `→ /trading/:symbol`, `→ /company/:symbol`, `→ /market-analysis`.
 
-### SearchView (`/search`) — 종목 검색 ⚠️ Mock
+### SearchView (`/search`) — 종목 검색 ✅ 실데이터
 - **목적**: 주식(국내/해외) 검색 + 결과 목록 + 관심 토글 + 기업 상세 이동.
-- **API**: 없음. **데이터**: `mockSearchResults` + 하드코딩 `priceData` — **Mock 100%**.
-- **TODO**: 가격 데이터는 "나중에 API로 대체" 주석.
-- **컴포넌트**: `AppHeader`, `InvestmentTabs`.
+- **API**: `stockApi.getTop(market)`(인기 종목), `stockApi.search(q)` / `stockApi.searchOverseas(q)`, `stockApi.getPrice(code)` / `overseasApi.getPrice(code, exchange)`, `favoriteApi.list/add/remove`, `marketApi.getExchangeRates()` — **실데이터**.
+- **컴포넌트**: `AppHeader`, `InvestmentTabs`, `KisMaintenanceNotice`.
+- **특이사항**: KIS 점검/미가용은 `isKisOutageError`·`isKisUnavailableNotice`로 판별해 배너 처리.
 - **네비게이션**: `→ /company/:symbol`.
 
-### FavoritesView (`/favorites`) — 관심/포트폴리오 ⚠️ Mock
-- **목적**: 관심종목 캐러셀(가격·기간별 차트·뉴스·재무), 보유/관심 토글, 관심 목록.
-- **API**: 없음. **데이터**: `mockSearchResults` + 하드코딩 `companyData`(가격/3기간 차트/뉴스/재무) — **Mock 100%**.
-- **컴포넌트**: `AppHeader`, `InvestmentTabs`, Chart.js `Line`(가격 추이, 등락 방향에 따라 그라데이션).
+### FavoritesView (`/favorites`) — 관심/포트폴리오 ✅ 실데이터
+- **목적**: 관심종목 캐러셀(가격·차트), 관심 토글, 관심 목록.
+- **API**: `favoriteApi.list()`, `favoriteApi.remove(stockCode)`, `overseasApi.getPrice(code, exchangeCode)`, `marketApi.getExchangeRates()` — **실데이터**.
+- **컴포넌트**: `AppHeader`, `InvestmentTabs`, `KisMaintenanceNotice`, Chart.js `Line`(가격 추이, 등락 방향에 따라 그라데이션).
 - **네비게이션**: `→ /company/:symbol`.
 
 ---
 
 ## detail — 상세 화면
 
-### AssetDetailView (`/assets/detail`) — 자산 상세 🔶 혼합
-- **목적**: 보유 주식·현금 잔고 상세(KIS).
-- **API**: `assetApi.getHoldings()`, `assetApi.getBalance()` — **혼합**(국내는 실데이터, 해외는 `mockStocks`).
+### AssetDetailView (`/assets/detail`) — 자산 상세 ✅ 실데이터
+- **목적**: 보유 주식(국내/해외)·현금 잔고 상세(KIS).
+- **API**: `assetApi.getHoldings()`, `assetApi.getBalance()`, `overseasApi.getBalance()`(USD 원본), `marketApi.getExchangeRates()`(USD→KRW 병기) — **실데이터**.
+- **실시간**: `useRealtimeStore`로 보유 종목 체결가를 구독해 평가금액을 갱신한다(연결 불가 시 REST 스냅샷 유지).
 - **쿼리 파라미터**: `main`, `sub`(탭 상태). **컴포넌트**: `AppHeader`, `AssetTabs`, `van-icon`.
 - **네비게이션**: `→ /news?symbol=`, `→ /trading/:symbol`, `→ /company/:symbol`. (송금 진입 버튼은 범위 외로 제거됨)
 
@@ -115,15 +119,15 @@
 - **컴포넌트**: `AppHeader`, `InvestmentTabs`.
 - **네비게이션**: 미체결 클릭 `→ /trading/:symbol`, 오류 시 `→ /profile`.
 
-### NewsView (`/news`) — 뉴스 목록 ⚠️ Mock
+### NewsView (`/news`) — 뉴스 목록 ✅ 실데이터
 - **목적**: 뉴스 피드(날짜·검색·정렬 필터).
-- **API**: 없음(`newsApi` 미사용). **데이터**: `mockTopNews` — **Mock**.
-- **컴포넌트**: `AppHeader`, `AssetTabs`, 커스텀 검색 SVG.
+- **API**: `newsApi.getList({ symbol?, date? })` — **실데이터**. `?symbol=` 쿼리로 종목별 필터.
+- **컴포넌트**: `AppHeader`, `AssetTabs`, `KisMaintenanceNotice`, 커스텀 검색 SVG.
 - **네비게이션**: `→ /news/:id`.
 
-### NewsDetailView (`/news/:id`) — 뉴스 상세 ⚠️ Mock
+### NewsDetailView (`/news/:id`) — 뉴스 상세 ✅ 실데이터
 - **목적**: 기사 본문·메타·태그·이미지·관련 뉴스.
-- **API**: 없음. **데이터**: `mockNewsDetail` — **Mock**. `route.params.id`를 읽지만 사용하지 않음(onMounted에 TODO).
+- **API**: `newsApi.getDetail(id)`(본문), `newsApi.getList({ symbol })`(관련 뉴스) — **실데이터**. `route.params.id`를 실제로 사용한다.
 - **컴포넌트**: `AppHeader`.
 - **네비게이션**: 관련 뉴스 `→ /news/:id`.
 
@@ -152,7 +156,7 @@
 
 ### SettingsView (`/settings`) — 설정 🔶 혼합
 - **목적**: 자산 우선순위 드래그 정렬, 일반 토글(다크모드·자동로그인), 알림 설정(자산유형별), 회원 탈퇴.
-- **API**: `userApi.getSettings()`, `userApi.updateSettings(...)`, `userApi.deleteAccount()` — **혼합**(`mockSettings`로 초기화 후 마운트 시 실데이터로 덮어씀).
+- **API**: `userApi.getSettings()`, `userApi.updateSettings(...)`, `userApi.deleteAccount()` — **실데이터**(기본값으로 초기화 후 마운트 시 서버 설정으로 덮어씀).
 - **컴포넌트**: `AppHeader`. 일반 HTML 폼/드래그.
 - **네비게이션**: 저장 후 `router.back()`, 탈퇴 후 `→ /welcome`.
 
@@ -168,14 +172,13 @@
 | CompanyDetail | ✅ 실데이터 | marketAnalysisApi.getStockDetail, companyApi.* |
 | Transactions | ✅ 실데이터 | tradingApi.getHistory |
 | Trading | 🔶 혼합(실행만 실데이터) | tradingApi.buy/sell |
-| AssetDetail | 🔶 혼합 | assetApi.getHoldings/getBalance |
-| Settings | 🔶 혼합 | userApi.getSettings/updateSettings/deleteAccount |
+| AssetDetail | ✅ 실데이터 | assetApi.getHoldings/getBalance, overseasApi.getBalance |
+| Settings | ✅ 실데이터 | userApi.getSettings/updateSettings/deleteAccount |
 | Profile | ✅ 실데이터 | userApi.*, authApi.validateKisAccount |
 | Login/Register/RegisterFinance/ResetPassword | ✅ 실데이터 | authApi.* |
-| Assets | ⚠️ Mock 100% | (없음) |
-| Search | ⚠️ Mock 100% | (없음) |
-| Favorites | ⚠️ Mock 100% | (없음) |
-| News / NewsDetail | ⚠️ Mock | (없음, newsApi 미사용) |
-| Transfer | ⚠️ 스텁 | (없음, TODO) |
-| Terms | ⚠️ 플레이스홀더 | (없음, mock-token 저장) |
-| Splash/Welcome | — | (없음) |
+| Assets | ✅ 실데이터 | assetApi.getBalance/getHoldings/getHistory, overseasApi.getBalance |
+| Search | ✅ 실데이터 | stockApi.search/getTop/getPrice, overseasApi.getPrice, favoriteApi.* |
+| Favorites | ✅ 실데이터 | favoriteApi.list/remove, overseasApi.getPrice |
+| News / NewsDetail | ✅ 실데이터 | newsApi.getList, newsApi.getDetail |
+| Terms | ⚠️ 플레이스홀더 | (없음, 정식 가입 흐름에 미연결) |
+| Splash/Welcome | — | (없음, Welcome은 생체 로그인 진입점) |

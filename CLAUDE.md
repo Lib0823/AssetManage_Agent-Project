@@ -125,18 +125,18 @@ Spring Boot ⇄ PostgreSQL       : 사용자/인증/설정/거래 이력 + AI �
 ai-agent → KIS / DART / News   : 분석용 원천 데이터 수집
 ai-agent → Gemini API          : 11개 피처 기반 매수/매도 판단
 ai-agent ⇄ PostgreSQL          : 분석 결과, 예측, AI 판단, 안전망 필터 저장
-ai-agent → Spring Boot         : is_active=true일 때 매매 실행 요청
+ai-agent → Kafka → Spring Boot : Stage 6에서 `trade.order.requested` 토픽 발행 → api-server가 소비해 KIS 주문 실행 (DLQ + 멱등키 재처리)
 ```
 > web-app은 ai-agent를 직접 호출하지 않습니다. ai-agent가 DB에 쓴 분석 결과를 Spring Boot의 `MarketAnalysisController`/`MarketDataController`/`CompanyController`가 중계합니다.
 
 ### Daily Pipeline Flow (APScheduler @ 평일 08:50 KST)
-> **스케줄 범위**: 자동 스케줄(`run_complete_pipeline_sync`)이 **전체 파이프라인(Stage 1~6)**을 실행. 수동 트리거 `POST /api/pipeline/trigger`(`run_complete_pipeline`)도 동일하게 전체 실행. 상세: [`ai-agent/_docs/PIPELINE_DESIGN.md`](ai-agent/_docs/PIPELINE_DESIGN.md)
+> **스케줄 범위**: APScheduler는 `pipeline.run.requested` Kafka 이벤트를 **발행만** 하고 즉시 끝난다(`scheduler.py`). 실제 전체 파이프라인(Stage 1~6) 실행은 `pipeline_run_consumer.py`의 Kafka 컨슈머가 담당한다. 수동 트리거 `POST /api/pipeline/trigger`도 동일한 이벤트를 발행하며 **202 Accepted로 즉시 반환**(동기 실행 아님) — 진행 상황은 `GET /api/pipeline/status`로 폴링한다. 상세: [`ai-agent/_docs/PIPELINE_DESIGN.md`](ai-agent/_docs/PIPELINE_DESIGN.md)
 
 1. **Stage 0 — 휴장일 체크**: 주말·공휴일이면 중단
 2. **Stage 1 — Stock Filtering**: KOSPI 100 → StandardScaler scoring → Top 30
    - `score = abs(foreign_net_buy)*0.3 + abs(institutional_net_buy)*0.3 + vol_avg_multiple*0.3 + price_volatility*0.1`
    - StandardScaler는 매일 당일 100종목 기준으로 새로 fit, 보유 종목은 final 30에 강제 포함
-3. **Stage 2 — Data Collection**: KIS API (asyncio 병렬, 5 req/sec), 뉴스(RSS + 네이버), DART 재무
+3. **Stage 2 — Data Collection**: KIS API (종목별 **순차** 수집 — 함수명은 `fetch_stock_data_parallel`이지만 동시 요청 시 KIS 성공률이 떨어져 순차로 되돌렸다. `Semaphore(5)` + 요청 간 0.2초는 상한으로 남아 있음), 뉴스(RSS + 네이버), DART 재무
 4. **Stage 3 — 3-Way Analysis**:
    - **Quantitative**: 4 KIS features + 3 DART financials
    - **Sentiment**: KR-FinBERT (track 1: 시장 뉴스, track 2: 종목 뉴스)
@@ -144,7 +144,7 @@ ai-agent → Spring Boot         : is_active=true일 때 매매 실행 요청
    - (matplotlib 차트 생성은 **미구현** — `/static/charts/` 없음)
 5. **Stage 4 — AI Decision**: Gemini API가 11 피처 판단 → Buy/Sell TOP3 → `ai_trade_decision`
 6. **Stage 5 — Safety Filter**: 임계값 기반 사후 검증 → `safety_filter_result`
-7. **Stage 6 — Trade Execution**: `is_active=true`면 POST to Spring Boot → KIS 주문 → `trade_execution_plan`
+7. **Stage 6 — Trade Execution**: 활성 유저 순회 → Kafka `trade.order.requested` 발행 → api-server가 소비해 KIS 주문 → 체결 결과는 `trade.order.result` 토픽으로 회신 → `trade_execution_plan` 갱신
 
 ### Frontend Architecture (Vue3)
 - **Router**: Vue Router 4 with lazy-loaded views
@@ -193,7 +193,7 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 - **ML Stack**: pandas, NumPy, scikit-learn (StandardScaler), Prophet
 - **NLP**: transformers (KR-FinBERT)
 - **Charts**: matplotlib + NanumGothic font (현재 차트 생성 단계는 미구현)
-- **AI**: Gemini API (무료 티어, 1 call/day)
+- **AI**: Gemini API (무료 티어, 하루 **1(전역 Stage 4) + N(활성 유저 수, Stage 6)** 콜)
 - **Async**: asyncio for parallel KIS API calls (rate limit: 5 req/sec)
 
 상세 6단계 플로우는 [`ai-agent/_docs/PIPELINE_DESIGN.md`](ai-agent/_docs/PIPELINE_DESIGN.md), 모듈 지침은 [`ai-agent/CLAUDE.md`](ai-agent/CLAUDE.md) 참고.
@@ -206,7 +206,7 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 
 ## Database Schema
 
-**실제 테이블: 21개 + 뷰 4개** (Liquibase가 20개 changelog로 생성, v1.0~v1.19). **스키마 단일 출처는 Liquibase changelog**(`api-server/src/main/resources/db/changelog/`)이며, [`database/schema.sql`](database/schema.sql)은 라이브 DB에서 뽑은 참고용 스냅샷입니다(자동 생성 — `database/generate-schema.sh`, 직접 편집 금지). 전체 목록·관계는 [`database/README.md`](database/README.md).
+**실제 테이블: 21개 + 뷰 4개** (Liquibase가 28개 changelog로 생성, v1.0~v1.27). **스키마 단일 출처는 Liquibase changelog**(`api-server/src/main/resources/db/changelog/`)이며, [`database/schema.sql`](database/schema.sql)은 라이브 DB에서 뽑은 참고용 스냅샷입니다(자동 생성 — `database/generate-schema.sh`, 직접 편집 금지). 전체 목록·관계는 [`database/README.md`](database/README.md).
 
 | 그룹 | 테이블 |
 |------|--------|
@@ -247,12 +247,11 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 - **Schema**: Liquibase 가 source of truth — 스키마 변경은 직접 SQL 아닌 changelog 파일 수정
 - **환경변수**: `JWT_SECRET`(256bit 이상), `JASYPT_PASSWORD` 필수
 - **Indentation**: 4-space for Java files
-- **알려진 이슈**: 예외 체계 변경 후 일부 테스트가 stale 할 수 있음 ([`_docs/STATUS.md`](_docs/STATUS.md) 참고)
 
 ### AI Pipeline (ai-agent)
 - **venv 필수**: 시스템 python3 직접 실행 시 Prophet 깨짐 → `prophet_forecast` NULL
-- **Rate Limiting**: KIS API 5 req/sec, asyncio.Semaphore(5) + 0.2s 간격
-- **Scheduling**: APScheduler (프로그램 내 설정, 평일 08:50 KST). 자동 스케줄이 전체 파이프라인(Stage 1~6) 실행. 수동 트리거 `POST /api/pipeline/trigger`도 동일
+- **Rate Limiting**: KIS API `Semaphore(5)` + 요청 간 0.2초는 상한일 뿐, Stage 2 주 수집 경로(`fetch_stock_data_parallel`)는 KIS 성공률 문제로 **종목별 순차** 처리한다(함수명은 과거 병렬 구현의 잔재)
+- **Scheduling**: APScheduler(평일 08:50 KST)는 `pipeline.run.requested` Kafka 이벤트만 발행하고, 실제 파이프라인 실행은 `pipeline_run_consumer`가 담당. 수동 트리거 `POST /api/pipeline/trigger`도 202 Accepted로 큐잉만 함
 - **Data Flow**: 보유 종목을 final 30에 강제 포함 (매도 분석 가능하게)
 - **Charts**: matplotlib 차트 생성 단계는 미구현 (NanumGothic 폰트는 추후 차트 추가 시 필요)
 
@@ -262,15 +261,12 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 - **문서**: `database/README.md` (테이블 목록·관계·인덱스 전략)
 
 ### Project-Specific Context
-대학원 최종 프로젝트(MVP). **아키텍처는 멀티유저 구조**(회원가입, 유저별 `user_kis_accounts`/`user_trade_config`, ai-agent가 `get_active_auto_trading_users()`로 활성 유저 목록을 순회) — 단, **현재 실사용자는 소수**(관리자 위주)뿐이라 부하 관점에서는 아직 검증되지 않은 상태. 유저 수가 늘어날 것을 감안해 개발할 것: 특히 Stage 0-1 보유종목 조회(`asyncio.gather`로 활성 유저 수만큼 동시 호출)와 Stage 6 매매 실행(활성 유저 순차 루프)은 유저 수에 선형으로 스케일되므로 향후 병목 후보. KIS 모의투자, Gemini 무료 티어(1 call/day) 전제는 유지. 실전 매매·운영 배포는 향후 과제. KIS 키는 `user_kis_accounts`에 Jasypt 암호화 저장, KOSPI 100 종목 코드는 ai-agent에 하드코딩.
+대학원 최종 프로젝트(MVP). **아키텍처는 멀티유저 구조**(회원가입, 유저별 `user_kis_accounts`/`user_trade_config`, ai-agent가 `get_active_auto_trading_users()`로 활성 유저 목록을 순회) — 단, **현재 실사용자는 소수**(관리자 위주)뿐이라 부하 관점에서는 아직 검증되지 않은 상태. 유저 수가 늘어날 것을 감안해 개발할 것: 특히 Stage 0-1 보유종목 조회(`asyncio.gather`로 활성 유저 수만큼 동시 호출)와 Stage 6 매매 실행(활성 유저 순차 루프)은 유저 수에 선형으로 스케일되므로 향후 병목 후보. KIS 모의투자 전제는 유지. Gemini 는 무료 티어이나 호출 수는 하루 **1(전역 Stage 4) + N(활성 유저 수, Stage 6)** 이므로 유저 수에 비례해 늘어난다 — RPM(10/분) 보호를 위해 클라이언트가 호출 간 6.5초 throttle 과 429 지수 백오프를 건다. 실전 매매·운영 배포는 향후 과제. KIS 키는 `user_kis_accounts`에 Jasypt 암호화 저장, KOSPI 100 종목 코드는 ai-agent에 하드코딩.
 
 ### Git Workflow
 - Main branch: `main`
-- Current development branch: `develop-analysis`
+- Current development branch: `feature/timeseries-nosql-migration`
 - 커밋 규약: Conventional Commits (`feat`, `fix`, `docs`, ...)
-
-### Analysis View Files
-- `web-app/analysis_view/overview.html`, `web-app/analysis_view/stock_detail.html` — Vue3 라우터와 별개의 정적 HTML 분석 화면
 
 ## graphify
 

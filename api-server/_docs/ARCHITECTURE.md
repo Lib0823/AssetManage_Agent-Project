@@ -196,12 +196,15 @@ Browser ⇄ Spring /ws/realtime ⇄ KIS upstream (ws://ops.koreainvestment.com:2
 | 필터 순서 | `JwtAuthenticationFilter`를 `UsernamePasswordAuthenticationFilter` 앞에 배치 |
 | 권한 | 모든 사용자 `ROLE_USER` (`CustomUserDetails`) |
 
-**permitAll(인증 불필요) 경로**: `/health`, `/health/**`, `/auth/**`, `/actuator/**`, `/test/**`, `/market/**`, `/company/**`. 그 외(`/users/**`, `/assets/**`, `/trading/**`)는 모두 인증 필요.
+**permitAll(JWT 필터 미적용) 경로**: `/health`, `/health/**`, `/auth/**`, `/actuator/**`, `/market/**`, `/company/**`, `/stocks/**`, `/overseas/stocks/**`, `/news/**`, `/ws/**`, `/internal/**`. 그 외(`/users/**`, `/assets/**`, `/trading/**`, `/favorites/**`)는 모두 인증 필요. `/auth/webauthn/register/**`는 광범위한 `/auth/**`보다 먼저 `.authenticated()`로 매칭된다.
+
+> **permitAll ≠ 무인증**: `/internal/**`은 `InternalAuthFilter`가 `X-Internal-Api-Key`를 fail-closed로 검증하고(ai-agent 전용 — 사용자 JWT가 없는 호출자다), `/ws/**`는 `JwtHandshakeInterceptor`가 쿼리스트링 `?token={JWT}`를 검증한다. 두 경로 모두 Spring Security의 JWT 필터를 태우지 않을 뿐 자체 인증 수단이 있다.
 
 **JWT 요약** (상세: [AUTHENTICATION_FLOW.md](./AUTHENTICATION_FLOW.md)):
 - 라이브러리 jjwt 0.12.3, HMAC-SHA. secret은 `jwt.secret`(env `JWT_SECRET`).
-- access token: claims `subject=username` + `userId` + `kisAccountId`, TTL 1시간.
-- refresh token: claims `subject=username`만, TTL 24시간. `refresh_tokens` 테이블에 저장하며 사용자당 활성 토큰 1개(재로그인 시 기존 토큰 revoke).
+- access token: claims `subject=username` + `userId` + `kisAccountId` + `type=access`, TTL 1시간.
+- refresh token: claims `subject=username` + `type=refresh`, TTL 24시간. `refresh_tokens` 테이블에 저장하며 사용자당 활성 토큰 1개(재로그인 시 기존 토큰 revoke, v1.27 부분 유니크 인덱스로 DB 강제).
+- 두 토큰이 같은 키로 서명되므로 `type` 클레임이 유일한 용도 구분자다. 보호 경로는 `access`만, `/auth/refresh`는 `refresh`만 받는다.
 - 클라이언트는 `Authorization: Bearer {JWT}` 헤더로 호출. KIS 호출 헤더(`authorization`/`appkey`/`appsecret`)와는 별개다.
 
 CORS는 `WebConfig`에서 구성: origin `localhost:5173`/`5174`(Vue dev), `localhost:3000`(Nginx prod), credentials 허용, preflight max-age 3600s.

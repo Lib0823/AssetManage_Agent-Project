@@ -24,24 +24,24 @@
 | RegisterFinanceView | 완료 | ✅ | `authApi.validateKisAccount/register/login`, KIS rate-limit 처리 |
 | ResetPasswordView | 완료 | ✅ | `authApi.resetPassword` |
 | TradingView | 완료 | ✅ | 매수/매도(`tradingApi.buy/sell`) + 미체결(`tradingApi.getPendingOrders` → `/trading/pending-orders`) + 실시간 호가(`/stocks/{code}/orderbook`) + 매수가능(`/trading/orderable`) 전부 실데이터. 예약주문은 추후 지원(빈 상태) |
-| AssetDetailView | 완료 | ✅ | 국내 holdings/balance 실데이터. `stockDetail` 미정의 버그 수정, USD 하드코딩 제거. 송금 진입 버튼 제거(범위 외). 해외는 추후 지원 |
-| SettingsView | 완료 | ✅ | `userApi.getSettings/updateSettings/deleteAccount`. mockSettings 제거, 중립 기본값 초기화 후 응답으로 덮어씀 |
-| AssetsView | 완료 | ✅ | `assetApi.getBalance/getHoldings`로 자산요약 구성. mockAssetSummary 제거, 새로고침 재로드. 채권·코인 추후 지원(0), 7일 추이 숨김 |
-| SearchView | 완료 | ✅ | `stockApi.search`(카탈로그) + `stockApi.getPrice`(시세). mock 제거. 즐겨찾기 토글 `favoriteApi.add/remove`. 해외 추후 지원 |
-| FavoritesView | 완료 | ✅ | `favoriteApi.list/add/remove`. 목록 + 현재가/등락률(quote 비활성 시 "—"). mock 섹션 제거, 해외 추후 지원 |
-| NewsView | 미착수 | ⚠️ Mock | `mockTopNews` 사용, `newsApi` 미사용 |
-| NewsDetailView | 미착수 | ⚠️ Mock | `mockNewsDetail` 사용, `route.params.id` 미사용(onMounted TODO) |
+| AssetDetailView | 완료 | ✅ | 국내 holdings/balance + `overseasApi.getBalance`(해외, USD 원본) + `marketApi.getExchangeRates`(원화 병기). 실시간 체결가 구독으로 평가금액 갱신. 송금 진입 버튼 제거(범위 외) |
+| SettingsView | 완료 | ✅ | `userApi.getSettings/updateSettings/deleteAccount`. mockSettings 제거, 중립 기본값 초기화 후 응답으로 덮어씀. 탈퇴 시 `authStore.clearAuthData()`로 인증 키만 정리(uiSettings 보존) |
+| AssetsView | 완료 | ✅ | `assetApi.getBalance/getHoldings` + `assetApi.getHistory(30)`(30일 추이) + `overseasApi.getBalance`. mockAssetSummary 제거. 자산 카드 순서는 `uiSettings.assetOrder` 반영. 채권·코인 추후 지원(0) |
+| SearchView | 완료 | ✅ | `stockApi.search/getTop/getPrice`(국내) + `stockApi.searchOverseas`·`overseasApi.getPrice`(해외). mock 제거. 즐겨찾기 토글 `favoriteApi.add/remove` |
+| FavoritesView | 완료 | ✅ | `favoriteApi.list/remove` + `overseasApi.getPrice`(해외). 목록 + 현재가/등락률(quote 비활성 시 "—"). mock 섹션 제거 |
+| NewsView | 완료 | ✅ | `newsApi.getList({symbol?, date?})`. mock 제거, 날짜·검색·정렬 필터 |
+| NewsDetailView | 완료 | ✅ | `newsApi.getDetail(id)` 본문 + `newsApi.getList({symbol})` 관련 뉴스. `route.params.id` 실사용 |
 | TermsView | 완료 | — | mock 토큰 제거. 정보성 화면 + 동의 후 라우팅만(토큰 미발급) |
 | SplashView | 완료 | — | 정적 화면(타이머 리다이렉트) |
-| WelcomeView | 완료 | — | 정적 화면(Face ID 버튼은 스텁) |
+| WelcomeView | 완료 | ✅ | WebAuthn 생체 로그인(`services/webauthn.js` → `webauthnApi.loginStart/loginFinish`). 스텁 아님 |
 
-요약: **인증/온보딩 + AI·시장분석·거래내역 + 자산요약·종목검색·관심종목 + 매매(매수/매도·미체결·호가·매수가능) 경로는 실데이터 연동 완료**. 뉴스는 Mock 상태, 해외주식·코인·예약주문은 추후 지원. 송금/계좌이체는 주식 MVP 범위 밖으로 제외(TransferView·`/transfer` 라우트·AssetDetailView 진입 버튼 제거).
+요약: **인증/온보딩 + AI·시장분석·거래내역 + 자산요약·종목검색·관심종목 + 뉴스 + 매매(매수/매도·미체결·호가·매수가능) 경로는 실데이터 연동 완료**. 코인·예약주문은 추후 지원. 송금/계좌이체는 주식 MVP 범위 밖으로 제외(TransferView·`/transfer` 라우트·AssetDetailView 진입 버튼 제거).
 
 ## 2. 기능 단위 진행 상황
 
 | 기능 | 상태 | 비고 |
 |------|:---:|------|
-| 로그인/로그아웃 | 완료 | `authApi.login/logout` + Pinia + localStorage |
+| 로그인/로그아웃 | 완료 | `authApi.login/logout` + Pinia + `utils/tokenStorage.js`(자동로그인 설정에 따라 local/session 분기) |
 | 2단계 회원가입(개인→KIS) | 완료 | Pinia `registrationData`로 단계 간 상태 유지, KIS 계좌 검증 포함 |
 | 비밀번호 재설정 | 완료 | `authApi.resetPassword` |
 | 토큰 자동 refresh | 완료 | 응답 인터셉터 401 처리 + 대기 큐 + 실패 시 강제 로그아웃 |
@@ -55,10 +55,13 @@
 | 매수가능 조회 | 완료 | `/trading/orderable`(KIS `VTTC8908R`), 매수가능 수량/금액 |
 | 미체결 주문 조회 | 완료 | `tradingApi.getPendingOrders` → `/trading/pending-orders`(daily-ccld 필터) |
 | 거래내역 조회 | 완료 | 25s 타임아웃 |
-| 자산 요약/추이 | 완료(추이 제외) | `assetApi.getBalance/getHoldings`. 7일 추이는 엔드포인트 없어 숨김 |
-| 종목 검색 | 완료 | `stockApi.search/getPrice`(`/stocks/*`) |
+| 자산 요약/추이 | 완료 | `assetApi.getBalance/getHoldings` + `assetApi.getHistory(days)`(총자산 일별 스냅샷 기반 추이 라인차트) |
+| 종목 검색 | 완료 | `stockApi.search/getTop/getPrice`(`/stocks/*`) + 해외(`searchOverseas`, `overseasApi.getPrice`) |
+| 해외(US) 주식 | 완료 | `overseasApi.*`(시세·호가·잔고·매매). `exchange` 코드 필요 |
 | 관심종목 | 완료 | `favoriteApi.list/add/remove`(`/favorites`) |
-| 뉴스 피드/상세 | 미착수 | Mock, `newsApi` 정의됐으나 미사용 |
+| 뉴스 피드/상세 | 완료 | `newsApi.getList/getDetail`(`/news`, `/news/{id}`) |
+| 생체 로그인(WebAuthn/패스키) | 완료 | `services/webauthn.js` + `webauthnApi.*`. usernameless 패스키, 등록은 RegisterFinanceView·로그인은 WelcomeView |
+| 실시간 시세/체결통보 | 완료 | `/ws/realtime` WebSocket. 실전(REAL) 계좌 모드에서만 활성, 실패 시 REST 스냅샷으로 graceful degrade |
 | 계좌 이체(송금) | 제외 | 주식 MVP 범위 밖. TransferView·`/transfer` 라우트·AssetDetailView 진입 버튼 제거(api-server 변경 없음 — 원래 송금 엔드포인트 없었음) |
 | PWA 설치 | 완료(설정) | `VitePWA` 구성됨(실기기 설치 검증은 미확인) |
 
@@ -74,11 +77,11 @@
 
 ## 4. 미확인 / TODO (코드만으로 확정 불가)
 
-1. **🔴 `analysis_view/` 정적 HTML 부재**: 루트 `CLAUDE.md`와 본 작업 지시는 `web-app/analysis_view/overview.html`·`stock_detail.html`(Vue 라우터 밖 정적 페이지)의 존재를 전제하나, **현재 리포지터리에서 해당 디렉터리·파일이 발견되지 않았다**(`find` 확인). `web-app/index.html`(Vite 진입점) 외 정적 HTML은 없다. → 과거에 삭제됐거나 다른 브랜치(예: `ai-trading-pipeline`)에만 존재할 가능성. **현재 `develop-analysis` 브랜치 기준으로는 미존재.**
+1. **`analysis_view/` 정적 HTML 부재 (해결됨)**: 과거 루트 `CLAUDE.md`가 전제하던 `web-app/analysis_view/overview.html`·`stock_detail.html`은 리포지터리에 존재하지 않는다(`find` 확인). `web-app/index.html`(Vite 진입점) 외 정적 HTML은 없다. 루트 `CLAUDE.md`의 해당 서술은 **삭제 완료**. 현재 `feature/timeseries-nosql-migration` 브랜치 기준.
 2. **API baseURL (해결됨, 7070)**: `services/api.js` 기본값 `http://localhost:7070/api`는 api-server `application.yml`(`server.port: 7070` + context-path `/api`)과 일치한다. 구 루트 `CLAUDE.md`의 8080은 오기였고 정정됨. 단 `web-app`에 `.env`/`.env.example` 파일은 없으므로(확인됨), 배포 시 `VITE_API_BASE_URL` 명시 권장.
-3. **api-server ↔ ai-agent 내부 경로**: 프런트는 단일 baseURL의 `/market/*`로 AI 결과를 받으나, api-server가 ai-agent(8000)/DB 중 어디서 데이터를 가져오는지는 프런트 코드 밖이라 미확인.
-4. **`botApi`·`newsApi` 미사용**: `services/api.js`에 정의돼 있으나 어떤 뷰에서도 호출되지 않음(`newsApi`는 뉴스 화면 연동 대기). `stockApi`/`favoriteApi`는 SearchView/FavoritesView에서 실사용으로 연동됨.
+3. **api-server ↔ ai-agent 내부 경로**: 프런트는 단일 baseURL의 `/market/*`로 AI 결과를 받으며, api-server가 ai-agent의 산출물을 DB에서 읽어 중계한다. web-app이 ai-agent(8000)를 직접 호출하는 경로는 없다.
+4. **API 객체 사용 현황**: `services/api.js`가 export 하는 **12개 객체가 모두 화면에서 사용된다**. 과거 미사용으로 표기됐던 `botApi`는 삭제됐고, `newsApi`는 NewsView/NewsDetailView에서 실사용 중이다.
 5. **TermsView 흐름**: mock 토큰 발급 제거 완료. 동의 게이트 후 라우팅만 수행(토큰 미발급).
-6. **Vite 스캐폴드 잔재**: `HelloWorld.vue`/`TheWelcome.vue`/`WelcomeItem.vue`/`components/icons/Icon*.vue`/`AboutView.vue`는 미참조. 정리(삭제) 대상 후보이나 의도 미확인.
+6. **Vite 스캐폴드 잔재 (정리 완료)**: `HelloWorld.vue`/`TheWelcome.vue`/`WelcomeItem.vue`/`components/icons/Icon*.vue`/`AboutView.vue`는 **모두 삭제됐다**. `components/`·`views/` 아래에는 실사용 파일만 남아 있다.
 7. **`favicon.ico` vs `logo.png`**: `index.html`은 `/logo.png`를 아이콘으로 사용, `public/favicon.ico`도 존재. 사용 정책 미확인(기능 영향 없음).
 8. **"완료" 화면의 실동작/QA**: 테스트 코드가 없어 런타임 동작은 코드 검토 기준 추정일 뿐, 검증되지 않음.

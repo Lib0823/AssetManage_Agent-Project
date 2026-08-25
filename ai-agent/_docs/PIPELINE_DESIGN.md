@@ -366,7 +366,7 @@ stan_backend = CMDSTANPY
 
 - `check_auto_trading_enabled(user_id=1)`로 `user_trade_config.is_active` 확인. `false`면 `status: 'skipped'`로 종료.
 - `get_holdings()`로 보유 수량 조회 → 매수는 요청 수량, 매도는 보유 수량이 있을 때만 실행.
-- api-server `POST /api/trading/execute` 호출. 주문 체결 이력(`trade_history`)은 api-server가 기록한다.
+- Kafka `trade.order.requested` 토픽에 주문을 발행한다(체결을 기다리지 않음). api-server 가 이를 소비해 유저 KIS 키로 대행 주문하고, 결과는 `trade.order.result` 로 돌아와 `messaging/trade_result_consumer.py`가 `trade_execution_plan` 상태를 확정한다. 주문 체결 이력(`trade_history`)은 api-server가 기록한다.
 
 출력:
 
