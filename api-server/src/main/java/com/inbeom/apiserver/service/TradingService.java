@@ -149,7 +149,7 @@ public class TradingService {
     }
 
     /**
-     * Execute buy order via KIS API (VTTC0802U)
+     * Execute buy order via KIS API (TTTC0802U)
      *
      * <p>이 메서드는 {@code trade_history} 에 쓰지 않는다. 경로마다 기록 주체가 다르기 때문이다 —
      * 수동 주문은 {@link #placeManualBuy}, Kafka 주문은 {@link TradeOrderIdempotencyService} 가 남긴다.
@@ -180,7 +180,7 @@ public class TradingService {
         ResponseEntity<Map> response = kisApiClient.post(
                 credentials.baseUrl(),
                 "/uapi/domestic-stock/v1/trading/order-cash",
-                "VTTC0802U",
+                "TTTC0802U",
                 kisToken,
                 credentials.appKey(),
                 credentials.appSecret(),
@@ -196,7 +196,7 @@ public class TradingService {
     }
 
     /**
-     * Execute sell order via KIS API (VTTC0801U)
+     * Execute sell order via KIS API (TTTC0801U)
      *
      * <p>{@link #executeBuy} 와 같이 {@code trade_history} 에 쓰지 않는다 — {@link #placeManualSell} 참조.
      *
@@ -221,7 +221,7 @@ public class TradingService {
         ResponseEntity<Map> response = kisApiClient.post(
                 credentials.baseUrl(),
                 "/uapi/domestic-stock/v1/trading/order-cash",
-                "VTTC0801U",
+                "TTTC0801U",
                 kisToken,
                 credentials.appKey(),
                 credentials.appSecret(),
@@ -237,7 +237,7 @@ public class TradingService {
     }
 
     /**
-     * Get trade history from KIS API (VTTC0081R)
+     * Get trade history from KIS API (TTTC0081R)
      * 최근 3개월 거래내역 조회
      */
     public List<TradeHistoryResponse> getTradeHistory(Long userId) {
@@ -276,7 +276,7 @@ public class TradingService {
         ResponseEntity<KisDailyCcldResponse> response = kisApiClient.get(
                 credentials.baseUrl(),
                 "/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
-                "VTTC0081R",  // 주식일별주문체결조회 (모의투자)
+                "TTTC0081R",  // 주식일별주문체결조회
                 kisToken,
                 credentials.appKey(),
                 credentials.appSecret(),
@@ -314,7 +314,7 @@ public class TradingService {
     }
 
     /**
-     * Get pending (unfilled) orders from KIS API (VTTC0081R).
+     * Get pending (unfilled) orders from KIS API (TTTC0081R).
      * PM 결정 1: 신규 KIS TR 도입 금지. getTradeHistory 와 동일한 inquire-daily-ccld 경로를 재사용하고,
      * 결과 중 미체결(취소 제외, 잔량 > 0 또는 orderStatus PENDING/PARTIAL)인 행만 반환한다.
      * 예외/빈결과/rt_cd != 0 시 빈 리스트로 graceful 처리한다.
@@ -356,7 +356,7 @@ public class TradingService {
             ResponseEntity<KisDailyCcldResponse> response = kisApiClient.get(
                     credentials.baseUrl(),
                     "/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
-                    "VTTC0081R",  // 주식일별주문체결조회 (모의투자)
+                    "TTTC0081R",  // 주식일별주문체결조회
                     kisToken,
                     credentials.appKey(),
                     credentials.appSecret(),
@@ -508,7 +508,7 @@ public class TradingService {
     }
 
     /**
-     * 매수가능조회 (VTTC8908R, 모의). userId → KIS 계좌/토큰/자격증명 해석 후 inquire-psbl-order 호출.
+     * 매수가능조회 (TTTC8908R). userId → KIS 계좌/토큰/자격증명 해석 후 inquire-psbl-order 호출.
      * KIS output 매핑: max_buy_qty→maxBuyQuantity, ord_psbl_cash→orderableCash.
      * 예외/rt_cd != 0 시 0 + notice 로 graceful degrade 한다.
      *
@@ -549,7 +549,7 @@ public class TradingService {
             ResponseEntity<Map> response = kisApiClient.get(
                     credentials.baseUrl(),
                     "/uapi/domestic-stock/v1/trading/inquire-psbl-order",
-                    "VTTC8908R",  // 매수가능조회 (모의투자, convertTrId 가 VTTC↔TTTC 처리)
+                    "TTTC8908R",  // 매수가능조회
                     kisToken,
                     credentials.appKey(),
                     credentials.appSecret(),
@@ -671,7 +671,7 @@ public class TradingService {
      * KIS 주문 응답의 성공 여부(rt_cd)를 검증한다.
      *
      * <p>KIS 는 주문 거부 시에도 HTTP 200 + {@code rt_cd="1"} 과 사유({@code msg1},
-     * 예: "모의투자 영업일이 아닙니다.")를 함께 준다. 이를 검사하지 않으면 실패 주문이
+     * 예: "영업일이 아닙니다.")를 함께 준다. 이를 검사하지 않으면 실패 주문이
      * 성공(success=true)으로 잘못 보고되거나 후속 처리에서 generic 500 으로 사유가
      * 가려진다. rt_cd 가 "0"(정상)이 아니면 KIS 사유를 담아 예외를 던져 호출자
      * (ai-agent)까지 명확한 메시지가 전달되게 한다.
@@ -704,12 +704,12 @@ public class TradingService {
     /**
      * 매수 주문 전 매수여력 검증 → {@link ErrorCode#INSUFFICIENT_BALANCE}(5001).
      *
-     * <p>KIS 매수가능조회(VTTC8908R)의 {@code max_buy_qty} 와 요청 수량을 비교한다.
+     * <p>KIS 매수가능조회(TTTC8908R)의 {@code max_buy_qty} 와 요청 수량을 비교한다.
      * 프런트가 이미 orderable 을 조회하지만 클라이언트 검증은 신뢰할 수 없고, ai-agent 경로에는
      * 아예 없다.
      *
-     * <p><b>fail-open</b>: 조회가 degrade 된 경우({@code notice != null} — KIS 장애/모의 미지원/
-     * 계좌 미해석)에는 검증을 건너뛴다. 조회 실패를 잔고 부족으로 오인해 정상 주문을 막으면
+     * <p><b>fail-open</b>: 조회가 degrade 된 경우({@code notice != null} — KIS 장애/계좌 미해석)에는
+     * 검증을 건너뛴다. 조회 실패를 잔고 부족으로 오인해 정상 주문을 막으면
      * 안 되기 때문이다. 최종 판정은 언제나 KIS 가 한다. 단 자체 rate limit 거부는 fail-open
      * 대상이 아니다 — {@link #getOrderable} 이 {@link KisRateLimitExceededException} 을 그대로
      * 전파하므로 주문이 여기서 멈춘다(우리가 KIS 에 묻지도 않은 상태라 "KIS 가 판정한다"는
@@ -747,10 +747,7 @@ public class TradingService {
         return null;
     }
 
-    // ================== 국내주식 예약주문 (실전 전용) ==================
-    // 예약주문 TR(CTSC*)은 실전 계좌만 지원한다(모의 미지원). 프런트가 모드 안내로 게이트하므로
-    // 백엔드는 실전 경로만 구현한다. TR_ID CTSC* 는 KisApiClient.convertTrId 의 VTTC/TTTC 변환
-    // 대상이 아니므로 그대로 전송된다(도메인은 credentials.baseUrl() = 계정 모드 도메인).
+    // ================== 국내주식 예약주문 ==================
 
     /**
      * 예약주문 접수 (KIS order-resv, CTSC0008U).
@@ -1058,7 +1055,7 @@ public class TradingService {
     }
 
     /**
-     * Get holdings (보유 종목 조회) from KIS API (VTTC8434R)
+     * Get holdings (보유 종목 조회) from KIS API (TTTC8434R)
      */
     public BalanceSummaryResponse getHoldings(Long userId) {
         User user = userRepository.findById(userId)
@@ -1089,7 +1086,7 @@ public class TradingService {
         ResponseEntity<KisBalanceResponse> response = kisApiClient.get(
                 credentials.baseUrl(),
                 "/uapi/domestic-stock/v1/trading/inquire-balance",
-                "VTTC8434R",  // 주식잔고조회 (모의투자)
+                "TTTC8434R",  // 주식잔고조회
                 kisToken,
                 credentials.appKey(),
                 credentials.appSecret(),

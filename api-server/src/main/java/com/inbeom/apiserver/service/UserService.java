@@ -292,7 +292,6 @@ public class UserService {
                 .appKey(decryptForDisplay(kisAccount.getAppKey()))
                 .appSecret(decryptForDisplay(kisAccount.getAppSecret()))
                 .htsId(kisAccount.getHtsId())
-                .accountMode(kisAccount.getAccountMode())
                 .isVerified(kisAccount.getIsVerified())
                 .createdAt(kisAccount.getCreatedAt())
                 .updatedAt(kisAccount.getUpdatedAt())
@@ -348,10 +347,6 @@ public class UserService {
         if (request.getHtsId() != null) {
             kisAccount.setHtsId(request.getHtsId());
         }
-        // KIS 모드(MOCK/REAL) — 제공된 경우에만 반영. 이후 이 계정의 모든 매매/조회가 해당 도메인으로 라우팅됨.
-        if (request.getMode() != null && !request.getMode().isBlank()) {
-            kisAccount.setAccountMode("REAL".equalsIgnoreCase(request.getMode()) ? "REAL" : "MOCK");
-        }
         // Reset verification status when credentials are changed
         kisAccount.setIsVerified(false);
 
@@ -364,7 +359,6 @@ public class UserService {
                 .appKey(decryptForDisplay(kisAccount.getAppKey()))
                 .appSecret(decryptForDisplay(kisAccount.getAppSecret()))
                 .htsId(kisAccount.getHtsId())
-                .accountMode(kisAccount.getAccountMode())
                 .isVerified(kisAccount.getIsVerified())
                 .createdAt(kisAccount.getCreatedAt())
                 .updatedAt(kisAccount.getUpdatedAt())

@@ -52,7 +52,5 @@ public class RegisterRequest {
         @NotBlank(message = "APP Secret is required")
         private String appSecret;
 
-        /** KIS 모드: MOCK(모의) 또는 REAL(실전). 미지정 시 MOCK. */
-        private String mode;
     }
 }

@@ -91,7 +91,7 @@ class KisRateLimitAndCacheIntegrationTest {
     private static final String REAL_BASE_URL = "https://openapi.koreainvestment.com:9443";
     private static final String PRICE_ENDPOINT = "/uapi/domestic-stock/v1/quotations/inquire-price";
     /** 캐시 allowlist 밖의 TR — rate limit 만 관측하고 싶을 때 쓴다(잔고조회). */
-    private static final String TR_BALANCE = "VTTC8434R";
+    private static final String TR_BALANCE = "TTTC8434R";
 
     @Autowired
     private KisApiClient kisApiClient;

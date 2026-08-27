@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 /**
  * 실시간 체결통보(fill notification) 메시지 (브라우저로 fan-out).
  *
- * <p>국내 H0STCNI0(실전)/H0STCNI9(모의) 체결통보 암호 프레임을 AES 복호 → 파싱해 만든
+ * <p>국내 H0STCNI0 체결통보 암호 프레임을 AES 복호 → 파싱해 만든
  * 계좌 단위 push 메시지. 종목이 아닌 사용자 계좌 단위 이벤트이므로 프론트는 전역(App) 토스트로
  * 처리한다(뷰별 구독 아님). {@link TickMessage} 와 동일한 직렬화 스타일(@JsonInclude NON_NULL)을 따른다.
  *

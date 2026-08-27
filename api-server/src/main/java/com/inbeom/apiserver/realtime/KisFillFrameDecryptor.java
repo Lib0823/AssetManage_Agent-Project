@@ -12,7 +12,7 @@ import java.util.Base64;
 /**
  * KIS 체결통보(flag 1) 암호 프레임 복호기.
  *
- * <p>KIS 실시간 체결통보(H0STCNI0/H0STCNI9)는 구독 ACK 의 {@code body.output.{key,iv}} 로
+ * <p>KIS 실시간 체결통보(H0STCNI0)는 구독 ACK 의 {@code body.output.{key,iv}} 로
  * 전달되는 대칭키로 데이터 프레임을 암호화해 보낸다. 알고리즘은 KIS 명세상
  * <b>AES/CBC/PKCS5Padding</b> 이며, key/iv 는 <b>ASCII/UTF-8 문자열의 바이트</b> 그대로
  * (AES-128/192/256 은 key 문자열 길이로 결정 — KIS 는 통상 32바이트 = AES-256),

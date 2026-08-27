@@ -16,9 +16,8 @@ import java.util.Map;
  * <p>{@link CompanyInfoService} 의 사설(private) 시세 조회 로직을 추출한 컴포넌트로,
  * StockService/FavoriteService 등 현재가가 필요한 곳에서 재사용한다.
  *
- * <p>KIS 시세 API 는 모의(openapivts) 도메인에서 제공되지 않으므로, 매매/잔고 흐름과 분리된
- * 실전 도메인 + 실전 자격증명({@link KisQuoteService}, 설정 kis.quote-*)으로 호출한다.
- * DB 의 모의 UserKisAccount(매매 전용)는 이 경로에서 사용하지 않는다.
+ * <p>매매/잔고 흐름과 분리된 앱 단위 자격증명({@link KisQuoteService}, 설정 kis.quote-*)으로
+ * 호출한다. DB 의 UserKisAccount(매매 전용)는 이 경로에서 사용하지 않는다.
  *
  * <p>비활성({@link #isEnabled()}==false)·실패·rt_cd!=0 시 절대 예외를 전파하지 않고
  * null 로 degrade 한다. 미연동 사유는 호출부가 {@link #getNotice()} 로 노출할 수 있다.
@@ -210,8 +209,8 @@ public class KisQuoteClient {
     }
 
     /**
-     * 시세 호출용 실전(real) 자격증명·토큰·도메인 해석.
-     * 매매 흐름(DB 모의 키)과 분리된 설정(kis.quote-*) 기반.
+     * 시세 호출용 자격증명·토큰·도메인 해석.
+     * 매매 흐름(사용자별 DB 키)과 분리된 설정(kis.quote-*) 기반.
      * 비활성(키 미설정)이거나 토큰 획득 실패 시 null → 시세 필드 전체 degrade.
      */
     private QuoteContext resolveQuoteContext() {

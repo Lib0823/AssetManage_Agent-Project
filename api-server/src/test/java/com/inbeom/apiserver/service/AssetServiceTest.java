@@ -56,7 +56,7 @@ class AssetServiceTest {
                 "MOCK_APP_SECRET",
                 "12345678-01",
                 "01",
-                "https://openapivts.koreainvestment.com:29443"
+                "https://openapi.koreainvestment.com:9443"
         );
     }
 
@@ -78,7 +78,7 @@ class AssetServiceTest {
         when(kisApiClient.get(
                 anyString(),
                 eq("/uapi/domestic-stock/v1/trading/inquire-balance"),
-                eq("VTTC8434R"),
+                eq("TTTC8434R"),
                 eq(mockKisToken),
                 eq("MOCK_APP_KEY"),
                 eq("MOCK_APP_SECRET"),

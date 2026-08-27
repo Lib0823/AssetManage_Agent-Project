@@ -11,8 +11,8 @@ import java.math.BigDecimal;
  * KIS 체결통보 복호 평문 → {@link FillMessage} 파서.
  *
  * <ul>
- *   <li>국내: H0STCNI0(실전) / H0STCNI9(모의) → {@link KrFill} 블록, market="KR".</li>
- *   <li>미국: H0GSCNI0(실전) / H0GSCNI9(모의) → {@link UsFill} 블록, market="US".</li>
+ *   <li>국내: H0STCNI0 → {@link KrFill} 블록, market="KR".</li>
+ *   <li>미국: H0GSCNI0 → {@link UsFill} 블록, market="US".</li>
  * </ul>
  *
  * <p>{@link KisFillFrameDecryptor} 가 복호한 평문은 {@code ^} 로 구분된 단일 레코드다(체결통보는
@@ -22,7 +22,7 @@ import java.math.BigDecimal;
  *
  * <p><b>MUST-VERIFY — 필드 인덱스 / 코드값</b>. 아래 {@link KrFill}/{@link UsFill} 인덱스와 코드
  * 해석은 KIS Developers 실시간 체결통보 명세의 응답 필드 "순서"에 기반한 추정이며, 실제 체결
- * 프레임으로 확정해야 한다(주문 체결 시에만 프레임 발생 → 장중 실/모의 계좌 필요).
+ * 프레임으로 확정해야 한다(주문 체결 시에만 프레임 발생 → 장중 실계좌 필요).
  * {@code kis.realtime.fills.frame-debug=true} 일 때 각 시장(KR/US)의 첫 레코드 index→value 매핑을
  * 1회 로깅하는 {@link #logDiagnostic} 진단 로거로 명세와 대조해 아래 상수를 확정한다.
  * 모든 인덱스/코드 상수는 이 클래스 한 곳에만 둔다.

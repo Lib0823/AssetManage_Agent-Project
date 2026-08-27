@@ -26,7 +26,7 @@ public final class FrameEnvelope {
      * 봉투 분리 결과.
      *
      * @param flag  암호화 플래그 ("0" 평문 / "1" 암호)
-     * @param trId  상향 tr_id (예: H0STCNI0 / H0STCNI9)
+     * @param trId  상향 tr_id (예: H0STCNI0)
      * @param count 레코드 수 (체결통보는 통상 1)
      * @param data  본문 (flag 1 이면 base64 ciphertext, flag 0 이면 ^-구분 평문)
      */

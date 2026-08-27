@@ -5,7 +5,7 @@ package com.inbeom.apiserver.service;
  *
  * <p>한 거래소가 용도별로 코드가 다르다:
  * <ul>
- *   <li>{@code balanceCode} — 잔고(VTTS3012R) / 매매(VTTT1002U·VTTT1006U) OVRS_EXCG_CD (NASD/NYSE/AMEX)</li>
+ *   <li>{@code balanceCode} — 잔고(TTTS3012R) / 매매(TTTT1002U·TTTT1006U) OVRS_EXCG_CD (NASD/NYSE/AMEX)</li>
  *   <li>{@code quoteCode}   — 시세(HHDFS76200200/HHDFS00000300) EXCD (NAS/NYS/AMS)</li>
  * </ul>
  * MVP 범위는 미국(NASDAQ/NYSE/AMEX)만이며 통화는 모두 USD 다.

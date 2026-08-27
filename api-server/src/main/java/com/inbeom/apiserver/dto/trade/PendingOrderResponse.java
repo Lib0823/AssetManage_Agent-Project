@@ -9,7 +9,7 @@ import java.math.BigDecimal;
 
 /**
  * 미체결 주문 조회 응답 DTO
- * KIS 주식일별주문체결조회(VTTC0081R) 결과 중 미체결(잔량 > 0, PENDING/PARTIAL)만 매핑한다.
+ * KIS 주식일별주문체결조회(TTTC0081R) 결과 중 미체결(잔량 > 0, PENDING/PARTIAL)만 매핑한다.
  */
 @Data
 @Builder

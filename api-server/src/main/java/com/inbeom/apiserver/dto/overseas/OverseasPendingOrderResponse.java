@@ -11,12 +11,12 @@ import java.util.List;
 /**
  * 해외주식(미국) 미체결 내역 응답 DTO (USD 원본 — KRW 환산은 프론트가 처리).
  *
- * <p>KIS 해외주식 미체결(VTTS3018R, 모의, /trading/inquire-nccs) output 매핑(필드명 MUST-VERIFY):
+ * <p>KIS 해외주식 미체결(TTTS3018R, /trading/inquire-nccs) output 매핑(필드명 MUST-VERIFY):
  * odno → orderNo, pdno → symbol, prdt_name → name, sll_buy_dvsn_cd(_name) → side,
  * ft_ord_qty → orderQty, nccs_qty → remainQty, ft_ord_unpr3 → orderPrice,
  * ord_dt+ord_tmd → orderedAt.
  *
- * <p>모의 미지원·rt_cd != 0·예외 시 list 빈 목록 + notice(예외 전파 금지).
+ * <p>rt_cd != 0·예외 시 list 빈 목록 + notice(예외 전파 금지).
  */
 @Data
 @Builder

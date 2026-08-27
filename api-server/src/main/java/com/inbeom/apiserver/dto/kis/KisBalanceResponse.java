@@ -9,7 +9,7 @@ import java.util.List;
 
 /**
  * KIS API 주식잔고조회 응답 DTO
- * TR_ID: VTTC8434R (모의투자) / TTTC8434R (실전투자)
+ * TR_ID: TTTC8434R
  */
 @Getter
 @Setter
