@@ -62,7 +62,6 @@ def test_config():
     """Test configuration fixture."""
     return {
         'db_url': os.getenv('DB_URL', 'postgresql://postgres:password@localhost:5432/financemanage_test'),
-        'kis_mode': 'VIRTUAL',
         'log_level': 'DEBUG'
     }
 

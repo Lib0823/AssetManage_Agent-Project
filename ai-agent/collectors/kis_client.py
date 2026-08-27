@@ -29,7 +29,6 @@ class KISClient:
 
     Features:
     - OAuth token caching (24-hour TTL)
-    - TR_ID auto-conversion (VIRTUAL/REAL mode)
     - Rate limiting (5 requests/second)
     - Comprehensive error handling
     """
@@ -43,7 +42,6 @@ class KISClient:
 
         self.app_key = os.getenv('KIS_APP_KEY')
         self.app_secret = os.getenv('KIS_APP_SECRET')
-        self.mode = os.getenv('KIS_MODE', 'VIRTUAL')
         self.base_url = os.getenv('KIS_BASE_URL', 'https://openapi.koreainvestment.com:9443')
 
         if not self.app_key or not self.app_secret:
@@ -56,7 +54,7 @@ class KISClient:
         # Rate limiting semaphore
         self.semaphore = asyncio.Semaphore(KIS_MAX_REQUESTS_PER_SECOND)
 
-        logger.info(f"KISClient initialized in {self.mode} mode")
+        logger.info("KISClient initialized")
         logger.debug(f"AppKey length: {len(self.app_key)}, AppSecret length: {len(self.app_secret)}")
 
     async def get_access_token(self) -> str:
@@ -123,35 +121,6 @@ class KISClient:
                 logger.error(f"Failed to get access token: {e}")
                 raise RuntimeError(f"KIS OAuth failed: {e}")
 
-    def convert_tr_id(self, base_tr_id: str) -> str:
-        """
-        Convert TR_ID based on mode (VIRTUAL/REAL).
-
-        VIRTUAL: VTTC* (모의투자)
-        REAL: TTTC* (실전투자)
-
-        Args:
-            base_tr_id: Base TR_ID (e.g., 'VTTC8434R')
-
-        Returns:
-            str: Converted TR_ID based on mode
-        """
-        if base_tr_id is None or len(base_tr_id) < 4:
-            return base_tr_id
-
-        suffix = base_tr_id[4:]  # Extract suffix (e.g., '8434R')
-
-        if self.mode == 'REAL' and base_tr_id.startswith('VTTC'):
-            converted = f'TTTC{suffix}'
-            logger.debug(f"TR_ID converted: {base_tr_id} → {converted}")
-            return converted
-        elif self.mode == 'VIRTUAL' and base_tr_id.startswith('TTTC'):
-            converted = f'VTTC{suffix}'
-            logger.debug(f"TR_ID converted: {base_tr_id} → {converted}")
-            return converted
-
-        return base_tr_id
-
     async def request(
         self,
         method: str,
@@ -166,7 +135,7 @@ class KISClient:
         Args:
             method: HTTP method ('GET' or 'POST')
             endpoint: API endpoint path
-            tr_id: Transaction ID (will be auto-converted)
+            tr_id: Transaction ID
             params: Query parameters for GET requests
             json_data: JSON body for POST requests
 
@@ -175,13 +144,12 @@ class KISClient:
         """
         async with self.semaphore:
             token = await self.get_access_token()
-            tr_id_converted = self.convert_tr_id(tr_id)
 
             headers = {
                 'authorization': f'Bearer {token}',
                 'appkey': self.app_key,
                 'appsecret': self.app_secret,
-                'tr_id': tr_id_converted,
+                'tr_id': tr_id,
                 'custtype': 'P',  # Personal account
                 'content-type': 'application/json'
             }
@@ -970,63 +938,6 @@ class KISClient:
                 'kospi_volume': 0,
                 'kospi_trade_value': 0
             }
-
-    async def get_holdings(self) -> List[str]:
-        """
-        Get list of currently held stock codes from KIS API.
-
-        API: VTTC8434R (모의투자 잔고조회) / TTTC8434R (실전투자 잔고조회)
-
-        Returns:
-            List of 6-digit stock codes currently in portfolio
-            Empty list if error or no holdings
-        """
-        logger.info("Fetching holdings from KIS API")
-
-        endpoint = '/uapi/domestic-stock/v1/trading/inquire-balance'
-        tr_id = 'VTTC8434R'  # Auto-converted to TTTC8434R in REAL mode
-
-        params = {
-            'CANO': os.getenv('KIS_ACCOUNT_NUMBER', ''),  # 종합계좌번호
-            'ACNT_PRDT_CD': os.getenv('KIS_ACCOUNT_PRODUCT_CODE', '01'),  # 계좌상품코드 (01: 종합)
-            'AFHR_FLPR_YN': 'N',  # 시간외단일가여부 (N: 정규장)
-            'OFL_YN': '',  # 오프라인여부
-            'INQR_DVSN': '01',  # 조회구분 (01: 대출일별, 02: 종목별)
-            'UNPR_DVSN': '01',  # 단가구분 (01: 기본)
-            'FUND_STTL_ICLD_YN': 'N',  # 펀드결제분포함여부 (N: 미포함)
-            'FNCG_AMT_AUTO_RDPT_YN': 'N',  # 융자금액자동상환여부 (N: 미상환)
-            'PRCS_DVSN': '01',  # 처리구분 (01: 전일매매포함)
-            'CTX_AREA_FK100': '',  # 연속조회검색조건100
-            'CTX_AREA_NK100': ''  # 연속조회키100
-        }
-
-        try:
-            result = await self.request('GET', endpoint, tr_id, params=params)
-
-            # output1: 보유 종목 리스트
-            holdings_list = result.get('output1', [])
-
-            if not holdings_list:
-                logger.info("No holdings found in portfolio")
-                return []
-
-            # Extract stock codes (6-digit) from holdings
-            stock_codes = []
-            for holding in holdings_list:
-                stock_code = holding.get('pdno', '')  # 상품번호 (종목코드)
-                quantity = int(holding.get('hldg_qty', 0))  # 보유수량
-
-                # Only include holdings with positive quantity
-                if stock_code and quantity > 0:
-                    stock_codes.append(stock_code)
-
-            logger.info(f"Found {len(stock_codes)} holdings: {stock_codes}")
-            return stock_codes
-
-        except Exception as e:
-            logger.error(f"Error fetching holdings: {e}")
-            logger.warning("Continuing without holdings (will only use Top 30 filtered stocks)")
-            return []
 
     async def fetch_stock_data_parallel(self, stock_codes: List[str]) -> pd.DataFrame:
         """

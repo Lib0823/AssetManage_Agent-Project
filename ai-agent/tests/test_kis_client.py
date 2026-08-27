@@ -109,11 +109,10 @@ def no_rate_limit_delay():
 
 @pytest.fixture
 def client(monkeypatch):
-    """실 .env 를 읽지 않는 테스트용 KISClient (VIRTUAL 모드)."""
+    """실 .env 를 읽지 않는 테스트용 KISClient."""
     monkeypatch.setattr(kis_module, 'load_dotenv', lambda *a, **kw: None)
     monkeypatch.setenv('KIS_APP_KEY', 'test-app-key')
     monkeypatch.setenv('KIS_APP_SECRET', 'test-app-secret')
-    monkeypatch.setenv('KIS_MODE', 'VIRTUAL')
     monkeypatch.setenv('KIS_BASE_URL', 'https://mock.kis.test')
     c = KISClient()
     # 토큰 조회를 유발하지 않도록 유효한 캐시 토큰을 심어 둔다.
@@ -123,10 +122,9 @@ def client(monkeypatch):
 
 
 class TestInit:
-    def test_loads_credentials_and_mode(self, client):
+    def test_loads_credentials(self, client):
         assert client.app_key == 'test-app-key'
         assert client.app_secret == 'test-app-secret'
-        assert client.mode == 'VIRTUAL'
         assert client.base_url == 'https://mock.kis.test'
 
     def test_semaphore_allows_five_concurrent_requests(self, client):
@@ -142,36 +140,13 @@ class TestInit:
         with pytest.raises(ValueError, match='KIS_APP_KEY and KIS_APP_SECRET'):
             KISClient()
 
-    def test_defaults_to_virtual_mode(self, monkeypatch):
+    def test_defaults_to_real_base_url(self, monkeypatch):
         monkeypatch.setattr(kis_module, 'load_dotenv', lambda *a, **kw: None)
         monkeypatch.setenv('KIS_APP_KEY', 'k')
         monkeypatch.setenv('KIS_APP_SECRET', 's')
-        monkeypatch.delenv('KIS_MODE', raising=False)
+        monkeypatch.delenv('KIS_BASE_URL', raising=False)
 
-        assert KISClient().mode == 'VIRTUAL'
-
-
-class TestConvertTrId:
-    @pytest.mark.parametrize('base,expected', [
-        ('TTTC8434R', 'VTTC8434R'),   # 실전 → 모의 변환
-        ('VTTC8434R', 'VTTC8434R'),   # 이미 모의
-        ('FHKST01010900', 'FHKST01010900'),  # 시세 TR 은 변환 대상 아님
-    ])
-    def test_virtual_mode(self, client, base, expected):
-        assert client.convert_tr_id(base) == expected
-
-    @pytest.mark.parametrize('base,expected', [
-        ('VTTC8434R', 'TTTC8434R'),
-        ('TTTC8434R', 'TTTC8434R'),
-        ('FHKST01010900', 'FHKST01010900'),
-    ])
-    def test_real_mode(self, client, base, expected):
-        client.mode = 'REAL'
-        assert client.convert_tr_id(base) == expected
-
-    @pytest.mark.parametrize('value', [None, '', 'ABC'])
-    def test_short_or_none_passthrough(self, client, value):
-        assert client.convert_tr_id(value) == value
+        assert KISClient().base_url == 'https://openapi.koreainvestment.com:9443'
 
 
 class TestGetAccessToken:
@@ -245,7 +220,7 @@ class TestGetAccessToken:
 
 
 class TestRequest:
-    async def test_get_success_sends_auth_headers_and_converted_tr_id(self, client):
+    async def test_get_success_sends_auth_headers_and_tr_id(self, client):
         session = FakeSession(FakeResponse(200, ok({'output': {'a': 1}})))
 
         with patch_session(session):
@@ -257,14 +232,14 @@ class TestRequest:
         assert req['params'] == {'k': 'v'}
         assert req['headers']['authorization'] == 'Bearer cached-token'
         assert req['headers']['appkey'] == 'test-app-key'
-        assert req['headers']['tr_id'] == 'VTTC8434R'  # VIRTUAL 모드 변환
+        assert req['headers']['tr_id'] == 'TTTC8434R'
         assert req['headers']['custtype'] == 'P'
 
     async def test_post_sends_json_body(self, client):
         session = FakeSession(FakeResponse(200, ok()))
 
         with patch_session(session):
-            await client.request('POST', '/uapi/order', 'VTTC0802U', json_data={'qty': 1})
+            await client.request('POST', '/uapi/order', 'TTTC0802U', json_data={'qty': 1})
 
         assert session.requests[0]['method'] == 'POST'
         assert session.requests[0]['json'] == {'qty': 1}
@@ -843,36 +818,6 @@ class TestGetKospiIndex:
             'kospi_index': 0.0, 'kospi_change_rate': 0.0,
             'kospi_volume': 0, 'kospi_trade_value': 0,
         }
-
-
-class TestGetHoldings:
-    async def test_returns_codes_with_positive_quantity(self, client):
-        response = ok({'output1': [
-            {'pdno': '005930', 'hldg_qty': '10'},
-            {'pdno': '000660', 'hldg_qty': '0'},   # 잔량 0 은 제외
-            {'pdno': '', 'hldg_qty': '5'},         # 종목코드 없음
-            {'pdno': '051910', 'hldg_qty': '3'},
-        ]})
-        with patch.object(client, 'request', new_callable=AsyncMock, return_value=response) as mock_request:
-            holdings = await client.get_holdings()
-
-        assert holdings == ['005930', '051910']
-        assert mock_request.call_args.args[2] == 'VTTC8434R'
-        assert mock_request.call_args.args[1] == '/uapi/domestic-stock/v1/trading/inquire-balance'
-
-    async def test_empty_portfolio_returns_empty_list(self, client):
-        with patch.object(client, 'request', new_callable=AsyncMock, return_value=ok({'output1': []})):
-            assert await client.get_holdings() == []
-
-    async def test_api_error_degrades_to_empty_list(self, client):
-        with patch.object(client, 'request', new_callable=AsyncMock,
-                          side_effect=RuntimeError('KIS API request failed: 500')):
-            assert await client.get_holdings() == []
-
-    async def test_malformed_quantity_degrades_to_empty_list(self, client):
-        response = ok({'output1': [{'pdno': '005930', 'hldg_qty': 'abc'}]})
-        with patch.object(client, 'request', new_callable=AsyncMock, return_value=response):
-            assert await client.get_holdings() == []
 
 
 def ohlcv_df(rows):
