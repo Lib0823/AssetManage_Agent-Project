@@ -37,7 +37,7 @@ graph TD
     DB[("PostgreSQL + TimescaleDB :5432")]
     Redis[("Redis :6379")]
     Kafka{{"Kafka trade-order 토픽 + DLQ"}}
-    KIS["KIS Open API<br/>(모의투자, REST+WS)"]
+    KIS["KIS Open API<br/>(실전투자, REST+WS)"]
     DART["DART API<br/>(재무)"]
     GEM["Gemini API"]
     NEWS["뉴스 (RSS / 네이버)"]
@@ -158,4 +158,4 @@ score = |foreign_net_buy|*0.3 + |institutional_net_buy|*0.3 + vol_avg_multiple*0
 | Cache | Redis 7 — rate-limit 토큰버킷 + 응답 캐시 |
 | Search | Elasticsearch 8.x (확장 예정, 현재 미사용) |
 | Infra | Docker, Docker Compose |
-| 외부 API | KIS Developers (모의투자), DART (재무·공시), Gemini (AI 판단) |
+| 외부 API | KIS Developers (실전투자), DART (재무·공시), Gemini (AI 판단) |

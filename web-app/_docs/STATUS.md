@@ -52,7 +52,7 @@
 | 시장분석 대시보드 | 완료 | 히트맵/센티먼트/예측 모두 클라이언트 렌더 |
 | 매수/매도 주문 | 완료 | 실행 API 연동 |
 | 실시간 호가 조회 | 완료 | `/stocks/{code}/orderbook`(KIS `FHKST01010200`), 10단계 매도/매수 + 잔량 |
-| 매수가능 조회 | 완료 | `/trading/orderable`(KIS `VTTC8908R`), 매수가능 수량/금액 |
+| 매수가능 조회 | 완료 | `/trading/orderable`(KIS `TTTC8908R`), 매수가능 수량/금액 |
 | 미체결 주문 조회 | 완료 | `tradingApi.getPendingOrders` → `/trading/pending-orders`(daily-ccld 필터) |
 | 거래내역 조회 | 완료 | 25s 타임아웃 |
 | 자산 요약/추이 | 완료 | `assetApi.getBalance/getHoldings` + `assetApi.getHistory(days)`(총자산 일별 스냅샷 기반 추이 라인차트) |

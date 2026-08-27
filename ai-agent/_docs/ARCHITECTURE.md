@@ -7,7 +7,7 @@
 
 ## 1. 모듈 개요
 
-ai-agent는 매 거래일 KOSPI 100 종목을 분석해 매수/매도 의사결정을 생성하고, 자동매매가 켜져 있으면 Spring Boot api-server를 통해 KIS 모의투자 주문을 실행하는 **Python FastAPI 서비스**다.
+ai-agent는 매 거래일 KOSPI 100 종목을 분석해 매수/매도 의사결정을 생성하고, 자동매매가 켜져 있으면 Spring Boot api-server를 통해 KIS 실전투자 주문을 실행하는 **Python FastAPI 서비스**다.
 
 | 항목 | 내용 |
 | --- | --- |
@@ -233,7 +233,7 @@ APScheduler / 수동 트리거
 
 ### 6-1. KIS Open API (`collectors/kis_client.py`)
 
-| 기능 | 메서드 | TR_ID (모의) |
+| 기능 | 메서드 | TR_ID |
 | --- | --- | --- |
 | OAuth 토큰 | `get_access_token()` | — (24시간 캐시, asyncio.Lock) |
 | 휴장일 체크 | `is_market_open(trade_date)` | 수급 API 실시간 테스트 |
@@ -244,10 +244,9 @@ APScheduler / 수동 트리거
 | 분봉 | `get_minute_data(code, date)` | FHKST03010200 (09:00~10:00) |
 | 현재가/PER | `get_current_price(code)` | FHKST01010100 |
 | KOSPI 지수 | `get_kospi_index(trade_date)` | FHKUP03500100 |
-| 잔고(보유종목) | `get_holdings()` | VTTC8434R |
 
 - **Rate limit**: `asyncio.Semaphore(5)` + 요청 간 0.2초 지연 → **상한** 초당 5건(성공·실패 모두 지연 적용). 단 Stage 2 주 경로(`fetch_stock_data_parallel`)는 종목을 **순차** 처리하고 종목 사이에 0.1초를 더 쉬므로, 실효 처리량은 이 상한에 한참 못 미친다(동시 요청 시 KIS 성공률이 떨어져 순차로 되돌린 것).
-- **TR_ID 변환**: `convert_tr_id()`가 `VTTC↔TTTC`를 모드(VIRTUAL/REAL)에 따라 자동 변환.
+- **TR_ID**: 실전 도메인 고정 — 모드 분기 없이 위 표의 TR_ID를 그대로 사용한다.
 - **OAuth 캐시**: 24시간 TTL, 동시 요청은 `asyncio.Lock`으로 단일화.
 
 ### 6-2. DART Open API (`collectors/dart_client.py`)

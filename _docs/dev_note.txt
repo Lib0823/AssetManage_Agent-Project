@@ -5,7 +5,6 @@
  4. 미완료 개발건 마무리
    Full-stack)
     - 국내/해외 실시간 Socket 매매
-    - 실전/모의 투자 모드 전환
    Ai-agent)
     - 뉴스 데이터 수집 및 NewsDetail
     - 다중 사용자 처리

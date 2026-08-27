@@ -38,7 +38,7 @@ web-app/
     │   └── logo.svg
     ├── components/
     │   └── common/         # AppHeader, BottomNav, StockCard, AssetTabs,
-    │                       # InvestmentTabs, KisMaintenanceNotice, KisModeBadge
+    │                       # InvestmentTabs, KisMaintenanceNotice
     └── views/
         ├── auth/           # Splash, Welcome, Login, Register, RegisterFinance, Terms, ResetPassword
         ├── main/           # Home, Assets, Bot, Search, Favorites
@@ -92,7 +92,7 @@ web-app/
 - **Pinia 스토어 2개** (모두 setup-store 형태):
   - `stores/auth.js`
     - 회원가입 멀티스텝 데이터: `registrationData`(`step1` 개인정보 / `step2` 금융정보(KIS) / `validation` 중복확인 상태). 액션: `saveStep1Data`, `saveStep2Data`, `setIdCheckResult`, `setEmailCheckResult`, `clearRegistrationData`, `hasStep1Data`.
-    - 인증 상태: `user`, `accessToken`, `refreshToken`, `accountMode`(`'REAL'|'MOCK'|null` — 헤더 배지·실시간 게이트에 사용). 액션: `setAuthData`(스토어 + 저장소 동시 저장), `setAccountMode`, `clearAuthData`, `loadAuthDataFromStorage`(앱 시작 시 `App.vue`가 호출), `logout`(서버 logout 후 로컬 삭제), getter `isAuthenticated`.
+    - 인증 상태: `user`, `accessToken`, `refreshToken`. 액션: `setAuthData`(스토어 + 저장소 동시 저장), `clearAuthData`, `loadAuthDataFromStorage`(앱 시작 시 `App.vue`가 호출), `logout`(서버 logout 후 로컬 삭제), getter `isAuthenticated`. (2026-08 QA — 모의투자 지원 제거와 함께 `accountMode`/`setAccountMode` 삭제.)
   - `stores/realtime.js` — 실시간 호가/체결가 캐시(`getQuote`/`getTick`)와 구독 래퍼(`subscribe`/`subscribeFills`), 연결 상태·안내 문구. `services/realtime.js` 싱글톤을 감싼다. 소비처는 `App.vue`(체결통보 전역 구독), `TradingView`, `AssetDetailView`, `ProfileView`.
 
 ### 토큰 저장소 규칙 (중요)
@@ -107,7 +107,7 @@ web-app/
 따라서 **저장소를 직접 읽지 말고 반드시 `getToken(key)`를 쓴다** — `getToken`은 `localStorage` → `sessionStorage` 순으로 양쪽을 조회한다. `localStorage.getItem('accessToken')`을 직접 호출하면 자동 로그인 OFF 사용자에게만 `null`이 되는 조용한 버그가 생긴다(실제로 실시간 WebSocket·프로필 화면에서 발생했던 결함).
 
 - 쓰기: `setTokens(pairs)` — 현재 설정에 맞는 저장소에 쓰고 반대쪽 잔여값을 지운다.
-- 삭제: `clearTokens()` — 인증 키 4개(`accessToken`, `refreshToken`, `user`, `accountMode`)만 양쪽에서 제거한다. **`localStorage.clear()`를 쓰면 안 된다** — `uiSettings`(다크모드/자동로그인/자산순서)까지 날아가고 `sessionStorage` 쪽 토큰은 그대로 남는다.
+- 삭제: `clearTokens()` — 인증 키 3개(`accessToken`, `refreshToken`, `user`)만 양쪽에서 제거한다. **`localStorage.clear()`를 쓰면 안 된다** — `uiSettings`(다크모드/자동로그인/자산순서)까지 날아가고 `sessionStorage` 쪽 토큰은 그대로 남는다.
 
 `uiSettings`는 별도 키(`localStorage.uiSettings`)이며 인증과 무관하게 보존된다. `utils/uiSettings.js`는 모듈 로드 시 1회 읽은 인메모리 `ref`를 통해 제공하므로, localStorage에서 지워져도 **다음 페이지 로드 시점에야** 손실이 드러난다.
 
@@ -158,7 +158,7 @@ REST와 별개로 `/ws/realtime`에 붙는 실시간 계층이 있다.
 - `services/realtime.js` — 네이티브 WebSocket 싱글톤. `${wsOrigin}/ws/realtime?token=<accessToken>`으로 JWT 핸드셰이크. 구독 dedupe(refCount) + 지수 백오프 재연결(최대 4회 후 `disabled`로 포기, 사용자 액션 시 재시도).
   - 프레임: 구독/해제 `{action, market, symbol, type, exchange}`, 데이터 `{type:'orderbook'|'tick', ...}`, 체결통보 `{type:'fills'}`, 상태 `{type:'status', state, notice}`.
   - **Graceful degrade**: 연결 실패/서버 비활성 상태에서 절대 throw 하지 않고 상태만 알린다. 뷰는 REST 스냅샷을 유지한다.
-  - 실시간은 **실전(REAL) 계좌 모드에서만** 활성화된다(`App.vue`가 `accountMode`를 조회해 `setEnabled`).
+  - 실시간은 **KIS 계좌가 등록된 유저에게만** 활성화된다(`App.vue`의 `applyRealtimeForKisAccount()`가 계좌 조회 성공 여부로 `setEnabled` 판정 — 2026-08 QA 이전에는 `accountMode==='REAL'` 기준이었으나, 모의투자 지원 제거로 계좌 등록 여부 기준으로 교체됨).
 - `stores/realtime.js` — 위 싱글톤을 감싼 Pinia 스토어. 프레임 필드는 **camelCase 계약**(`currentPrice`/`changeAmount`/`changeRate`/`accVolume`, `quote.asks|bids: [{price, quantity}]`)으로, REST 렌더 경로를 그대로 재사용하기 위한 의도된 규약이다.
 
 브라우저는 KIS 소켓에 직접 붙지 않는다 — 항상 Spring 브리지를 경유하며, 서버가 단일 상향 KIS 연결을 심볼 ref-count로 멀티플렉싱한다.
@@ -205,6 +205,5 @@ Vue3 (native WebSocket)
   - `StockCard` — 보유종목 카드(현재가/매입금/평가손익/수량/손익률 + 뉴스·매매·기업정보 버튼, emit).
   - `AssetTabs` / `InvestmentTabs` — 주식/채권/코인(채권·코인 disabled) + 국내/해외 서브탭. 거의 동일하나 `AssetTabs`는 탭 목록을 prop으로 외부 주입 가능.
   - `KisMaintenanceNotice` — KIS 점검/장애 시 화면을 깨뜨리지 않고 띄우는 안내 배너. `utils/kisStatus.js`의 판별 함수와 짝을 이룬다(이 프로젝트의 일관된 graceful-degrade UX 패턴).
-  - `KisModeBadge` — 현재 계좌 모드(실전/모의) 배지. `authStore.accountMode` 기반.
 - **스타일**: `assets/base.css`에 디자인 토큰을 CSS 변수로 정의(`--color-*`, `--spacing-*`, `--radius-*`, `--font-*`, `--max-width-mobile`, `--bottom-nav-height` 등). `main.css`가 전역 스타일·반응형(1024px 이상에서 모바일 폭으로 중앙 정렬)·v-calendar 커스텀을 담당. Tailwind 4.1도 의존성에 포함.
 - **Chart.js**: `main.js`에서 전역 register. 사용 화면은 `AssetsView`(Doughnut, Line), `FavoritesView`(Line). 그 외 차트성 표현(시장분석 히트맵, Prophet 예측, 미니 스파크라인)은 Chart.js 없이 CSS/SVG로 직접 구현.

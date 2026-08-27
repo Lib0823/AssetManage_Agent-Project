@@ -62,7 +62,7 @@ Yubico `webauthn-server-core` 기반 생체·패스키 인증. 자격증명은 `
 
 | 기능 | 엔드포인트 | 상태 | 비고 |
 |------|-----------|------|------|
-| 보유종목 조회 | `GET /assets/holdings` | 완료 | KIS `VTTC8434R` |
+| 보유종목 조회 | `GET /assets/holdings` | 완료 | KIS `TTTC8434R` |
 | 예수금 조회 | `GET /assets/balance` | 완료 | holdings 응답의 잔고 추출 |
 | 자산 스냅샷 기록 | `POST /assets/snapshot` | 진행중 | `asset_daily_snapshot` upsert(유저·날짜 1행). **`totalAsset`은 클라이언트가 보낸 값을 그대로 저장하며 KIS 잔고와 대조하지 않는다** — 자산 추이 차트는 그만큼 클라이언트 신뢰 데이터다(본인 데이터만 영향) |
 | 자산 추이 조회 | `GET /assets/history?days=` | 완료 | 날짜 오름차순 `List<AssetHistoryResponse>`. `days`는 1~365로 클램프(범위 밖 값은 거부하지 않고 경계로 맞춤) |
@@ -73,14 +73,14 @@ Yubico `webauthn-server-core` 기반 생체·패스키 인증. 자격증명은 `
 
 | 기능 | 엔드포인트 | 상태 | 비고 |
 |------|-----------|------|------|
-| 매수 주문 | `POST /trading/buy` | 완료 | KIS `VTTC0802U` |
-| 매도 주문 | `POST /trading/sell` | 완료 | KIS `VTTC0801U` |
-| 거래내역 조회 | `GET /trading/history` | 완료 | KIS `VTTC0081R`, 최근 3개월. (구버전 `VTTC8001R` 버그 수정됨 — `archive/TRADE_HISTORY_FIX_SUMMARY.md`) |
-| 미체결 주문 조회 | `GET /trading/pending-orders` | 완료 | `inquire-daily-ccld`(VTTC0081R) 결과에서 PENDING/PARTIAL 행만 필터링(신규 KIS TR 미사용) → `List<PendingOrderResponse>` |
+| 매수 주문 | `POST /trading/buy` | 완료 | KIS `TTTC0802U` |
+| 매도 주문 | `POST /trading/sell` | 완료 | KIS `TTTC0801U` |
+| 거래내역 조회 | `GET /trading/history` | 완료 | KIS `TTTC0081R`, 최근 3개월. (구버전 `TTTC8001R` 버그 수정됨 — `archive/TRADE_HISTORY_FIX_SUMMARY.md`) |
+| 미체결 주문 조회 | `GET /trading/pending-orders` | 완료 | `inquire-daily-ccld`(TTTC0081R) 결과에서 PENDING/PARTIAL 행만 필터링(신규 KIS TR 미사용) → `List<PendingOrderResponse>` |
 | 최근 거래(홈) | `GET /trading/recent` | 완료 | DB `trade_history` 최근 8건, KIS 비의존 |
-| 보유 잔고 요약 | `GET /trading/holdings` | 완료 | KIS `VTTC8434R` → `BalanceSummaryResponse` |
-| 매수가능 조회 | `GET /trading/orderable?stockCode=&price=` | 완료 | KIS `VTTC8908R` inquire-psbl-order → `OrderableResponse{maxBuyQuantity, orderableCash, notice}` |
-| 예약주문 등록 | `POST /trading/reserved-orders` | 완료 | KIS `CTSC0008U`. **실전 계좌 전용**(모의 미지원) — 프런트가 계좌 모드로 게이트 |
+| 보유 잔고 요약 | `GET /trading/holdings` | 완료 | KIS `TTTC8434R` → `BalanceSummaryResponse` |
+| 매수가능 조회 | `GET /trading/orderable?stockCode=&price=` | 완료 | KIS `TTTC8908R` inquire-psbl-order → `OrderableResponse{maxBuyQuantity, orderableCash, notice}` |
+| 예약주문 등록 | `POST /trading/reserved-orders` | 완료 | KIS `CTSC0008U` |
 | 예약주문 목록 | `GET /trading/reserved-orders` | 완료 | KIS `CTSC0004R` → `List<ReservedOrderResponse>` |
 | 예약주문 취소 | `DELETE /trading/reserved-orders/{seq}` | 완료 | KIS `CTSC0009U` |
 
@@ -117,16 +117,16 @@ PUBLIC(`/stocks/**` permitAll). `stock_master` 카탈로그 검색 + 현재가/�
 
 ## 5b-ws. 실시간 시세 WebSocket 브리지 (Phase 1)
 
-KIS WebSocket을 중계하는 브라우저용 엔드포인트. REST 폴링과 별개로 호가·체결가를 푸시한다. Browser ⇄ Spring `/ws/realtime` ⇄ KIS upstream(`ws://ops.koreainvestment.com:21000` real / `:31000` mock).
+KIS WebSocket을 중계하는 브라우저용 엔드포인트. REST 폴링과 별개로 호가·체결가를 푸시한다. Browser ⇄ Spring `/ws/realtime` ⇄ KIS upstream(`ws://ops.koreainvestment.com:21000`, 실전 고정).
 
 | 기능 | 엔드포인트 | 상태 | 비고 |
 |------|-----------|------|------|
 | 실시간 시세 소켓 | `WS /ws/realtime?token={JWT}` | 완료(Phase 1) | 접속키 `approval_key`(`POST /oauth2/Approval`), 구독 프레임 `tr_type`(1=등록/2=해제), `PINGPONG` echo로 연결 유지. JWT는 핸드셰이크 쿼리(`?token=`)로 인증 |
 
 **Phase 1 TR (구현):** 호가 국내 `H0STASP0` / 미국 `HDFSASP0`, 체결가 국내 `H0STCNT0` / 미국 `HDFSCNT0`.
-**Phase 2 구현(국내, 플래그 `kis.realtime.fills.enabled` 뒤):** 체결통보 `H0STCNI0`/`H0STCNI9`. 유저당 KIS 연결(계좌키)·`tr_key`=HTS ID(`user_kis_accounts.hts_id`)·AES-CBC 복호, `/ws/realtime {type:fills}`. 해외 `H0GSCNI0` 보류. 라이브는 HTS ID + 실계좌/모의 스트리밍 + 장중 + 실제 체결 필요. 상세: [KIS_API_GUIDE.md](KIS_API_GUIDE.md) §5.7
+**Phase 2 구현(플래그 `kis.realtime.fills.enabled` 뒤):** 체결통보 국내 `H0STCNI0`, 해외 `H0GSCNI0`. 유저당 KIS 연결(계좌키)·`tr_key`=HTS ID(`user_kis_accounts.hts_id`)·AES-CBC 복호, `/ws/realtime {type:fills}`. 라이브는 HTS ID 설정 + 장중 + 실제 체결 필요. 상세: [KIS_API_GUIDE.md](KIS_API_GUIDE.md) §5.7
 
-> **HARD LIMIT — 라이브 데이터는 실계좌 키 + 장중(정규장)이 모두 필요하다. 모의(mock) 키나 장외 시간에는 스트림이 흐르지 않는다**(연결은 되나 데이터 푸시 없음). 상세: [KIS_API_GUIDE.md](./KIS_API_GUIDE.md) §5.
+> **HARD LIMIT — 라이브 데이터는 장중(정규장)이어야 흐른다**(장외 시간에는 연결은 되나 데이터 푸시 없음). 상세: [KIS_API_GUIDE.md](./KIS_API_GUIDE.md) §5.
 
 ---
 
@@ -144,14 +144,14 @@ KIS WebSocket을 중계하는 브라우저용 엔드포인트. REST 폴링과 �
 
 ## 5d. 해외주식 (OverseasController / OverseasTradingService · OverseasQuoteService)
 
-미국 종목 현재가/잔고/매수/매도. `/overseas/stocks/**`(현재가) PUBLIC, 나머지 AUTH. 조회(현재가/잔고/미체결 등)는 graceful degrade(미연동/실패 시 200 + notice)를 유지하지만, **매수/매도는 국내 주문과 동일하게 실패 시 예외를 던져 4xx/5xx + 최상위 `success=false`, `data=null`로 응답한다**(과거엔 200 + `data.success=false`였으나 국내 패턴에 맞춰 정렬됨 — 상세: `API_DESIGN.md` §3.1, §5.8). 모의 지정가 전용, 미국 외 타국가 미지원. `convertTrId`가 해외 TR을 변환하지 않으므로 V 변형 직접 사용.
+미국 종목 현재가/잔고/매수/매도. `/overseas/stocks/**`(현재가) PUBLIC, 나머지 AUTH. 조회(현재가/잔고/미체결 등)는 graceful degrade(미연동/실패 시 200 + notice)를 유지하지만, **매수/매도는 국내 주문과 동일하게 실패 시 예외를 던져 4xx/5xx + 최상위 `success=false`, `data=null`로 응답한다**(과거엔 200 + `data.success=false`였으나 국내 패턴에 맞춰 정렬됨 — 상세: `API_DESIGN.md` §3.1, §5.8). 지정가 전용, 미국 외 타국가 미지원. 해외 TR(`TTTS*`/`TTTT*`)은 도메인 변환 없이 직접 사용.
 
 | 기능 | 엔드포인트 | 상태 | 비고 |
 |------|-----------|------|------|
 | 해외 현재가 | `GET /overseas/stocks/{symbol}/price?exchange=` | 완료 | KIS `HHDFS76200200`(현재가 `HHDFS00000300`), real quote 도메인. 미연동 시 가격 null + notice |
-| 해외 잔고 | `GET /overseas/balance` | 완료 | KIS `VTTS3012R`(모의 trading 도메인) → `OverseasBalanceResponse` |
-| 해외 매수 | `POST /overseas/buy` | 완료 | KIS `VTTT1002U` 지정가. 실패 시 예외 전파 → 4xx/5xx + `success=false`(`data=null`) |
-| 해외 매도 | `POST /overseas/sell` | 완료 | KIS `VTTT1006U` 지정가. 실패 시 예외 전파 → 4xx/5xx + `success=false`(`data=null`) |
+| 해외 잔고 | `GET /overseas/balance` | 완료 | KIS `TTTS3012R` → `OverseasBalanceResponse` |
+| 해외 매수 | `POST /overseas/buy` | 완료 | KIS `TTTT1002U` 지정가. 실패 시 예외 전파 → 4xx/5xx + `success=false`(`data=null`) |
+| 해외 매도 | `POST /overseas/sell` | 완료 | KIS `TTTT1006U` 지정가. 실패 시 예외 전파 → 4xx/5xx + `success=false`(`data=null`) |
 | 해외 호가 | `GET /overseas/stocks/{symbol}/orderbook?exchange=` | 완료 | → `OverseasOrderbookResponse` |
 | 해외 거래내역 | `GET /overseas/history` | 완료 | graceful degrade(실패 시 200 + notice) |
 | 해외 미체결 | `GET /overseas/pending-orders` | 완료 | graceful degrade |

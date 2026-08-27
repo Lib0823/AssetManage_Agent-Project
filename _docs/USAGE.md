@@ -81,7 +81,7 @@ cp .env.example .env       # 루트에 한 번만 생성, 실제 키 입력
 
 | 키 | 용도 | 발급처 |
 |----|------|--------|
-| `KIS_APP_KEY` / `KIS_APP_SECRET` / `KIS_ACCOUNT_NUMBER` | KIS 모의투자 (주문/잔고) | https://apiportal.koreainvestment.com |
+| `KIS_APP_KEY` / `KIS_APP_SECRET` | KIS 실전투자 — ai-agent 시세/수급 데이터 수집 전용(매매는 api-server가 Kafka로 전담) | https://apiportal.koreainvestment.com |
 | `KIS_QUOTE_APP_KEY` / `KIS_QUOTE_APP_SECRET` | KIS 시세/재무 조회 (api-server) | 위와 동일 |
 | `GEMINI_API_KEY` | AI 매매 판단 (무료 티어) | https://aistudio.google.com/apikey |
 | `DART_API_KEY` | 분기 재무 데이터 | https://opendart.fss.or.kr |
@@ -154,6 +154,6 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 | api-server 부팅 실패 (`JWT_SECRET`/`JASYPT_PASSWORD`) | 두 환경 변수 설정 후 재실행 |
 | web-app에서 API 401 반복 | 토큰 만료 → 자동 리프레시 실패. 재로그인 또는 `VITE_API_BASE_URL` 확인 |
 | 차트 한글 깨짐 | NanumGothic 폰트 미설치 (분석 데이터에는 영향 없음) |
-| KIS 시세/매매 미동작 | `.env`의 KIS 키 누락 또는 모의투자 계좌 연동 필요 |
+| KIS 시세/매매 미동작 | `.env`의 KIS 키 누락 또는 실전투자 계좌 연동 필요 |
 
 모듈별 상세 트러블슈팅은 각 모듈 `_docs/USAGE.md`를 참고하세요.

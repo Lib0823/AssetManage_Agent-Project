@@ -19,7 +19,7 @@ entities:
     manual: false
   - name: UserKisAccount
     aliases: [KIS 계정, 사용자 KIS 계좌]
-    attributes: [user_id, account_number, app_key, app_secret, is_verified, hts_id, account_mode]
+    attributes: [user_id, account_number, app_key, app_secret, is_verified, hts_id]
     source_refs:
       - type: db_table
         name: user_kis_accounts

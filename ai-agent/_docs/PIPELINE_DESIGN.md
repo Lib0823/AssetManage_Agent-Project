@@ -96,7 +96,7 @@ score = |외국인 순매수| × 0.3
 ### 1-4. Top 30 선정 + 보유 종목 강제 포함
 
 - score 내림차순 상위 30개 선정.
-- `KISClient.get_holdings()`로 조회한 보유 종목 + 트리거 파라미터 holdings는 **무조건 포함**(매도 분석 보장).
+- Stage 0-1에서 `InternalApiClient.get_user_portfolio()`(api-server 내부 API)로 모은 활성 유저 보유 종목의 합집합 + 트리거 파라미터 holdings는 **무조건 포함**(매도 분석 보장).
 
 ### 1-5. 저장
 
@@ -364,8 +364,8 @@ stan_backend = CMDSTANPY
 
 **구현**: `TradeExecutor` (`execution/trade_executor.py`)
 
-- `check_auto_trading_enabled(user_id=1)`로 `user_trade_config.is_active` 확인. `false`면 `status: 'skipped'`로 종료.
-- `get_holdings()`로 보유 수량 조회 → 매수는 요청 수량, 매도는 보유 수량이 있을 때만 실행.
+- `InternalApiClient.get_active_auto_trading_users()`로 `user_trade_config.is_active=true` 유저 목록을 받는다. 비어 있으면 실행할 것이 없으므로 종료.
+- Stage 0-1에서 유저별로 받아 둔 포트폴리오 스냅샷을 재사용해, 매수는 `order_amount` 기반 상한 수량으로, 매도는 보유 수량(`available_quantity`)이 있을 때만 주문을 만든다.
 - Kafka `trade.order.requested` 토픽에 주문을 발행한다(체결을 기다리지 않음). api-server 가 이를 소비해 유저 KIS 키로 대행 주문하고, 결과는 `trade.order.result` 로 돌아와 `messaging/trade_result_consumer.py`가 `trade_execution_plan` 상태를 확정한다. 주문 체결 이력(`trade_history`)은 api-server가 기록한다.
 
 출력:

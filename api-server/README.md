@@ -1,6 +1,6 @@
 # api-server
 
-AI 주식 자동매매 시스템의 백엔드 모듈. Spring Boot(Java 21) 기반으로 사용자 인증(JWT), KIS 모의투자 매매 실행, 시장·AI 분석 데이터 조회 REST API를 제공한다.
+AI 주식 자동매매 시스템의 백엔드 모듈. Spring Boot(Java 21) 기반으로 사용자 인증(JWT), KIS 실전투자 매매 실행, 시장·AI 분석 데이터 조회 REST API를 제공한다.
 
 ## 문서
 

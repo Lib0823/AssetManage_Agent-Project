@@ -38,9 +38,9 @@ controller/  → service/  → repository/ (Spring Data JPA) | client/ (KIS·DAR
 - `database/schema.sql`은 `pg_dump`로 생성되는 스냅샷이며 직접 편집 금지 — 손대야 한다면 `./database/generate-schema.sh`를 실행해 재생성한다.
 
 ## KIS 연동
-- `account_mode`(MOCK/REAL)가 도메인·TR 라우팅의 기준이다. `convertTrId`는 국내 `VTTC↔TTTC`만 변환하며, 해외(V로 시작하는 TR: `VTTS*`/`VTTT*`)는 별도 상수를 직접 사용한다 — 이 둘을 혼동해 잘못된 TR_ID를 하드코딩한 것이 과거 실제 버그였다(`api-server/_docs/archive/TRADE_HISTORY_FIX_SUMMARY.md` 참고).
+- **실전투자 전용**이다(2026-08 QA에서 모의투자 지원 전체 제거 — `account_mode` 컬럼·`convertTrId`·모의 도메인 분기 모두 삭제됨). TR_ID는 국내 `TTTC*`, 해외 `TTTS*`/`TTTT*`를 직접 쓴다 — 잘못된 TR_ID를 하드코딩하지 않도록 주의(`api-server/_docs/archive/TRADE_HISTORY_FIX_SUMMARY.md`는 과거 이런 실수의 사례).
 - 자격증명(`app_key`/`app_secret`)은 반드시 Jasypt(`PBEWITHHMACSHA512ANDAES_256`)로 암호화해서 저장한다.
 - KIS/DART 응답 실패 시 크래시 대신 `notice` 필드가 있는 부분 응답(graceful degrade)을 반환하는 기존 패턴(`OverseasController`, `StockController`)을 따른다.
 
 ## 테스트
-- JUnit 5 + Mockito. 변경 후 `./gradlew test`를 실행하고 결과를 그대로 보고한다. `_docs/STATUS.md`에 기록된 "예외 체계 변경 후 일부 테스트 stale" 이슈가 있으니, 실패가 그 때문인지 새 회귀인지 구분한다.
+- JUnit 5 + Mockito. 변경 후 `./gradlew test`를 실행하고 결과를 그대로 보고한다. 실패가 알려진 이슈 때문인지 새 회귀인지 구분한다.

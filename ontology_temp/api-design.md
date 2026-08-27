@@ -137,7 +137,7 @@ AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요
 
 | Method | Path | 응답 data(T) | 설명 |
 |--------|------|--------------|------|
-| GET | `/assets/holdings` | `Map` | 보유 종목. KIS `VTTC8434R` inquire-balance |
+| GET | `/assets/holdings` | `Map` | 보유 종목. KIS `TTTC8434R` inquire-balance |
 | GET | `/assets/balance` | `Map` | 현금 잔고. holdings 응답의 subset |
 
 ### 5.4 TradingController (/trading)
@@ -146,13 +146,13 @@ AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요
 
 | Method | Path | 요청 Body | 응답 data(T) | 설명 |
 |--------|------|-----------|--------------|------|
-| POST | `/trading/buy` | `TradeRequest` | `Map` | 매수. KIS `VTTC0802U` order-cash |
-| POST | `/trading/sell` | `TradeRequest` | `Map` | 매도. KIS `VTTC0801U` order-cash |
-| GET | `/trading/history` | - | `List<TradeHistoryResponse>` | KIS `VTTC0081R` inquire-daily-ccld 최근 3개월. status `PENDING`/`PARTIAL`/`COMPLETED`/`CANCELLED` |
-| GET | `/trading/pending-orders` | - | `List<PendingOrderResponse>` | 미체결 주문. `inquire-daily-ccld`(VTTC0081R) 결과에서 PENDING/PARTIAL(잔량>0) 행만 필터링 — 신규 KIS TR 미사용. 예외/빈결과 시 빈 리스트 |
+| POST | `/trading/buy` | `TradeRequest` | `Map` | 매수. KIS `TTTC0802U` order-cash |
+| POST | `/trading/sell` | `TradeRequest` | `Map` | 매도. KIS `TTTC0801U` order-cash |
+| GET | `/trading/history` | - | `List<TradeHistoryResponse>` | KIS `TTTC0081R` inquire-daily-ccld 최근 3개월. status `PENDING`/`PARTIAL`/`COMPLETED`/`CANCELLED` |
+| GET | `/trading/pending-orders` | - | `List<PendingOrderResponse>` | 미체결 주문. `inquire-daily-ccld`(TTTC0081R) 결과에서 PENDING/PARTIAL(잔량>0) 행만 필터링 — 신규 KIS TR 미사용. 예외/빈결과 시 빈 리스트 |
 | GET | `/trading/recent` | - | `List<RecentTradeResponse>` | DB `trade_history` 최신 8건. 홈 화면 알림용 |
-| GET | `/trading/holdings` | - | `BalanceSummaryResponse` | KIS `VTTC8434R` inquire-balance |
-| GET | `/trading/orderable?stockCode=&price=` | query `stockCode`, `price` | `OrderableResponse{stockCode, maxBuyQuantity, orderableCash, notice}` | 매수가능 수량/금액. KIS `VTTC8908R` inquire-psbl-order (모의 trading 도메인) |
+| GET | `/trading/holdings` | - | `BalanceSummaryResponse` | KIS `TTTC8434R` inquire-balance |
+| GET | `/trading/orderable?stockCode=&price=` | query `stockCode`, `price` | `OrderableResponse{stockCode, maxBuyQuantity, orderableCash, notice}` | 매수가능 수량/금액. KIS `TTTC8908R` inquire-psbl-order |
 
 > `PendingOrderResponse{orderNumber, stockCode, stockName, orderType(BUY/SELL), orderQuantity, remainQuantity, orderPrice, orderedAt}`.
 
@@ -188,16 +188,16 @@ AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요
 
 ### 5.8 OverseasController (/overseas)
 
-해외주식(미국) 현재가/잔고/매수/매도. `/overseas/stocks/**`(현재가)는 PUBLIC, 나머지는 AUTH 필요(토큰의 `userId`). 모든 경로는 graceful degrade — 미연동/실패 시에도 200 + `notice`(주문은 `data.success=false`). 모의 지정가 전용, 해외 호가·실시간 시세 미지원, 미국 외 타국가 미지원. 현재가는 real quote 도메인 사용.
+해외주식(미국) 현재가/잔고/매수/매도. `/overseas/stocks/**`(현재가)는 PUBLIC, 나머지는 AUTH 필요(토큰의 `userId`). 모든 경로는 graceful degrade — 미연동/실패 시에도 200 + `notice`(주문은 `data.success=false`). 지정가 전용, 해외 호가·실시간 시세 미지원, 미국 외 타국가 미지원. 현재가는 quote 도메인 사용.
 
 | Method | Path | 요청 Body / Param | 응답 data(T) | 설명 | 인증 |
 |--------|------|-------------------|--------------|------|------|
 | GET | `/overseas/stocks/{symbol}/price?exchange=` | path `symbol`, query `exchange`(opt, 예 `NASD`) | `OverseasPriceResponse` | 해외 현재가상세. KIS `HHDFS76200200`(현재가 `HHDFS00000300`), quote real 도메인. 미연동 시 가격 null + notice | PUBLIC |
-| GET | `/overseas/balance` | - | `OverseasBalanceResponse` | 해외 잔고/보유. KIS `VTTS3012R`(모의 trading 도메인). 미지원/실패 시 빈 목록 + notice | AUTH |
-| POST | `/overseas/buy` | `OverseasOrderRequest` | `Map` | 미국 매수(지정가 전용). KIS `VTTT1002U`. 실패 시 `data.success=false` + notice | AUTH |
-| POST | `/overseas/sell` | `OverseasOrderRequest` | `Map` | 미국 매도(지정가 전용). KIS `VTTT1006U`. 실패 시 `data.success=false` + notice | AUTH |
+| GET | `/overseas/balance` | - | `OverseasBalanceResponse` | 해외 잔고/보유. KIS `TTTS3012R`. 미지원/실패 시 빈 목록 + notice | AUTH |
+| POST | `/overseas/buy` | `OverseasOrderRequest` | `Map` | 미국 매수(지정가 전용). KIS `TTTT1002U`. 실패 시 `data.success=false` + notice | AUTH |
+| POST | `/overseas/sell` | `OverseasOrderRequest` | `Map` | 미국 매도(지정가 전용). KIS `TTTT1006U`. 실패 시 `data.success=false` + notice | AUTH |
 
-> `convertTrId`는 국내 `VTTC`↔`TTTC`만 교체하므로 해외 모의 TR은 V 변형(`VTTS3012R`/`VTTT1002U`/`VTTT1006U`)을 직접 사용합니다. 상세는 [KIS_API_GUIDE.md](KIS_API_GUIDE.md).
+> 해외 TR(`TTTS3012R`/`TTTT1002U`/`TTTT1006U` 등)은 도메인 변환 없이 직접 사용합니다. 상세는 [KIS_API_GUIDE.md](KIS_API_GUIDE.md).
 
 ### 5.9 MarketAnalysisController (/market)
 

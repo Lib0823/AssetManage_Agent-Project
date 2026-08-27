@@ -1,6 +1,6 @@
 # AI Agent — Stock Analysis Pipeline
 
-매 거래일 KOSPI 100 종목을 분석해 11개 피처를 산출하고, Gemini AI로 매수/매도 TOP3를 결정한 뒤 Safety Filter를 거쳐 KIS 모의투자 주문을 실행하는 Python FastAPI 파이프라인 모듈.
+매 거래일 KOSPI 100 종목을 분석해 11개 피처를 산출하고, Gemini AI로 매수/매도 TOP3를 결정한 뒤 Safety Filter를 거쳐 KIS 실전투자 주문을 실행하는 Python FastAPI 파이프라인 모듈.
 
 ## 빠른 시작
 

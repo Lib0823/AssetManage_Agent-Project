@@ -12,7 +12,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict WEs1Kag2UQvFUiiIF1j3MEXfNl5qrFFZQwHOLnEJNkhQDSUOveXWULYDL3ekuLt
+\restrict rdr7RGU0a0L4Xh8pKF05r6IZra84VDJ2wTgDRA2ULcXGTKXt0FtW2e1ymMwYPHw
 
 -- Dumped from database version 16.14
 -- Dumped by pg_dump version 16.14
@@ -1269,8 +1269,7 @@ CREATE TABLE public.user_kis_accounts (
     created_at timestamp without time zone DEFAULT now() NOT NULL,
     updated_at timestamp without time zone DEFAULT now() NOT NULL,
     account_product_code character varying(10) DEFAULT '01'::character varying NOT NULL,
-    hts_id character varying(50),
-    account_mode character varying(10) DEFAULT 'MOCK'::character varying NOT NULL
+    hts_id character varying(50)
 );
 
 
@@ -1321,13 +1320,6 @@ COMMENT ON COLUMN public.user_kis_accounts.account_product_code IS 'KIS 계좌�
 --
 
 COMMENT ON COLUMN public.user_kis_accounts.hts_id IS 'KIS HTS ID — 체결통보 tr_key, 시세 무관, 비암호';
-
-
---
--- Name: COLUMN user_kis_accounts.account_mode; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.user_kis_accounts.account_mode IS 'KIS 모드 MOCK(모의)/REAL(실전) — 도메인·TR 라우팅 기준';
 
 
 --
@@ -3105,5 +3097,5 @@ ALTER TABLE ONLY public.webauthn_credentials
 -- PostgreSQL database dump complete
 --
 
-\unrestrict WEs1Kag2UQvFUiiIF1j3MEXfNl5qrFFZQwHOLnEJNkhQDSUOveXWULYDL3ekuLt
+\unrestrict rdr7RGU0a0L4Xh8pKF05r6IZra84VDJ2wTgDRA2ULcXGTKXt0FtW2e1ymMwYPHw
 
