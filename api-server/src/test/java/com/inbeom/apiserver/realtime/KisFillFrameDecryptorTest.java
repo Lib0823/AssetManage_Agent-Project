@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * {@link KisFillFrameDecryptor} AES/CBC/PKCS5 known-vector 단위 테스트.
  *
- * <p>체결통보 e2e 는 실제 주문 체결(장중 실/모의 계좌) 시에만 프레임이 발생하므로 라이브 검증이
+ * <p>체결통보 e2e 는 실제 주문 체결(장중 실계좌) 시에만 프레임이 발생하므로 라이브 검증이
  * 어렵다. 따라서 <b>복호 로직의 정확성(transformation/charset/패딩)을 오프라인에서 고정 벡터로
  * 검증</b>하는 것이 핵심 안전망이다.
  *

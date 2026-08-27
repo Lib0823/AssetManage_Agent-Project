@@ -1,6 +1,6 @@
 # 전체 개발 현황 (Development Status)
 
-> 프로젝트 전체의 개발 현황을 추적하는 **허브 문서**입니다. MVP(대학원 최종 프로젝트, 단일 사용자·KIS 모의투자 전제)는 종료되었고, 현재 전체 기능 개발로 확장 중입니다. 모듈 내부의 상세 진행 상황은 각 모듈 `_docs/STATUS.md`를 참고하세요.
+> 프로젝트 전체의 개발 현황을 추적하는 **허브 문서**입니다. MVP(대학원 최종 프로젝트) 단계는 종료되었고, 현재 전체 기능 개발로 확장 중입니다. 2026-08 QA에서 KIS 모의투자 지원을 전체 제거하고 실전투자 전용으로 전환했습니다. 모듈 내부의 상세 진행 상황은 각 모듈 `_docs/STATUS.md`를 참고하세요.
 
 **범례**: ✅ 완료 · 🔄 진행 중 · 📅 계획 · ⏸️ 대기 · ⚠️ 부분/임시
 
@@ -27,7 +27,7 @@
 | web-app → api-server (인증) | ✅ | 로그인/회원가입/토큰 갱신/로그아웃, 401 자동 리프레시 |
 | web-app → api-server (자산·거래내역·설정·봇) | ✅ | 보유 종목, 거래내역, 거래 설정, 사용자 설정 |
 | web-app → api-server (시장 분석·종목 상세) | ✅ | `MarketAnalysisController`/`CompanyController` 구현 및 `MarketAnalysisView`/`CompanyDetailView`에서 실연동 |
-| api-server → KIS API | ✅ | 주문/잔고/시세/체결내역 (모의투자) |
+| api-server → KIS API | ✅ | 주문/잔고/시세/체결내역 (실전투자) |
 | api-server → DART API | ✅ | 기업 재무·공시 (`CompanyController`) |
 | api-server ⇄ PostgreSQL | ✅ | Liquibase 스키마, JPA 연동 |
 | ai-agent ⇄ PostgreSQL | ✅ | 분석 결과·예측·판단·안전망 필터 적재 |
@@ -82,19 +82,19 @@
 |------|-----------|---------|------|
 | 거래 설정 조회/수정 (`/users/trade-config`) | ✅ | `BotView` | ✅ |
 | 봇 활성화 토글 (`is_active`) | ✅ | ✅ | ✅ |
-| 보유 종목 조회 (`GET /trading/holdings`, KIS `VTTC8434R`) | ✅ | `BotView` 카드 | ✅ |
+| 보유 종목 조회 (`GET /trading/holdings`, KIS `TTTC8434R`) | ✅ | `BotView` 카드 | ✅ |
 | 보유 종목 AI 분석 표시 | ✅ | ✅ (`BotView`) | ✅ |
 
 ### 📊 거래/매매
 | 기능 | api-server | web-app | 연동 |
 |------|-----------|---------|------|
-| 거래내역 (`GET /trading/history`, KIS `VTTC0081R`) | ✅ | `TransactionsView` (기간필터 동작) | ✅ |
-| 매수 (`POST /trading/buy`, KIS `VTTC0802U`) | ✅ | `TradingView` | ✅ |
-| 매도 (`POST /trading/sell`, KIS `VTTC0801U`) | ✅ | `TradingView` | ✅ |
+| 거래내역 (`GET /trading/history`, KIS `TTTC0081R`) | ✅ | `TransactionsView` (기간필터 동작) | ✅ |
+| 매수 (`POST /trading/buy`, KIS `TTTC0802U`) | ✅ | `TradingView` | ✅ |
+| 매도 (`POST /trading/sell`, KIS `TTTC0801U`) | ✅ | `TradingView` | ✅ |
 | 미체결 조회 (`GET /trading/pending-orders`, daily-ccld 필터) | ✅ | `TradingView`/`TransactionsView` | ✅ |
 | 실시간 호가 (REST) (`GET /stocks/{code}/orderbook`, KIS `FHKST01010200`) | ✅ | `TradingView` | ✅ |
 | 실시간 시세 WebSocket (호가/체결가, Phase 1) (`/ws/realtime?token={JWT}`) | ✅ | `TradingView`·`AssetDetailView`·`ProfileView`·`App.vue`(체결통보 전역 구독) | ✅ |
-| 매수가능 조회 (`GET /trading/orderable`, KIS `VTTC8908R`) | ✅ | `TradingView` | ✅ |
+| 매수가능 조회 (`GET /trading/orderable`, KIS `TTTC8908R`) | ✅ | `TradingView` | ✅ |
 | 종목 검색·시세 (`/stocks/search`, `/stocks/{code}/price`) | ✅ | `SearchView` | ✅ |
 | 관심종목 (`/favorites` GET/POST/DELETE) | ✅ | `FavoritesView` | ✅ |
 | 해외주식(US) 매매·표시·검색 (`/overseas/*`, `/stocks/search?market=US`) | ✅ | `TradingView`(US 지정가)·`AssetDetailView`(해외탭)·`SearchView`(해외) | ✅ |
@@ -102,11 +102,11 @@
 > **국내 정규 매수/매도는 화면 라벨과 무관하게 항상 시장가로 체결됩니다**(`ORD_DVSN="01"`, 가격 입력값은 매수여력 검증에만 사용). 화면 라벨은 "정규장 (시장가)"로 표기(2026-08 QA에서 "지정가" 오표기 수정). 실제 지정가 주문을 지원하는 것은 예약주문 폼뿐입니다.
 >
 > 수동 웹 주문도 `trade_history`에 기록되어(2026-08 QA에서 추가) 홈 화면 "최근 거래"에 자동매매 주문과 함께 표시됩니다.
-> 해외주식(US)은 모의 **지정가 전용**이며 잔고(`VTTS3012R`)·매수(`VTTT1002U`)·매도(`VTTT1006U`)·현재가(`HHDFS76200200`)를 사용. **해외 호가·실시간 시세·미국 외 타국가는 미지원**(현재가는 real quote 도메인). 코인은 비활성 유지.
+> 해외주식(US)은 **지정가 전용**이며 잔고(`TTTS3012R`)·매수(`TTTT1002U`)·매도(`TTTT1006U`)·현재가(`HHDFS76200200`)를 사용. **해외 호가·실시간 시세·미국 외 타국가는 미지원**(현재가는 real quote 도메인). 코인은 비활성 유지.
 
-> **실시간 시세 WebSocket (Phase 1)**: api-server가 KIS WebSocket 브리지 `/ws/realtime`를 제공(Browser ⇄ Spring ⇄ KIS upstream). 국내 `H0STASP0`(호가)/`H0STCNT0`(체결가), 미국 `HDFSASP0`/`HDFSCNT0`. **체결통보(`H0STCNI0`/`H0STCNI9`, 국내)는 Phase 2 구현**(플래그 `kis.realtime.fills.enabled` 뒤, HTS ID·AES·유저당 연결; 해외 `H0GSCNI0` 보류). **HARD LIMIT — 라이브 데이터는 실계좌 키 + 장중이 필요하며, 모의(mock) 키·장외 시간에는 스트림이 흐르지 않습니다. 체결통보는 추가로 HTS ID 설정 + 실제 체결 필요.** 상세: [`api-server/_docs/KIS_API_GUIDE.md`](../api-server/_docs/KIS_API_GUIDE.md) §5
+> **실시간 시세 WebSocket (Phase 1)**: api-server가 KIS WebSocket 브리지 `/ws/realtime`를 제공(Browser ⇄ Spring ⇄ KIS upstream). 국내 `H0STASP0`(호가)/`H0STCNT0`(체결가), 미국 `HDFSASP0`/`HDFSCNT0`. **체결통보(`H0STCNI0`, 국내)는 Phase 2 구현**(플래그 `kis.realtime.fills.enabled` 뒤, HTS ID·AES·유저당 연결; 해외 `H0GSCNI0`도 구현). **HARD LIMIT — 라이브 데이터는 장중이어야 흐릅니다. 체결통보는 추가로 HTS ID 설정 + 실제 체결 필요.** 상세: [`api-server/_docs/KIS_API_GUIDE.md`](../api-server/_docs/KIS_API_GUIDE.md) §5
 
-> 거래내역은 데이터 정합성을 위해 **DB에 저장하지 않고 KIS API를 직접 조회**합니다. (TR_ID는 `VTTC0081R`이 올바른 값 — 구버전 `VTTC8001R`은 버그였고 수정됨. [`api-server/_docs/KIS_API_GUIDE.md`](../api-server/_docs/KIS_API_GUIDE.md))
+> 거래내역은 데이터 정합성을 위해 **DB에 저장하지 않고 KIS API를 직접 조회**합니다. (TR_ID는 `TTTC0081R`이 올바른 값 — 구버전 `TTTC8001R`은 버그였고 수정됨. [`api-server/_docs/KIS_API_GUIDE.md`](../api-server/_docs/KIS_API_GUIDE.md))
 
 ### 🧠 AI 분석
 | 기능 | ai-agent | api-server | web-app | 연동 |
@@ -132,10 +132,10 @@
 | AI 분석 결과 차트 이미지 | 📅 | matplotlib PNG 생성 단계 미구현. 현재는 web-app이 DB 원시 데이터를 클라이언트에서 직접 렌더 |
 | ai-agent → api-server 매매 실행 e2e | 🔄 | Stage 6은 Kafka `trade.order.requested` 발행 → api-server `TradeOrderConsumer` 소비 → `trade.order.result`로 회신하는 경로다(REST `/api/trading/execute` 등은 존재한 적 없음 — 과거 이 항목의 "경로 불일치" 서술은 2026-08 QA에서 오류로 확인되어 삭제). 메시지 계약(필드 8개 × 2)은 코드 대조로 검증됐으나, 3개 서비스를 동시 기동한 실계좌 e2e는 아직 수행되지 않았다 |
 | 휴대폰 인증 실연동 | ⚠️ | web-app·api-server 모두 관련 코드 없음(과거 "임시 우회"가 아니라 **미구현** — 2026-08 QA에서 정정) |
-| KIS 실계정 연동 | ⏸️ | 현재 모의투자, `user_kis_accounts`에 실키 입력 시 동작 |
 | 멀티 유저 / 운영 배포 | 📅 | `product` Liquibase context로 확장 예정 |
 | 실시간 공시 확장 · 다변량 시계열(LSTM) | 📅 | 향후 분석 고도화 |
-| 국내 정규주문 지정가 지원 | 📅 | 현재 항상 시장가 체결(설계 의도로 문서화됨, `api-server/_docs/API_DESIGN.md`). 실제 지정가가 필요하면 `TradingService`의 `ORD_DVSN` 분기 추가 + KIS 모의계좌 실검증 필요 |
+| 국내 정규주문 지정가 지원 | 📅 | 현재 항상 시장가 체결(설계 의도로 문서화됨, `api-server/_docs/API_DESIGN.md`). 실제 지정가가 필요하면 `TradingService`의 `ORD_DVSN` 분기 추가 + KIS 실계좌 실검증 필요 |
+| KIS 모의투자 → 실전투자 전환 | ✅ | 2026-08 QA에서 완료. `account_mode` 컬럼·모의 도메인·TR_ID 분기를 전체 제거, 실전 전용으로 단일화(`docs/superpowers/specs/2026-08-26-mock-to-real-trading-design.md`) |
 | `refresh_tokens` 유저당 활성 토큰 1개 정책 | ✅ | 2026-08 QA에서 부분 유니크 인덱스(v1.27)로 DB 레벨 강제 완료 |
 | `stock_realtime_price` 테이블 미사용 | ⚠️ | 적재하는 코드가 없어 관련 컬럼이 항상 null. 현재 화면이 이 컬럼을 소비하지 않아 무해하나, 정리(DTO에서 제거) 또는 적재 주체 지정 중 택일 필요 |
 

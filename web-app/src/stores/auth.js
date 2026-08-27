@@ -34,8 +34,6 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(null)
   const accessToken = ref(null)
   const refreshToken = ref(null)
-  // KIS 계좌 모드: 'REAL'(실전) | 'MOCK'(모의) | null(미등록/미조회). 헤더 배지·실시간 게이트에 사용.
-  const accountMode = ref(null)
 
   // Actions
   function saveStep1Data(data) {
@@ -104,22 +102,10 @@ export const useAuthStore = defineStore('auth', () => {
     })
   }
 
-  // KIS 계좌 모드 설정 (로그인 시 조회·프로필 저장 시 갱신). 토큰과 같은 저장소에 유지.
-  function setAccountMode(mode) {
-    accountMode.value = mode || null
-    if (mode) {
-      setTokens({ accountMode: mode })
-    } else {
-      localStorage.removeItem('accountMode')
-      sessionStorage.removeItem('accountMode')
-    }
-  }
-
   function clearAuthData() {
     accessToken.value = null
     refreshToken.value = null
     user.value = null
-    accountMode.value = null
 
     // 인증 관련 키만 지운다 (uiSettings 등 다른 localStorage 항목은 보존).
     clearTokens()
@@ -134,7 +120,6 @@ export const useAuthStore = defineStore('auth', () => {
       accessToken.value = storedAccessToken
       refreshToken.value = storedRefreshToken
       user.value = JSON.parse(storedUser)
-      accountMode.value = getToken('accountMode') || null
       return true
     }
     return false
@@ -170,7 +155,6 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     accessToken,
     refreshToken,
-    accountMode,
 
     // Actions
     saveStep1Data,
@@ -179,7 +163,6 @@ export const useAuthStore = defineStore('auth', () => {
     setEmailCheckResult,
     clearRegistrationData,
     setAuthData,
-    setAccountMode,
     clearAuthData,
     loadAuthDataFromStorage,
     logout,

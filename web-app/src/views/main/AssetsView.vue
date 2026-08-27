@@ -119,7 +119,7 @@ const loadAssets = async () => {
     }
 
     // 해외 주식(USD) 평가금액·손익을 KRW로 환산해 국내 주식에 합산.
-    // 모의 미지원/조회 실패/환율 없음 시 0으로 graceful (국내만 반영).
+    // 조회 실패/환율 없음 시 0으로 graceful (국내만 반영).
     let overseasKrw = 0
     let overseasProfitKrw = 0
     try {
@@ -362,7 +362,7 @@ const handleRefresh = () => {
 
 <template>
   <div class="assets-screen">
-    <AppHeader title="자산 정보" showIcon icon="assets" show-kis-mode />
+    <AppHeader title="자산 정보" showIcon icon="assets" />
 
     <div class="header-actions">
       <span class="update-time">기준 일시: {{ assetSummary.updatedAt }}</span>

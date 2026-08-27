@@ -4,7 +4,7 @@ Claude Code가 ai-agent 모듈에서 작업할 때 참고하는 가이드. **상
 
 ## 모듈 개요
 
-Python FastAPI 서비스로, 매 거래일 KOSPI 100 종목을 분석해 매수/매도 의사결정을 생성하고 KIS 모의투자 주문까지 수행한다.
+Python FastAPI 서비스로, 매 거래일 KOSPI 100 종목을 분석해 매수/매도 의사결정을 생성한다. KIS 실전 도메인은 **시세/수급 데이터 수집 전용**으로만 쓰고, 실제 주문 실행은 Kafka(`trade.order.requested`)를 거쳐 api-server 가 전담한다.
 
 - 실행: FastAPI 상주 서버(port 8000) + APScheduler(평일 08:50 KST)
 - 분석: 11개 피처(정량 7 + 감성 1 + 시계열 3) → Gemini → Safety Filter → 실행

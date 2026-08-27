@@ -103,12 +103,12 @@
 | 2 | `existsByUsername` | `USERNAME_DUPLICATE` |
 | 3 | `findByEmail` | `EMAIL_DUPLICATE` |
 | 4 | `User` 생성 (BCrypt password) | - |
-| 5 | (선택) `UserKisAccount` 생성, `isVerified=false`, `accountMode`=요청 `mode`(REAL/그외 MOCK) | - |
+| 5 | (선택) `UserKisAccount` 생성, `isVerified=false` | - |
 | 6 | 기본 `UserTradeConfig` 생성 (`orderAmount=1000000`, `maxHoldings=10`, `orderType="market"`, `isActive=false`) | - |
 
 > 가입 시 토큰을 발급하지 않습니다. 가입 후 별도 `login`이 필요합니다.
 
-> **KIS 모의/실전 모드:** 가입 KIS 파트와 `POST /auth/validate-kis-account`, `PUT /users/kis-account`는 `mode`(MOCK/REAL)를 받는다. `validateKisAccount`는 `baseUrlFor(mode)` 도메인으로 OAuth 검증하고, 저장된 `account_mode`(v1.15, 기본 MOCK)가 이후 매매/조회/체결통보 도메인·TR 라우팅 기준이 된다. 상세는 [KIS_API_GUIDE.md](KIS_API_GUIDE.md) §2(A) 참고.
+> **KIS 계좌 검증:** 가입 KIS 파트와 `POST /auth/validate-kis-account`, `PUT /users/kis-account`는 실전투자 앱키(appKey/appSecret)를 받는다. `validateKisAccount`는 고정 실전 도메인으로 OAuth 검증한다(2026-08 QA 이전에는 `mode`(MOCK/REAL) 파라미터로 도메인을 분기했으나 모의투자 지원 제거와 함께 삭제됨). 상세는 [KIS_API_GUIDE.md](KIS_API_GUIDE.md) §2(A) 참고.
 
 ### 4.3 refresh
 

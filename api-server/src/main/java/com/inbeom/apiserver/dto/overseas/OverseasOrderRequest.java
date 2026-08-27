@@ -13,7 +13,7 @@ import java.math.BigDecimal;
 /**
  * 해외주식 주문(매수/매도) 요청 DTO.
  *
- * <p>모의 해외 주문은 지정가(ORD_DVSN="00")만 지원하므로 단가(price)는 필수다.
+ * <p>해외 주문은 지정가(ORD_DVSN="00")만 구현했으므로 단가(price)는 필수다.
  * exchange 는 잔고/매매용 거래소코드(NASD/NYSE/AMEX)를 받는다.
  */
 @Getter

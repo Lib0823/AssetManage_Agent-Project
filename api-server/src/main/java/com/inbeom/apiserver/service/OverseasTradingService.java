@@ -31,11 +31,10 @@ import java.util.Map;
 /**
  * 해외주식(미국) 잔고/매수/매도 서비스.
  *
- * <p>잔고/매매는 mock 도메인 + 사용자 DB 키(path A, {@link KisAuthService}) 흐름이다
- * ({@link TradingService} 패턴 미러). 해외 TR 은 모의 V변형 상수를 직접 전송하며
- * {@link KisApiClient#convertTrId}에 의존하지 않는다(VTTS/VTTT 는 변환 대상이 아님).
+ * <p>잔고/매매는 실전 도메인 + 사용자 DB 키(path A, {@link KisAuthService}) 흐름이다
+ * ({@link TradingService} 패턴 미러). 해외 TR(TTTS/TTTT)은 상수로 직접 전송한다.
  *
- * <p><b>조회</b>(잔고/거래내역/미체결/매수가능)는 모의 미지원·rt_cd != 0·예외 시 예외를 전파하지 않고
+ * <p><b>조회</b>(잔고/거래내역/미체결/매수가능)는 rt_cd != 0·예외 시 예외를 전파하지 않고
  * 빈 결과 + {@code notice} 로 graceful degrade 한다(화면이 깨지지 않아야 하므로).
  *
  * <p><b>주문</b>(매수/매도)은 국내({@link TradingService#executeBuy})와 동일하게 실패를 삼키지 않고
@@ -52,30 +51,13 @@ public class OverseasTradingService {
     private final KisApiClient kisApiClient;
     private final UserRepository userRepository;
 
-    // 해외 TR (모의 V변형 — convertTrId 미적용 대상이므로 상수로 직접 확정)
-    // ─── MUST-VERIFY (라이브 모의계좌+장중에서만 확정 가능) ───
-    // 모의 V변형 TR명: kis_os.py 기준 실전 TTTS****R → 모의 VTTS****R 동일 suffix.
-    // 모의 inquire-nccs/inquire-ccnl 지원 여부 및 응답 필드명은 실응답 확인 필요.
-    private static final String TR_BALANCE = "VTTS3012R";   // 해외주식 잔고 (모의)
-    private static final String TR_BUY = "VTTT1002U";       // 미국 매수 주문 (모의)
-    private static final String TR_SELL = "VTTT1006U";      // 미국 매도 주문 (모의)
-    private static final String TR_HISTORY = "VTTS3035R";   // 해외 체결내역(거래내역) (모의) — MUST-VERIFY
-    private static final String TR_PENDING = "VTTS3018R";   // 해외 미체결 (모의) — MUST-VERIFY
-    private static final String TR_ORDERABLE = "VTTS3007R"; // 해외 매수가능 (모의) — MUST-VERIFY
-
-    /** 계정 도메인이 실전(openapi)인지 판정. (모의 openapivts 는 포함 안 됨) */
-    private boolean isReal(KisCredentials credentials) {
-        return credentials.baseUrl() != null
-                && credentials.baseUrl().contains("openapi.koreainvestment.com");
-    }
-
-    /**
-     * 해외 TR 모드 변환: 실전이면 접두 V→T (VTTS→TTTS, VTTT→TTTT), 모의면 그대로.
-     * convertTrId 는 국내(VTTC/TTTC)만 처리하므로 해외는 여기서 확정한다.
-     */
-    private String overseasTr(String mockTr, KisCredentials credentials) {
-        return isReal(credentials) ? "T" + mockTr.substring(1) : mockTr;
-    }
+    // 해외 TR (실전). 응답 필드명은 라이브 장중에서만 확정 가능 — MUST-VERIFY 표기된 것은 미검증.
+    private static final String TR_BALANCE = "TTTS3012R";   // 해외주식 잔고
+    private static final String TR_BUY = "TTTT1002U";       // 미국 매수 주문
+    private static final String TR_SELL = "TTTT1006U";      // 미국 매도 주문
+    private static final String TR_HISTORY = "TTTS3035R";   // 해외 체결내역(거래내역) — MUST-VERIFY
+    private static final String TR_PENDING = "TTTS3018R";   // 해외 미체결 — MUST-VERIFY
+    private static final String TR_ORDERABLE = "TTTS3007R"; // 해외 매수가능 — MUST-VERIFY
 
     private static final String BALANCE_ENDPOINT = "/uapi/overseas-stock/v1/trading/inquire-balance";
     private static final String ORDER_ENDPOINT = "/uapi/overseas-stock/v1/trading/order";
@@ -83,19 +65,19 @@ public class OverseasTradingService {
     private static final String PENDING_ENDPOINT = "/uapi/overseas-stock/v1/trading/inquire-nccs";
     private static final String ORDERABLE_ENDPOINT = "/uapi/overseas-stock/v1/trading/inquire-psamount";
 
-    // 모의 inquire-ccnl/inquire-nccs 는 전체("00")만 지원(모의 제약). 거래내역 기본 조회기간 90일.
+    // 매도매수/체결 구분은 전체("00")로 조회한다. 거래내역 기본 조회기간 90일.
     private static final String DVSN_ALL = "00";
     private static final int HISTORY_LOOKBACK_DAYS = 90;
     private static final DateTimeFormatter YYYYMMDD = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private static final String NOTICE_BALANCE_FAILED = "해외 잔고를 불러오지 못했습니다";
-    private static final String NOTICE_ORDER_FAILED = "해외 주문에 실패했습니다 (모의투자 해외매매 미지원일 수 있습니다)";
-    private static final String NOTICE_HISTORY_FAILED = "해외 거래내역을 불러오지 못했습니다 (모의투자 미지원일 수 있습니다)";
-    private static final String NOTICE_PENDING_FAILED = "해외 미체결 내역을 불러오지 못했습니다 (모의투자 미지원일 수 있습니다)";
-    private static final String NOTICE_ORDERABLE_FAILED = "해외 매수가능 금액을 불러오지 못했습니다 (모의투자 미지원일 수 있습니다)";
+    private static final String NOTICE_ORDER_FAILED = "해외 주문에 실패했습니다";
+    private static final String NOTICE_HISTORY_FAILED = "해외 거래내역을 불러오지 못했습니다";
+    private static final String NOTICE_PENDING_FAILED = "해외 미체결 내역을 불러오지 못했습니다";
+    private static final String NOTICE_ORDERABLE_FAILED = "해외 매수가능 금액을 불러오지 못했습니다";
 
     /**
-     * 해외주식 잔고 조회 (VTTS3012R, 모의). 미국 3거래소(NASD/NYSE/AMEX)를 순회하며 보유종목을 합산한다.
+     * 해외주식 잔고 조회 (TTTS3012R). 미국 3거래소(NASD/NYSE/AMEX)를 순회하며 보유종목을 합산한다.
      * 미지원/실패/예외 시 빈 목록 + notice 로 degrade(예외 전파 금지).
      */
     @SuppressWarnings("unchecked")
@@ -131,7 +113,7 @@ public class OverseasTradingService {
                     ResponseEntity<Map> response = kisApiClient.get(
                             credentials.baseUrl(),
                             BALANCE_ENDPOINT,
-                            overseasTr(TR_BALANCE, credentials),
+                            TR_BALANCE,
                             kisToken,
                             credentials.appKey(),
                             credentials.appSecret(),
@@ -203,8 +185,8 @@ public class OverseasTradingService {
     }
 
     /**
-     * 해외주식 체결내역(거래내역) 조회 (VTTS3035R, 모의, inquire-ccnl). 사용자 mock 키.
-     * 조회기간은 최근 90일(ORD_STRT_DT~ORD_END_DT), 매도매수/체결구분은 모의 제약상 전체("00").
+     * 해외주식 체결내역(거래내역) 조회 (TTTS3035R, inquire-ccnl). 사용자 KIS 키.
+     * 조회기간은 최근 90일(ORD_STRT_DT~ORD_END_DT), 매도매수/체결구분은 전체("00").
      * 미지원/실패/예외 시 빈 목록 + notice 로 degrade(예외 전파 금지).
      */
     @SuppressWarnings("unchecked")
@@ -228,8 +210,8 @@ public class OverseasTradingService {
             queryParams.put("PDNO", "");
             queryParams.put("ORD_STRT_DT", today.minusDays(HISTORY_LOOKBACK_DAYS).format(YYYYMMDD));
             queryParams.put("ORD_END_DT", today.format(YYYYMMDD));
-            queryParams.put("SLL_BUY_DVSN", DVSN_ALL);    // 모의: 전체만
-            queryParams.put("CCLD_NCCS_DVSN", DVSN_ALL);  // 모의: 전체만
+            queryParams.put("SLL_BUY_DVSN", DVSN_ALL);    // 전체
+            queryParams.put("CCLD_NCCS_DVSN", DVSN_ALL);  // 전체
             queryParams.put("OVRS_EXCG_CD", ex.balanceCode());
             queryParams.put("SORT_SQN", "");
             queryParams.put("ORD_DT", "");
@@ -243,7 +225,7 @@ public class OverseasTradingService {
                 ResponseEntity<Map> response = kisApiClient.get(
                         credentials.baseUrl(),
                         HISTORY_ENDPOINT,
-                        overseasTr(TR_HISTORY, credentials),
+                        TR_HISTORY,
                         kisToken,
                         credentials.appKey(),
                         credentials.appSecret(),
@@ -290,7 +272,7 @@ public class OverseasTradingService {
     }
 
     /**
-     * 해외주식 미체결 조회 (VTTS3018R, 모의, inquire-nccs). 사용자 mock 키.
+     * 해외주식 미체결 조회 (TTTS3018R, inquire-nccs). 사용자 KIS 키.
      * 미지원/실패/예외 시 빈 목록 + notice 로 degrade(예외 전파 금지).
      */
     @SuppressWarnings("unchecked")
@@ -320,7 +302,7 @@ public class OverseasTradingService {
                 ResponseEntity<Map> response = kisApiClient.get(
                         credentials.baseUrl(),
                         PENDING_ENDPOINT,
-                        overseasTr(TR_PENDING, credentials),
+                        TR_PENDING,
                         kisToken,
                         credentials.appKey(),
                         credentials.appSecret(),
@@ -366,7 +348,7 @@ public class OverseasTradingService {
     }
 
     /**
-     * 해외주식 매수가능 조회 (VTTS3007R, 모의, inquire-psamount). 사용자 mock 키.
+     * 해외주식 매수가능 조회 (TTTS3007R, inquire-psamount). 사용자 KIS 키.
      * price 는 OVRS_ORD_UNPR(지정단가) 로 전달한다. 미지원/실패/예외 시 0 + notice 로 degrade.
      */
     @SuppressWarnings("unchecked")
@@ -398,7 +380,7 @@ public class OverseasTradingService {
                 ResponseEntity<Map> response = kisApiClient.get(
                         credentials.baseUrl(),
                         ORDERABLE_ENDPOINT,
-                        overseasTr(TR_ORDERABLE, credentials),
+                        TR_ORDERABLE,
                         kisToken,
                         credentials.appKey(),
                         credentials.appSecret(),
@@ -445,7 +427,7 @@ public class OverseasTradingService {
     }
 
     /**
-     * 해외주식 매수 (VTTT1002U, 모의). 지정가(ORD_DVSN="00")만.
+     * 해외주식 매수 (TTTT1002U). 지정가(ORD_DVSN="00")만.
      * 실패 시 {@link com.inbeom.apiserver.exception.BusinessException} 전파(국내와 동일).
      */
     public Map<String, Object> buy(Long userId, OverseasOrderRequest request) {
@@ -453,7 +435,7 @@ public class OverseasTradingService {
     }
 
     /**
-     * 해외주식 매도 (VTTT1006U, 모의). 지정가(ORD_DVSN="00")만.
+     * 해외주식 매도 (TTTT1006U). 지정가(ORD_DVSN="00")만.
      * 실패 시 {@link com.inbeom.apiserver.exception.BusinessException} 전파(국내와 동일).
      */
     public Map<String, Object> sell(Long userId, OverseasOrderRequest request) {
@@ -481,7 +463,7 @@ public class OverseasTradingService {
 
         BigDecimal price = request.getPrice();
         if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
-            // 모의 해외 주문은 지정가 전용 → 단가 필수
+            // 해외 주문은 지정가 전용 구현 → 단가 필수
             throw new BusinessException(ErrorCode.INVALID_TRADE_PRICE,
                     "해외 주문은 지정가만 지원합니다 (단가 필수)");
         }
@@ -511,7 +493,7 @@ public class OverseasTradingService {
         requestBody.put("ORD_SVR_DVSN_CD", "0");
         requestBody.put("ORD_DVSN", "00");  // 지정가 전용
 
-        String trId = overseasTr(isBuy ? TR_BUY : TR_SELL, credentials);
+        String trId = isBuy ? TR_BUY : TR_SELL;
 
         // HTTP/네트워크 실패는 KisApiClient 가 KisApiException 으로 던진다 → 그대로 전파(국내와 동일)
         ResponseEntity<Map> response = kisApiClient.post(
@@ -550,7 +532,7 @@ public class OverseasTradingService {
 
     /**
      * 해외 주문 응답 검증. 국내 {@code TradingService#verifyKisOrderSuccess} 와 동일한 계약으로
-     * rt_cd != 0 또는 빈 응답이면 예외를 던진다(모의 해외매매 미지원도 이 경로로 4002 로 내려간다).
+     * rt_cd != 0 또는 빈 응답이면 예외를 던진다(해외매매 권한 미보유도 이 경로로 4002 로 내려간다).
      */
     private void verifyOverseasOrderSuccess(Map<String, Object> body, String side, Long userId, String symbol) {
         if (body == null) {
@@ -603,7 +585,7 @@ public class OverseasTradingService {
                 .build();
     }
 
-    // 체결내역 필드명 MUST-VERIFY (모의 inquire-ccnl 실응답 기준 확정 필요).
+    // 체결내역 필드명 MUST-VERIFY (inquire-ccnl 실응답 기준 확정 필요).
     private OverseasTradeHistoryResponse.OverseasTradeHistoryItem mapHistoryItem(Map<String, Object> item) {
         String orderDate = firstNonNull(item, "ord_dt", "dmst_ord_dt");
         String orderTime = firstNonNull(item, "ord_tmd", "ord_tm");
@@ -619,7 +601,7 @@ public class OverseasTradingService {
                 .build();
     }
 
-    // 미체결 필드명 MUST-VERIFY (모의 inquire-nccs 실응답 기준 확정 필요).
+    // 미체결 필드명 MUST-VERIFY (inquire-nccs 실응답 기준 확정 필요).
     private OverseasPendingOrderResponse.OverseasPendingOrderItem mapPendingItem(Map<String, Object> item) {
         String orderDate = firstNonNull(item, "ord_dt", "dmst_ord_dt");
         String orderTime = firstNonNull(item, "ord_tmd", "ord_tm");

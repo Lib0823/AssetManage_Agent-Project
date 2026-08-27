@@ -143,6 +143,11 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.27-refresh-token-single-active.yaml
       context: mvp
 
+  # Phase 27: 모의투자 제거 — 모의계좌 행 삭제 + user_kis_accounts.account_mode 컬럼 드롭
+  - include:
+      file: classpath:db/changelog/mvp/v1.28-remove-kis-account-mode.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================

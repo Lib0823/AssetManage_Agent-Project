@@ -27,7 +27,7 @@ graph TD
     API["api-server (Spring Boot, :7070)"]
     AI["ai-agent (FastAPI, :8000)"]
     DB[("PostgreSQL :5432")]
-    KIS["KIS Open API<br/>(모의투자)"]
+    KIS["KIS Open API<br/>(실전투자)"]
     DART["DART API<br/>(재무)"]
     GEM["Gemini API"]
     NEWS["뉴스 (RSS / 네이버)"]
@@ -143,4 +143,4 @@ score = |foreign_net_buy|*0.3 + |institutional_net_buy|*0.3 + vol_avg_multiple*0
 | Database | PostgreSQL 16 (17 tables + 4 views) |
 | Search | Elasticsearch 8.x (확장 예정) |
 | Infra | Docker, Docker Compose |
-| 외부 API | KIS Developers (모의투자), DART (재무·공시) |
+| 외부 API | KIS Developers (실전투자), DART (재무·공시) |

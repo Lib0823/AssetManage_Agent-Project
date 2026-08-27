@@ -141,7 +141,7 @@ public class TradingController {
 
     /**
      * GET /api/trading/pending-orders
-     * 미체결 주문 조회. KIS 주식일별주문체결조회(VTTC0081R) 결과 중 미체결(잔량 > 0, PENDING/PARTIAL)만 반환.
+     * 미체결 주문 조회. KIS 주식일별주문체결조회(TTTC0081R) 결과 중 미체결(잔량 > 0, PENDING/PARTIAL)만 반환.
      */
     @GetMapping("/pending-orders")
     public ResponseEntity<ApiResponse<List<PendingOrderResponse>>> getPendingOrders(
@@ -159,7 +159,7 @@ public class TradingController {
 
     /**
      * GET /api/trading/orderable?stockCode={code}&price={price}
-     * 매수가능조회 (KIS VTTC8908R). 최대매수수량/주문가능현금 조회.
+     * 매수가능조회 (KIS TTTC8908R). 최대매수수량/주문가능현금 조회.
      * price 미지정 시 0(시장가 기준)으로 조회한다.
      */
     @GetMapping("/orderable")

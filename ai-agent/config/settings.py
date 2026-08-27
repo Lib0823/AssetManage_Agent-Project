@@ -9,8 +9,7 @@ class Settings(BaseSettings):
     # Python Environment
     pythonpath: str = "/app"
 
-    # KIS API Configuration
-    kis_mode: str = "VIRTUAL"
+    # KIS API Configuration (실전투자 — 시세/수급 데이터 수집 전용)
     kis_app_key: str
     kis_app_secret: str
     kis_account_no: Optional[str] = None  # Account number (optional for Stage 1)
@@ -59,8 +58,8 @@ class Settings(BaseSettings):
         env_file = [".env", ".env.local"]  # Load from .env.local first, then .env
         env_file_encoding = "utf-8"
         case_sensitive = False
-        # kis_client.py 가 os.getenv 로 직접 읽는 KIS_ACCOUNT_NUMBER/KIS_ACCOUNT_PRODUCT_CODE 등,
-        # 이 클래스가 필드로 선언하지 않은 .env 키가 있을 수 있다. pydantic-settings 기본값인
+        # KIS_ACCOUNT_NUMBER/KIS_ACCOUNT_PRODUCT_CODE 처럼 이 클래스가 필드로 선언하지 않은
+        # .env 키가 있을 수 있다. pydantic-settings 기본값인
         # extra="forbid" 를 쓰면 그런 키가 있는 .env.example 을 그대로 복사만 해도 기동이 실패한다.
         extra = "ignore"
 

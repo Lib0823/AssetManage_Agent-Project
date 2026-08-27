@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * 매수가능조회 응답 DTO.
- * KIS 매수가능조회(VTTC8908R, 모의) output 매핑:
+ * KIS 매수가능조회(TTTC8908R) output 매핑:
  * max_buy_qty → maxBuyQuantity (최대매수수량),
  * ord_psbl_cash → orderableCash (주문가능현금).
  * 조회 실패/rt_cd != 0 시 수량/현금은 0, notice 에 안내 메시지.

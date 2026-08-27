@@ -51,8 +51,7 @@ class OverseasTradingServiceTest {
     @InjectMocks
     private OverseasTradingService overseasTradingService;
 
-    private static final String MOCK_BASE_URL = "https://openapivts.koreainvestment.com:29443";
-    private static final String REAL_BASE_URL = "https://openapi.koreainvestment.com:9443";
+    private static final String BASE_URL = "https://openapi.koreainvestment.com:9443";
 
     private Long userId;
     private Long kisAccountId;
@@ -64,7 +63,7 @@ class OverseasTradingServiceTest {
         userId = 1L;
         kisAccountId = 1L;
         mockKisToken = "MOCK_KIS_ACCESS_TOKEN";
-        mockCredentials = credentials(MOCK_BASE_URL);
+        mockCredentials = credentials(BASE_URL);
     }
 
     private KisCredentials credentials(String baseUrl) {
@@ -102,7 +101,7 @@ class OverseasTradingServiceTest {
     private Map<String, Object> failedBody() {
         Map<String, Object> map = new HashMap<>();
         map.put("rt_cd", "1");
-        map.put("msg1", "모의투자 미지원 TR 입니다");
+        map.put("msg1", "해외주식 거래 권한이 없습니다");
         return map;
     }
 
@@ -160,9 +159,9 @@ class OverseasTradingServiceTest {
     }
 
     @Test
-    @DisplayName("getBalance - 모의 계좌면 VTTS3012R, 실전 계좌면 TTTS3012R 로 TR 을 보낸다")
-    void getBalance_ConvertsTrIdByAccountDomain() {
-        // Given: 모의 도메인
+    @DisplayName("getBalance - 거래소마다 TTTS3012R 로 TR 을 보낸다")
+    void getBalance_SendsRealTrId() {
+        // Given
         stubUserWithKisAccount();
         Map<String, Object> ok = new HashMap<>();
         ok.put("rt_cd", "0");
@@ -174,20 +173,7 @@ class OverseasTradingServiceTest {
         overseasTradingService.getBalance(userId);
 
         // Then
-        verify(kisApiClient, times(3)).get(eq(MOCK_BASE_URL), anyString(), eq("VTTS3012R"),
-                anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
-
-        // Given: 실전 도메인으로 교체
-        reset(kisApiClient, kisAuthService, userRepository);
-        stubUserWithKisAccount(credentials(REAL_BASE_URL));
-        when(kisApiClient.get(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
-                anyMap(), eq(Map.class))).thenReturn(body(ok));
-
-        // When
-        overseasTradingService.getBalance(userId);
-
-        // Then: 해외 TR 은 convertTrId 대상이 아니므로 서비스가 V→T 를 직접 확정한다.
-        verify(kisApiClient, times(3)).get(eq(REAL_BASE_URL), anyString(), eq("TTTS3012R"),
+        verify(kisApiClient, times(3)).get(eq(BASE_URL), anyString(), eq("TTTS3012R"),
                 anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
     }
 
@@ -315,7 +301,7 @@ class OverseasTradingServiceTest {
                         "ord_dt", "20260602", "ord_tmd", "100000")
         ));
         when(kisApiClient.get(anyString(), eq("/uapi/overseas-stock/v1/trading/inquire-ccnl"),
-                eq("VTTS3035R"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+                eq("TTTS3035R"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(body(response));
 
         // When
@@ -332,7 +318,7 @@ class OverseasTradingServiceTest {
     }
 
     @Test
-    @DisplayName("getHistory - 조회기간(최근 90일)과 모의 제약(전체 구분 '00')을 파라미터로 보낸다")
+    @DisplayName("getHistory - 조회기간(최근 90일)과 전체 구분('00')을 파라미터로 보낸다")
     void getHistory_SendsLookbackAndAllDivisionParams() {
         // Given
         stubUserWithKisAccount();
@@ -381,7 +367,7 @@ class OverseasTradingServiceTest {
     }
 
     @Test
-    @DisplayName("getHistory - rt_cd != 0 이면 빈 목록 + notice (모의 미지원 degrade)")
+    @DisplayName("getHistory - rt_cd != 0 이면 빈 목록 + notice 로 degrade 한다")
     void getHistory_RtCdNotZero_Degrades() {
         // Given
         stubUserWithKisAccount();
@@ -441,7 +427,7 @@ class OverseasTradingServiceTest {
                 "ft_ord_unpr3", "190.00", "ord_dt", "20260605", "ord_tmd", "223000"
         )));
         when(kisApiClient.get(anyString(), eq("/uapi/overseas-stock/v1/trading/inquire-nccs"),
-                eq("VTTS3018R"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+                eq("TTTS3018R"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(body(response));
 
         // When
@@ -499,7 +485,7 @@ class OverseasTradingServiceTest {
         response.put("rt_cd", "0");
         response.put("output", Map.of("max_ord_psbl_qty", "25", "ord_psbl_frcr_amt", "5000.00"));
         when(kisApiClient.get(anyString(), eq("/uapi/overseas-stock/v1/trading/inquire-psamount"),
-                eq("VTTS3007R"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
+                eq("TTTS3007R"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class)))
                 .thenReturn(body(response));
 
         // When
@@ -623,15 +609,15 @@ class OverseasTradingServiceTest {
     // ─── buy / sell ─────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("buy - VTTT1002U 지정가 주문을 보내고 주문번호를 반환한다")
+    @DisplayName("buy - TTTT1002U 지정가 주문을 보내고 주문번호를 반환한다")
     void buy_Success() {
         // Given
         stubUserWithKisAccount();
         Map<String, Object> kisResponse = new HashMap<>();
         kisResponse.put("rt_cd", "0");
         kisResponse.put("output", Map.of("ODNO", "OVS123456"));
-        when(kisApiClient.post(eq(MOCK_BASE_URL), eq("/uapi/overseas-stock/v1/trading/order"),
-                eq("VTTT1002U"), eq(mockKisToken), eq("MOCK_APP_KEY"), eq("MOCK_APP_SECRET"),
+        when(kisApiClient.post(eq(BASE_URL), eq("/uapi/overseas-stock/v1/trading/order"),
+                eq("TTTT1002U"), eq(mockKisToken), eq("MOCK_APP_KEY"), eq("MOCK_APP_SECRET"),
                 any(), eq(Map.class))).thenReturn(body(kisResponse));
 
         // When
@@ -678,14 +664,14 @@ class OverseasTradingServiceTest {
     }
 
     @Test
-    @DisplayName("sell - VTTT1006U 로 보내고 SLL_TYPE='00' 을 채운다")
+    @DisplayName("sell - TTTT1006U 로 보내고 SLL_TYPE='00' 을 채운다")
     void sell_Success() {
         // Given
         stubUserWithKisAccount();
         Map<String, Object> kisResponse = new HashMap<>();
         kisResponse.put("rt_cd", "0");
         kisResponse.put("output", Map.of("ODNO", "OVS999"));
-        when(kisApiClient.post(anyString(), anyString(), eq("VTTT1006U"), anyString(), anyString(),
+        when(kisApiClient.post(anyString(), anyString(), eq("TTTT1006U"), anyString(), anyString(),
                 anyString(), any(), eq(Map.class))).thenReturn(body(kisResponse));
 
         // When
@@ -705,25 +691,6 @@ class OverseasTradingServiceTest {
     }
 
     @Test
-    @DisplayName("buy - 실전 계좌면 TTTT1002U 로 TR 을 변환한다")
-    void buy_RealAccount_ConvertsTrId() {
-        // Given
-        stubUserWithKisAccount(credentials(REAL_BASE_URL));
-        Map<String, Object> kisResponse = new HashMap<>();
-        kisResponse.put("rt_cd", "0");
-        kisResponse.put("output", Map.of("ODNO", "REAL1"));
-        when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
-                any(), eq(Map.class))).thenReturn(body(kisResponse));
-
-        // When
-        overseasTradingService.buy(userId, orderRequest("AAPL", "NASD", 1, new BigDecimal("100")));
-
-        // Then
-        verify(kisApiClient).post(eq(REAL_BASE_URL), anyString(), eq("TTTT1002U"), anyString(), anyString(),
-                anyString(), any(), eq(Map.class));
-    }
-
-    @Test
     @DisplayName("buy - 수량이 null/0/음수면 INVALID_TRADE_QUANTITY(5002)로 KIS 호출 전에 막는다")
     void buy_InvalidQuantity_ThrowsInvalidTradeQuantity() {
         // Given / When / Then
@@ -739,7 +706,7 @@ class OverseasTradingServiceTest {
     }
 
     @Test
-    @DisplayName("buy - 단가가 null/0/음수면 INVALID_TRADE_PRICE(5003) (모의 해외는 지정가 전용)")
+    @DisplayName("buy - 단가가 null/0/음수면 INVALID_TRADE_PRICE(5003) (해외는 지정가 전용)")
     void buy_InvalidPrice_ThrowsInvalidTradePrice() {
         // Given / When / Then
         BigDecimal[] invalidPrices = {null, BigDecimal.ZERO, new BigDecimal("-1")};
@@ -795,7 +762,7 @@ class OverseasTradingServiceTest {
     @Test
     @DisplayName("buy - KIS 응답 rt_cd != 0 이면 KIS_API_SERVER_ERROR(4002) 예외 (200 으로 내려가지 않는다)")
     void buy_RtCdNotZero_ThrowsKisApiException() {
-        // Given: 모의 해외매매 미지원도 이 경로로 내려온다.
+        // Given: 해외매매 권한 미보유도 이 경로로 내려온다.
         stubUserWithKisAccount();
         when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
                 any(), eq(Map.class))).thenReturn(body(failedBody()));
@@ -805,7 +772,7 @@ class OverseasTradingServiceTest {
                 userId, orderRequest("AAPL", "NASD", 10, new BigDecimal("195.50"))))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.KIS_API_SERVER_ERROR)
-                .hasMessageContaining("모의투자 미지원 TR 입니다");
+                .hasMessageContaining("해외주식 거래 권한이 없습니다");
     }
 
     @Test

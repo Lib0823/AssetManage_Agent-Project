@@ -35,7 +35,7 @@ public class AssetService {
     private final AssetDailySnapshotRepository assetDailySnapshotRepository;
 
     /**
-     * Get holdings from KIS API (VTTC8434R)
+     * Get holdings from KIS API (TTTC8434R)
      */
     public Map<String, Object> getHoldings(Long kisAccountId) {
         // 1. Get KIS Access Token (cache hit ~50ms)
@@ -62,7 +62,7 @@ public class AssetService {
         ResponseEntity<Map> response = kisApiClient.get(
                 credentials.baseUrl(),
                 "/uapi/domestic-stock/v1/trading/inquire-balance",
-                "VTTC8434R",
+                "TTTC8434R",
                 kisToken,
                 credentials.appKey(),
                 credentials.appSecret(),
@@ -74,7 +74,7 @@ public class AssetService {
     }
 
     /**
-     * Get balance (예수금) from KIS API (VTTC8434R)
+     * Get balance (예수금) from KIS API (TTTC8434R)
      */
     public Map<String, Object> getBalance(Long kisAccountId) {
         // Same as getHoldings, but extract only balance info

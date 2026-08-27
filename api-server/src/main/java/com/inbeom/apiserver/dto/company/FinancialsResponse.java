@@ -15,7 +15,7 @@ import java.util.List;
  *
  * KIS 국내주식 손익계산서(FHKST66430200) / 재무비율(FHKST66430300) /
  * 안정성비율(FHKST66430600) + 주식현재가 시세(per/pbr) 조합.
- * KIS finance API 미제공(모의 도메인 등) 시 annual=[], ratios 일부 null degrade.
+ * KIS finance API 미제공/권한없음 시 annual=[], ratios 일부 null degrade.
  */
 @Data
 @Builder

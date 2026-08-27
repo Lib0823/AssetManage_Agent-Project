@@ -590,7 +590,6 @@ class UserServiceTest {
                     .appKey("ENC_APP_KEY")
                     .appSecret("ENC_APP_SECRET")
                     .htsId("HTSID")
-                    .accountMode("MOCK")
                     .isVerified(true)
                     .build();
         }
@@ -611,7 +610,6 @@ class UserServiceTest {
             assertThat(response.getAccountNumber()).isEqualTo("12345678-01");
             assertThat(response.getAppKey()).isEqualTo("plain-app-key");
             assertThat(response.getAppSecret()).isEqualTo("plain-app-secret");
-            assertThat(response.getAccountMode()).isEqualTo("MOCK");
             assertThat(response.getIsVerified()).isTrue();
         }
 
@@ -676,83 +674,9 @@ class UserServiceTest {
             assertThat(saved.getIsVerified()).isFalse();
             // 미제공 필드는 기존 값 유지
             assertThat(saved.getHtsId()).isEqualTo("HTSID");
-            assertThat(saved.getAccountMode()).isEqualTo("MOCK");
 
             assertThat(response.getIsVerified()).isFalse();
             assertThat(response.getAppKey()).isEqualTo("new-app-key");
-        }
-
-        @Test
-        @DisplayName("updateKisAccount - mode=real 은 대소문자 무관하게 REAL 로 정규화된다")
-        void updateKisAccount_NormalizesModeToReal() {
-            // Given
-            UpdateKisAccountRequest request = UpdateKisAccountRequest.builder()
-                    .accountNumber("12345678-01")
-                    .appKey("k").appSecret("s")
-                    .htsId("NEWHTS")
-                    .mode("real")
-                    .build();
-            given(userRepository.findById(1L)).willReturn(Optional.of(testUser));
-            given(kisAccountRepository.findByUserId(1L)).willReturn(Optional.of(kisAccount));
-            given(jasyptStringEncryptor.encrypt(anyString())).willReturn("ENC");
-            given(jasyptStringEncryptor.decrypt("ENC")).willReturn("plain");
-            given(kisAccountRepository.save(any(UserKisAccount.class)))
-                    .willAnswer(invocation -> invocation.getArgument(0));
-
-            // When
-            KisAccountResponse response = userService.updateKisAccount(1L, request);
-
-            // Then
-            assertThat(response.getAccountMode()).isEqualTo("REAL");
-            assertThat(response.getHtsId()).isEqualTo("NEWHTS");
-        }
-
-        @Test
-        @DisplayName("updateKisAccount - 알 수 없는 mode 값은 MOCK 으로 처리한다")
-        void updateKisAccount_UnknownMode_FallsBackToMock() {
-            // Given
-            kisAccount.setAccountMode("REAL");
-            UpdateKisAccountRequest request = UpdateKisAccountRequest.builder()
-                    .accountNumber("12345678-01")
-                    .appKey("k").appSecret("s")
-                    .mode("something-else")
-                    .build();
-            given(userRepository.findById(1L)).willReturn(Optional.of(testUser));
-            given(kisAccountRepository.findByUserId(1L)).willReturn(Optional.of(kisAccount));
-            given(jasyptStringEncryptor.encrypt(anyString())).willReturn("ENC");
-            given(jasyptStringEncryptor.decrypt("ENC")).willReturn("plain");
-            given(kisAccountRepository.save(any(UserKisAccount.class)))
-                    .willAnswer(invocation -> invocation.getArgument(0));
-
-            // When
-            KisAccountResponse response = userService.updateKisAccount(1L, request);
-
-            // Then
-            assertThat(response.getAccountMode()).isEqualTo("MOCK");
-        }
-
-        @Test
-        @DisplayName("updateKisAccount - mode 가 공백이면 기존 모드를 유지한다")
-        void updateKisAccount_BlankMode_KeepsExisting() {
-            // Given
-            kisAccount.setAccountMode("REAL");
-            UpdateKisAccountRequest request = UpdateKisAccountRequest.builder()
-                    .accountNumber("12345678-01")
-                    .appKey("k").appSecret("s")
-                    .mode("   ")
-                    .build();
-            given(userRepository.findById(1L)).willReturn(Optional.of(testUser));
-            given(kisAccountRepository.findByUserId(1L)).willReturn(Optional.of(kisAccount));
-            given(jasyptStringEncryptor.encrypt(anyString())).willReturn("ENC");
-            given(jasyptStringEncryptor.decrypt("ENC")).willReturn("plain");
-            given(kisAccountRepository.save(any(UserKisAccount.class)))
-                    .willAnswer(invocation -> invocation.getArgument(0));
-
-            // When
-            KisAccountResponse response = userService.updateKisAccount(1L, request);
-
-            // Then
-            assertThat(response.getAccountMode()).isEqualTo("REAL");
         }
 
         @Test

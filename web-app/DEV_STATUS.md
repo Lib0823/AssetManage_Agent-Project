@@ -55,7 +55,7 @@
 |------|:----:|------|
 | AssetDetailView | ⭕ | 국내주식 실 API(`/assets/holdings`,`/assets/balance`). 미정의 `stockDetail` 버그 수정(balance summary 기반 값으로 대체). **해외(US) 탭 실데이터** — `/overseas/*` 잔고 연동(USD 표기). 해외 호가/실시간 시세는 미지원 |
 | CompanyDetailView | ⭕ | AI분석(`getStockDetail`) + 기본정보/재무/공시(`companyApi` 3종) 전부 실 API |
-| TradingView | ⭕ | 매수/매도(`buy`/`sell`) + 미체결(`/trading/pending-orders`) + **실시간 호가**(`stockApi.getOrderbook` → `/stocks/{code}/orderbook`, KIS 10호가) + **주문가능 수량/금액**(`tradingApi.getOrderable` → `/trading/orderable`) 실데이터. 현재가 자동주입·총액 반응형·실시간 날짜. **해외(US) 지정가 매매** `/overseas/*` 연동(모의 지정가 전용, 해외 호가 미지원). 예약주문만 추후 지원 |
+| TradingView | ⭕ | 매수/매도(`buy`/`sell`) + 미체결(`/trading/pending-orders`) + **실시간 호가**(`stockApi.getOrderbook` → `/stocks/{code}/orderbook`, KIS 10호가) + **주문가능 수량/금액**(`tradingApi.getOrderable` → `/trading/orderable`) 실데이터. 현재가 자동주입·총액 반응형·실시간 날짜. **해외(US) 지정가 매매** `/overseas/*` 연동(지정가 전용, 해외 호가 미지원). 예약주문만 추후 지원 |
 | TransactionsView | ⭕ | 거래내역 실 API(`getHistory`) + **기간필터(1주/1개월/3개월) 동작** + 미체결. 배당 수령·현금 입출금은 KIS OpenAPI에 전용 TR 없음(공식 확인) → 요약은 총매수/총매도만(기타 항목 제거) |
 | NewsView | ❌ | `mockTopNews` 사용. **뉴스 목록 API 미구현**, 필터링은 클라이언트만 |
 | NewsDetailView | ❌ | `mockNewsDetail` 사용. 상세 API 미구현(onMounted에 TODO만) |
@@ -78,8 +78,8 @@
 - ~~해외지수 위젯(HomeView)~~ — **해결됨**: 다우/나스닥/S&P500 실연동(`/market/indices` overseas, KIS FHKST03030100). 코인 지수만 mock(제외 대상)
 - **배당 수령·현금 입출금 내역** — KIS OpenAPI에 개인 ledger 전용 TR **없음**(공식 확인). 배당은 종목 기준 '배당일정'(HHKDB669102C0)만 존재 → 별도 '배당 캘린더' 기능으로만 가능, 거래내역 기타 금액으로는 불가
 - **실시간 시세 소켓 (호가/체결가)** — KIS WebSocket 브리지(`/ws/realtime`) **구현(Phase 1)**. 국내 `H0STASP0`(호가)/`H0STCNT0`(체결가), 미국 `HDFSASP0`/`HDFSCNT0`.
-- **실시간 체결통보 (Phase 2, 국내, 플래그 뒤)** — `H0STCNI0`/`H0STCNI9` **구현**(`kis.realtime.fills.enabled`). 유저당 KIS 연결(계좌키)·HTS ID(`tr_key`, `user_kis_accounts.hts_id`)·AES-CBC 복호, 체결 시 토스트 알림. 해외 `H0GSCNI0` 보류.
-  - **HARD LIMIT**: 실시간 라이브 데이터는 **실계좌 키 + 장중(정규장 시간)**이 모두 필요. **모의(mock) 키나 장외 시간에는 스트림이 흐르지 않음**(연결은 되나 데이터 푸시 없음). 체결통보는 추가로 **HTS ID 설정 + 실제 체결**이 있어야 동작(모의 스트리밍 지원 불확실).
+- **실시간 체결통보 (Phase 2, 플래그 뒤)** — 국내 `H0STCNI0`, 해외 `H0GSCNI0` **구현**(`kis.realtime.fills.enabled`). 유저당 KIS 연결(계좌키)·HTS ID(`tr_key`, `user_kis_accounts.hts_id`)·AES-CBC 복호, 체결 시 토스트 알림.
+  - **HARD LIMIT**: 실시간 라이브 데이터는 **장중(정규장 시간)**이어야 흐름(장외 시간엔 연결은 되나 데이터 푸시 없음). 체결통보는 추가로 **HTS ID 설정 + 실제 체결**이 있어야 동작.
 
-> 해결됨: 종목 검색(`/stocks/search`, `/stocks/{code}/price`), 즐겨찾기(`/favorites`), 미체결주문(`/trading/pending-orders`), **실시간 호가**(`/stocks/{code}/orderbook` — KIS FHKST01010200), **매수가능 조회**(`/trading/orderable` — KIS VTTC8908R), **실시간 시세 WebSocket 브리지**(`/ws/realtime?token={JWT}` — Phase 1 호가/체결가)가 api-server에 추가됨.
+> 해결됨: 종목 검색(`/stocks/search`, `/stocks/{code}/price`), 즐겨찾기(`/favorites`), 미체결주문(`/trading/pending-orders`), **실시간 호가**(`/stocks/{code}/orderbook` — KIS FHKST01010200), **매수가능 조회**(`/trading/orderable` — KIS TTTC8908R), **실시간 시세 WebSocket 브리지**(`/ws/realtime?token={JWT}` — Phase 1 호가/체결가)가 api-server에 추가됨.
 > 제거됨: 송금/이체(TransferView) — 화면·라우트·진입버튼 전부 삭제.

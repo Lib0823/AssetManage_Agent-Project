@@ -41,12 +41,6 @@ public class UserKisAccount {
     @Column(name = "hts_id", length = 50)
     private String htsId;
 
-    // KIS 모드 MOCK(모의)/REAL(실전) — 매매/조회/체결통보의 도메인·TR 라우팅 기준(per-user).
-    // 기존 계정은 DB 기본값 'MOCK' 으로 하위호환.
-    @Builder.Default
-    @Column(name = "account_mode", nullable = false, length = 10)
-    private String accountMode = "MOCK";
-
     @Builder.Default
     @Column(name = "is_verified", nullable = false)
     private Boolean isVerified = false;

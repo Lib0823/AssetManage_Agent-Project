@@ -17,9 +17,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * KIS 시세/재무 전용 실전(real) 도메인 자격증명 + OAuth 토큰 관리.
  *
  * <p>KIS 시세(inquire-price)·재무(income-statement/financial-ratio/stability-ratio) API 는
- * 모의(openapivts) 도메인에서 제공되지 않으므로 실전 도메인(openapi.koreainvestment.com:9443)으로
- * 호출해야 한다. 매매/잔고 흐름이 쓰는 DB 의 모의 키({@link KisAuthService})와는 완전히 분리된,
- * 설정(kis.quote-*) 기반의 앱 단위(app-level) 자격증명·토큰을 사용한다.
+ * 매매/잔고 흐름이 쓰는 사용자별 DB 자격증명({@link KisAuthService})과 완전히 분리된,
+ * 설정(kis.quote-*) 기반의 앱 단위(app-level) 자격증명·토큰으로 호출한다.
  *
  * <p>토큰은 앱 단위(사용자별이 아님)이므로 단일 캐시 슬롯으로 충분하며 24h 캐시한다.
  * quote-app-key/secret 둘 다 비어있으면 비활성({@link #isQuoteEnabled()}=false)이며 토큰은 null 이다.

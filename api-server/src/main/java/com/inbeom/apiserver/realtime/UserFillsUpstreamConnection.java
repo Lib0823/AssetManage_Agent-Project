@@ -26,7 +26,7 @@ import java.util.function.BiConsumer;
 import com.inbeom.apiserver.dto.realtime.FillMessage;
 
 /**
- * <b>유저당</b> KIS 체결통보 상향 WebSocket 연결 (사용자 계좌키 + 모의 trade 도메인 + AES 암호 프레임).
+ * <b>유저당</b> KIS 체결통보 상향 WebSocket 연결 (사용자 계좌키 + trade 도메인 + AES 암호 프레임).
  *
  * <p>Phase 1 의 공유 시세 연결({@code KisRealtimeUpstreamClient})과 달리, 체결통보는 사용자 계좌별
  * 자격증명(appkey/secret)과 HTS ID(tr_key)가 필요하므로 <b>독립 클래스로 자체 구현</b>한다
@@ -64,9 +64,9 @@ public class UserFillsUpstreamConnection extends TextWebSocketHandler {
 
     private final Long userId;
     private final ConnectionCredentials credentials;
-    /** 국내 체결통보 tr_id — H0STCNI0(실전)/H0STCNI9(모의). 팩토리가 환경별로 결정해 주입. */
+    /** 국내 체결통보 tr_id — H0STCNI0. */
     private final String trId;
-    /** 미국 체결통보 tr_id — H0GSCNI0/H0GSCNI9. 주입된 KR trId 의 실전/모의 환경에 맞춰 파생. */
+    /** 미국 체결통보 tr_id — H0GSCNI0. */
     private final String usTrId;
     private final String htsId;           // tr_key
     private final String wsUrl;
@@ -124,9 +124,7 @@ public class UserFillsUpstreamConnection extends TextWebSocketHandler {
         this.userId = userId;
         this.credentials = credentials;
         this.trId = trId;
-        // US 체결통보 tr_id 는 KR trId 의 실전/모의 환경에 맞춰 파생(KR 모의면 US 도 모의).
-        boolean mock = trId != null && trId.equals(RealtimeTr.KR_FILL.mockTrId());
-        this.usTrId = mock ? RealtimeTr.US_FILL.mockTrId() : RealtimeTr.US_FILL.trId();
+        this.usTrId = RealtimeTr.US_FILL.trId();
         this.htsId = htsId;
         this.wsUrl = wsUrl;
         this.decryptor = decryptor;
@@ -230,8 +228,7 @@ public class UserFillsUpstreamConnection extends TextWebSocketHandler {
 
     /** 데이터/ACK 프레임의 tr_id 로 체결통보 TR(KR_FILL/US_FILL) 판별. 미상이면 KR 폴백. */
     private RealtimeTr resolveFillTr(String frameTrId) {
-        if (frameTrId != null
-                && (frameTrId.equals(RealtimeTr.US_FILL.trId()) || frameTrId.equals(RealtimeTr.US_FILL.mockTrId()))) {
+        if (frameTrId != null && frameTrId.equals(RealtimeTr.US_FILL.trId())) {
             return RealtimeTr.US_FILL;
         }
         return RealtimeTr.KR_FILL;

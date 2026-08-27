@@ -45,13 +45,10 @@ cp .env.example .env
 `.env` 주요 항목:
 
 ```bash
-# KIS API (모의투자)
-KIS_MODE=VIRTUAL                 # VIRTUAL 또는 REAL
+# KIS API (실전투자, 시세/수급 데이터 수집 전용)
 KIS_APP_KEY=...
 KIS_APP_SECRET=...
 KIS_BASE_URL=https://openapi.koreainvestment.com:9443
-KIS_ACCOUNT_NUMBER=...
-KIS_ACCOUNT_PRODUCT_CODE=01
 
 # Database (PostgreSQL)
 DB_HOST=localhost                # Docker 사용 시: postgres
@@ -148,7 +145,7 @@ curl http://localhost:8000/api/pipeline/status
 > 요청을 발행하고 **202 Accepted**로 즉시 반환하며, 실제 실행은 `pipeline_run_consumer`가
 > 이어받는다. 따라서 응답 본문에 분석 결과가 들어 있지 않다 — 진행 상황은
 > `/api/pipeline/status`의 `running_trade_date`/`last_run`으로 확인한다.
-> 실행이 끝나면 `is_active=true`인 유저에 한해 실제 모의투자 주문까지 전송된다.
+> 실행이 끝나면 `is_active=true`인 유저에 한해 실제 실전투자 주문까지 전송된다.
 > Kafka 프로듀서가 연결되지 않으면 **503**을 반환한다(큐잉 실패를 성공으로 위장하지 않는다).
 
 ```bash
@@ -226,7 +223,7 @@ INFO - === Complete Pipeline Finished Successfully ===
 
 | 증상 | 점검 |
 | --- | --- |
-| `KIS API 401 / OAuth failed` | `KIS_APP_KEY`/`SECRET`, `KIS_MODE`(VIRTUAL/REAL) 일치 여부 |
+| `KIS API 401 / OAuth failed` | `KIS_APP_KEY`/`SECRET`가 실전 도메인(`KIS_BASE_URL`) 자격증명인지 확인 |
 | `Database connection failed` | `pg_isready`, `.env` 접속 정보, schema.sql 적용 여부 |
 | `Scheduler not triggering` | `PIPELINE_ENABLED=true`, cron `50 8 * * 1-5`, `PIPELINE_TIMEZONE=Asia/Seoul` |
 | `prophet_forecast` NULL | venv에서 실행 중인지 확인(시스템 python3는 Prophet 깨짐) |

@@ -9,7 +9,7 @@ import com.inbeom.apiserver.service.OverseasExchange;
  * KIS Developers 실시간 해외주식(HDFSASP0/HDFSCNT0) 명세상 tr_key 는
  * {@code <실시간구분><거래소코드(3)><심볼>} 형태로 추정한다(예: {@code DNASAAPL}).
  * <ul>
- *   <li>실시간구분 접두: 지연시세 {@code D} / 실시간 {@code R}. 모의/지연 환경은 {@code D},
+ *   <li>실시간구분 접두: 지연시세 {@code D} / 실시간 {@code R}. 지연 환경은 {@code D},
  *       실전 실시간은 {@code R} 로 알려져 있으나 계정 권한별로 다르다 → MUST-VERIFY.</li>
  *   <li>거래소코드: NAS(NASDAQ) / NYS(NYSE) / AMS(AMEX) — {@link OverseasExchange#quoteCode()} 재사용.</li>
  *   <li>심볼: 티커 대문자 (예: AAPL).</li>
@@ -27,7 +27,7 @@ public final class OverseasTrKey {
 
     /**
      * MUST-VERIFY — 실시간 구분 접두.
-     * 운영(실전 실시간 권한)에서는 'R', 지연/모의 환경에서는 'D' 일 수 있다.
+     * 운영(실전 실시간 권한)에서는 'R', 지연 환경에서는 'D' 일 수 있다.
      * 보수적으로 실시간 'R' 을 기본값으로 두되, 한 곳에서만 정의해 라이브 확정 시 즉시 교체한다.
      */
     private static final char REALTIME_PREFIX = 'R';

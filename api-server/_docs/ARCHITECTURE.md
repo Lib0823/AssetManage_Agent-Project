@@ -22,7 +22,7 @@ api-server는 BFF(Backend For Frontend) 역할을 한다. 프론트엔드(Vue3)�
 |-----------|------|
 | 사용자 인증/인가 | JWT 발급·검증, 회원가입, 비밀번호 재설정, 리프레시 토큰 관리 |
 | 사용자별 KIS 계정 | appKey/appSecret 암호화 저장, KIS OAuth 토큰 캐싱 |
-| 매매 실행 | 매수/매도 주문, 잔고·거래내역 조회(KIS 모의투자) |
+| 매매 실행 | 매수/매도 주문, 잔고·거래내역 조회(KIS 실전투자) |
 | 시세·재무 조회 | 종목 기본정보·재무제표·공시(KIS 실전 시세 + DART) |
 | 시장/AI 분석 조회 | DB에 적재된 AI 분석 결과(요약·감성·결정·히트맵·예측) 제공 |
 | 시장 위젯 | 지수·환율·뉴스(외부 소스 + graceful degrade) |
@@ -104,7 +104,7 @@ Vue3 → AssetController (JWT 검증 → kisAccountId 추출)
          ├ 캐시 히트: 즉시 토큰 반환 (~50ms)
          └ 캐시 미스: user_kis_accounts 조회 → Jasypt 복호화
                       → KIS POST /oauth2/tokenP → 토큰 캐시 저장 (~500ms)
-     → KisApiClient (TR_ID VTTC8434R) → KIS API
+     → KisApiClient (TR_ID TTTC8434R) → KIS API
      → ApiResponse<Map>
 ```
 
@@ -147,33 +147,35 @@ KIS 연동은 **두 개의 분리된 자격증명 경로**를 쓴다. 상세는 
 
 | 경로 | 도메인 | 자격증명 | 관리 서비스 | 토큰 캐시 |
 |------|--------|----------|-------------|-----------|
-| (A) 매매/잔고 | 모의투자 `openapivts...:29443` (`kis.base-url`) | `user_kis_accounts`(사용자별, Jasypt 암호화) | `KisAuthService` | `Map<Long, KisTokenCache>` (사용자별 in-memory, 24h TTL) |
-| (B) 시세/재무 | 실전 `openapi...:9443` (`kis.quote-base-url`) | env `KIS_QUOTE_APP_KEY`/`KIS_QUOTE_APP_SECRET`(앱 단위) | `KisQuoteService` | `AtomicReference<QuoteTokenCache>` (앱 단위, 24h TTL) |
+| (A) 매매/잔고 | `openapi...:9443` (`kis.base-url`, 실전 고정) | `user_kis_accounts`(사용자별, Jasypt 암호화) | `KisAuthService` | `Map<Long, KisTokenCache>` (사용자별 in-memory, 24h TTL) |
+| (B) 시세/재무 | `openapi...:9443` (`kis.quote-base-url`, 실전 고정) | env `KIS_QUOTE_APP_KEY`/`KIS_QUOTE_APP_SECRET`(앱 단위) | `KisQuoteService` | `AtomicReference<QuoteTokenCache>` (앱 단위, 24h TTL) |
 
-분리 이유: 시세/재무 API는 모의투자 도메인에서 제공되지 않으므로 실전 도메인 + 실전 키로 호출해야 한다. 경로 (B)의 키가 비어 있으면 `isQuoteEnabled()=false`로 시세/재무 필드는 null + notice로 graceful degrade한다.
+경로 (B)의 키가 비어 있으면 `isQuoteEnabled()=false`로 시세/재무 필드는 null + notice로 graceful degrade한다.
 
-- **`KisApiClient`**: 공통 HTTP 래퍼. `convertTrId`로 도메인(실전/모의)에 따라 `VTTC↔TTTC` 접두사를 변환하고, 시세용 `FHKST*`/`FHKUP*` TR_ID는 변환하지 않는다. 헤더: `authorization`(Bearer KIS 토큰), `appkey`, `appsecret`, `tr_id`, `custtype=P`. RestTemplate timeout: connect 5s, read 18s.
+> **이력**: 2026-08-27 이전에는 유저별 `account_mode`(MOCK/REAL)로 (A) 경로의 도메인·TR_ID를 분기했다. 모의투자 지원을 전체 제거하며 두 경로 모두 고정 실전 도메인을 쓰도록 단일화했다(`docs/superpowers/specs/2026-08-26-mock-to-real-trading-design.md`).
+
+- **`KisApiClient`**: 공통 HTTP 래퍼. TR_ID는 호출부가 실전값(`TTTC*`)을 직접 지정하며 도메인별 변환 로직은 없다. 시세용 `FHKST*`/`FHKUP*` TR_ID도 그대로 쓴다. 헤더: `authorization`(Bearer KIS 토큰), `appkey`, `appsecret`, `tr_id`, `custtype=P`. RestTemplate timeout: connect 5s, read 18s.
 - **`DartApiClient`**: DART(금융감독원 전자공시). base `https://opendart.fss.or.kr/api`, key는 env `DART_API_KEY`(비우면 `isEnabled()=false` → DART 필드 null). `getCorpCode`(6자리 종목코드 → 8자리 corp 코드, `corpCode.xml` ZIP을 StAX 파싱 후 `ConcurrentHashMap` 캐시), `getCompanyProfile`, `getDisclosureList` 제공.
 - **`MarketDataService`** 환율: `frankfurter.app`(ECB, 무키), 뉴스: RSS(한국경제·매일경제·연합뉴스). 외부 실패 시 부분/빈 데이터로 degrade.
 
 주요 TR_ID 매핑:
 
-| 기능 | TR_ID | 도메인 |
-|------|-------|--------|
-| 잔고/보유종목 조회 | `VTTC8434R` | 모의 |
-| 매수 주문 | `VTTC0802U` | 모의 |
-| 매도 주문 | `VTTC0801U` | 모의 |
-| 거래내역(일별 체결) | `VTTC0081R` | 모의 |
-| 현재가/지표 | `FHKST01010100` | 실전 |
-| 손익계산서/재무비율/안정성 | `FHKST66430200` / `FHKST66430300` / `FHKST66430600` | 실전 |
-| 지수 조회 | `FHKUP03500100` | 실전 |
+| 기능 | TR_ID |
+|------|-------|
+| 잔고/보유종목 조회 | `TTTC8434R` |
+| 매수 주문 | `TTTC0802U` |
+| 매도 주문 | `TTTC0801U` |
+| 거래내역(일별 체결) | `TTTC0081R` |
+| 현재가/지표 | `FHKST01010100` |
+| 손익계산서/재무비율/안정성 | `FHKST66430200` / `FHKST66430300` / `FHKST66430600` |
+| 지수 조회 | `FHKUP03500100` |
 
 ### 실시간 시세 WebSocket 브리지 (Phase 1)
 
 REST 폴링과 별개로 실시간 호가·체결가는 KIS WebSocket으로 푸시된다. 브라우저는 KIS 소켓을 직접 연결하지 않고 api-server가 브리지(BFF)로 중계한다.
 
 ```
-Browser ⇄ Spring /ws/realtime ⇄ KIS upstream (ws://ops.koreainvestment.com:21000 real | :31000 mock)
+Browser ⇄ Spring /ws/realtime ⇄ KIS upstream (ws://ops.koreainvestment.com:21000, 실전 고정)
 ```
 
 - 접속키는 REST 토큰이 아닌 `approval_key`(`POST /oauth2/Approval`)를 사용하며, 시세용 앱 단위 자격증명(경로 (B))으로 발급한다.

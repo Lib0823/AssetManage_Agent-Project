@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 /**
  * 국내주식 예약주문 접수 요청 DTO (camelCase).
  *
- * <p>KIS 예약주문(order-resv, CTSC0008U)은 실전 계좌만 지원한다(모의 미지원).
+ * <p>KIS 예약주문(order-resv, CTSC0008U)은 실전 계좌 전용 TR 이다.
  * 프런트가 모드 안내로 게이트하므로 백엔드는 실전 경로만 구현한다.
  */
 @Getter

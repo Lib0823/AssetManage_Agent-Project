@@ -2,10 +2,14 @@ package com.inbeom.apiserver.kafka;
 
 import com.inbeom.apiserver.client.KisApiClient;
 import com.inbeom.apiserver.domain.TradeHistory;
+import com.inbeom.apiserver.domain.User;
+import com.inbeom.apiserver.domain.UserKisAccount;
 import com.inbeom.apiserver.dto.kafka.TradeOrderRequestMessage;
 import com.inbeom.apiserver.exception.KisApiException;
 import com.inbeom.apiserver.exception.KisRateLimitExceededException;
 import com.inbeom.apiserver.repository.TradeHistoryRepository;
+import com.inbeom.apiserver.repository.UserKisAccountRepository;
+import com.inbeom.apiserver.repository.UserRepository;
 import com.inbeom.apiserver.service.KisAuthService;
 import com.inbeom.apiserver.service.TradeOrderIdempotencyService;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -130,6 +134,12 @@ class TradeOrderConsumerIntegrationTest {
     @Autowired
     private TradeHistoryRepository tradeHistoryRepository;
 
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private UserKisAccountRepository userKisAccountRepository;
+
     @MockitoBean
     private KisApiClient kisApiClient;
 
@@ -182,7 +192,30 @@ class TradeOrderConsumerIntegrationTest {
         when(kisAuthService.getKisAccessToken(anyLong())).thenReturn("mock-token");
         when(kisAuthService.getKisCredentials(anyLong())).thenReturn(new KisAuthService.KisCredentials(
                 "mock-app-key", "mock-app-secret", "50000000", "01",
-                "https://openapivts.koreainvestment.com:29443"));
+                "https://openapi.koreainvestment.com:9443"));
+        ensureKisAccountFixture();
+    }
+
+    /**
+     * v1.4 시드 KIS 계좌는 v1.28(모의계좌 삭제)이 지워버렸다 — {@code TradeOrderIdempotencyService.claim()}이
+     * 실제 DB의 {@code user.getKisAccount()}로 계좌 존재를 검사하므로, 이 테스트가 자체적으로
+     * 픽스처를 보장한다(멱등 — 이미 있으면 다시 만들지 않는다).
+     */
+    private void ensureKisAccountFixture() {
+        if (userKisAccountRepository.findByUserId(USER_ID).isPresent()) {
+            return;
+        }
+        User user = userRepository.findById(USER_ID)
+                .orElseThrow(() -> new IllegalStateException("v1.4 시드 유저(id=1)가 없다"));
+        UserKisAccount account = UserKisAccount.builder()
+                .user(user)
+                .accountNumber("50000000")
+                .accountProductCode("01")
+                .appKey("test-app-key")
+                .appSecret("test-app-secret")
+                .isVerified(true)
+                .build();
+        userKisAccountRepository.saveAndFlush(account);
     }
 
     // ==================================================================
@@ -431,7 +464,7 @@ class TradeOrderConsumerIntegrationTest {
         when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
                 any(), eq(Map.class)))
                 .thenThrow(new KisRateLimitExceededException(
-                        "KIS 호출 한도를 초과해 요청을 보내지 않았습니다 (trId=VTTC0802U)"))
+                        "KIS 호출 한도를 초과해 요청을 보내지 않았습니다 (trId=TTTC0802U)"))
                 .thenReturn(new ResponseEntity<>(accepted, HttpStatus.OK));
 
         publishOrder(key, "005490", "BUY", 4);
@@ -461,7 +494,7 @@ class TradeOrderConsumerIntegrationTest {
         when(kisApiClient.post(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(),
                 any(), eq(Map.class)))
                 .thenThrow(new KisRateLimitExceededException(
-                        "KIS 호출 한도를 초과해 요청을 보내지 않았습니다 (trId=VTTC0801U)"));
+                        "KIS 호출 한도를 초과해 요청을 보내지 않았습니다 (trId=TTTC0801U)"));
 
         publishOrder(key, "009150", "SELL", 6);
 

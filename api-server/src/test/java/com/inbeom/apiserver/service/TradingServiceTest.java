@@ -86,7 +86,7 @@ class TradingServiceTest {
                 "MOCK_APP_SECRET",
                 "12345678-01",
                 "01",
-                "https://openapivts.koreainvestment.com:29443"
+                "https://openapi.koreainvestment.com:9443"
         );
 
         mockUser = User.builder()
@@ -100,7 +100,7 @@ class TradingServiceTest {
     @Test
     @DisplayName("executeBuy - 매수 주문 실행 (KIS 주문 후 응답 반환, DB 미저장)")
     void executeBuy_Success() {
-        // Given: 거래내역은 DB에 저장하지 않고 KIS(VTTC0802U) 주문 응답을 그대로 반환한다.
+        // Given: 거래내역은 DB에 저장하지 않고 KIS(TTTC0802U) 주문 응답을 그대로 반환한다.
         String stockCode = "005930";
         String stockName = "삼성전자";
         Integer quantity = 10;
@@ -116,7 +116,7 @@ class TradingServiceTest {
         when(kisApiClient.post(
                 anyString(),
                 eq("/uapi/domestic-stock/v1/trading/order-cash"),
-                eq("VTTC0802U"),
+                eq("TTTC0802U"),
                 eq(mockKisToken),
                 eq("MOCK_APP_KEY"),
                 eq("MOCK_APP_SECRET"),
@@ -134,7 +134,7 @@ class TradingServiceTest {
         Map<String, Object> output = (Map<String, Object>) result.get("output");
         assertThat(output.get("ODNO")).isEqualTo("ORDER123456");
         verify(kisApiClient, times(1)).post(
-                anyString(), anyString(), eq("VTTC0802U"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
+                anyString(), anyString(), eq("TTTC0802U"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
     }
 
     @Test
@@ -155,7 +155,7 @@ class TradingServiceTest {
         when(kisApiClient.post(
                 anyString(),
                 eq("/uapi/domestic-stock/v1/trading/order-cash"),
-                eq("VTTC0801U"),
+                eq("TTTC0801U"),
                 anyString(),
                 anyString(),
                 anyString(),
@@ -173,13 +173,13 @@ class TradingServiceTest {
         Map<String, Object> output = (Map<String, Object>) result.get("output");
         assertThat(output.get("ODNO")).isEqualTo("ORDER789012");
         verify(kisApiClient, times(1)).post(
-                anyString(), anyString(), eq("VTTC0801U"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
+                anyString(), anyString(), eq("TTTC0801U"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
     }
 
     @Test
     @DisplayName("getTradeHistory - 사용자 거래 내역 조회 성공 (KIS inquire-daily-ccld 직접 조회)")
     void getTradeHistory_Success() {
-        // Given: 거래내역은 DB가 아니라 KIS API(VTTC0081R)를 직접 조회해 TradeHistoryResponse 로 매핑한다.
+        // Given: 거래내역은 DB가 아니라 KIS API(TTTC0081R)를 직접 조회해 TradeHistoryResponse 로 매핑한다.
         UserKisAccount kisAccount = mock(UserKisAccount.class);
         User userWithKis = mock(User.class);
         when(userWithKis.getKisAccount()).thenReturn(kisAccount);
@@ -351,7 +351,7 @@ class TradingServiceTest {
         // Then
         assertThat(result.get("rt_cd")).isEqualTo("0");
         verify(kisApiClient, times(1)).post(
-                anyString(), anyString(), eq("VTTC0802U"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
+                anyString(), anyString(), eq("TTTC0802U"), anyString(), anyString(), anyString(), anyMap(), eq(Map.class));
     }
 
     @Test
@@ -521,7 +521,7 @@ class TradingServiceTest {
         // Given: KIS 는 주문 거부도 HTTP 200 + rt_cd="1" 로 준다. 검사하지 않으면 실패가 성공으로 보고된다.
         Map<String, Object> kisResponse = new HashMap<>();
         kisResponse.put("rt_cd", "1");
-        kisResponse.put("msg1", "  모의투자 영업일이 아닙니다.  ");
+        kisResponse.put("msg1", "  영업일이 아닙니다.  ");
 
         stubKisAuth();
         stubMapPost(kisResponse);
@@ -531,7 +531,7 @@ class TradingServiceTest {
                 tradingService.executeBuy(userId, kisAccountId, "005930", "삼성전자", 10, null))
                 .isInstanceOf(KisApiException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.KIS_API_SERVER_ERROR)
-                .hasMessageContaining("모의투자 영업일이 아닙니다.")
+                .hasMessageContaining("영업일이 아닙니다.")
                 .hasMessageContaining("rt_cd=1");
     }
 
@@ -860,7 +860,7 @@ class TradingServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> captor = ArgumentCaptor.forClass(Map.class);
         verify(kisApiClient).get(anyString(), eq("/uapi/domestic-stock/v1/trading/inquire-daily-ccld"),
-                eq("VTTC0081R"), anyString(), anyString(), anyString(),
+                eq("TTTC0081R"), anyString(), anyString(), anyString(),
                 captor.capture(), eq(KisDailyCcldResponse.class));
         assertThat(captor.getValue()).containsEntry("CCLD_DVSN", "02");
     }
@@ -1049,7 +1049,7 @@ class TradingServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> captor = ArgumentCaptor.forClass(Map.class);
         verify(kisApiClient, times(3)).get(anyString(), eq("/uapi/domestic-stock/v1/trading/inquire-psbl-order"),
-                eq("VTTC8908R"), anyString(), anyString(), anyString(), captor.capture(), eq(Map.class));
+                eq("TTTC8908R"), anyString(), anyString(), anyString(), captor.capture(), eq(Map.class));
         assertThat(captor.getAllValues().get(0)).containsEntry("ORD_UNPR", "70000.00");
         assertThat(captor.getAllValues().get(1)).containsEntry("ORD_UNPR", "0");
         assertThat(captor.getAllValues().get(2)).containsEntry("ORD_UNPR", "0");
@@ -1064,7 +1064,7 @@ class TradingServiceTest {
         stubKisAuth();
         Map<String, Object> body = new HashMap<>();
         body.put("rt_cd", "1");
-        body.put("msg1", "모의투자 미지원");
+        body.put("msg1", "조회 권한이 없습니다");
         stubMapGet(body);
 
         // When
@@ -1663,7 +1663,7 @@ class TradingServiceTest {
     @Test
     @DisplayName("getHoldings - output2 요약이 비면 보유종목 합계로 총액·수익률을 계산한다")
     void getHoldings_NoSummary_CalculatesFromHoldings() {
-        // Given: 모의계좌는 output2 를 비워 보내는 경우가 있다.
+        // Given: KIS 가 output2 를 비워 보내는 경우가 있다.
         stubUserWithKisAccount();
         stubKisAuth();
 

@@ -1,6 +1,6 @@
 # AI Agent 문서
 
-ai-agent는 매 거래일 KOSPI 100 종목을 분석해 11개 피처를 산출하고, Gemini AI로 매수/매도 TOP3를 결정한 뒤 Safety Filter를 거쳐 KIS 모의투자 주문을 실행하는 **Python FastAPI 파이프라인 모듈**이다.
+ai-agent는 매 거래일 KOSPI 100 종목을 분석해 11개 피처를 산출하고, Gemini AI로 매수/매도 TOP3를 결정한 뒤 Safety Filter를 거쳐 KIS 실전투자 주문을 실행하는 **Python FastAPI 파이프라인 모듈**이다.
 
 이 디렉터리(`_docs/`)만 읽으면 모듈의 (1) 구조, (2) 진행 상황, (3) 기능 설계를 파악할 수 있다.
 

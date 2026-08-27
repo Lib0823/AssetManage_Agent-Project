@@ -13,7 +13,7 @@ import java.math.BigDecimal;
 /**
  * 내부 API: ai-agent 가 특정 사용자 명의로 요청하는 매수/매도 주문.
  *
- * <p>snake_case 본문(Python 클라이언트 친화). 모의투자는 시장가 주문이므로
+ * <p>snake_case 본문(Python 클라이언트 친화). 국내 정규주문은 시장가로 나가므로
  * {@code price} 는 선택값이며, 미지정 시 0(시장가)으로 처리한다.
  */
 @Getter

@@ -24,11 +24,11 @@ import java.util.function.BiConsumer;
 /**
  * userId → {@link UserFillsUpstreamConnection} 생성 팩토리 (체결통보 전용).
  *
- * <p>경로(자격증명 분리 — 절대 시세 quote 키/실전 도메인과 교차 금지):
+ * <p>경로(자격증명 분리 — 절대 시세 quote 키와 교차 금지):
  * <ol>
  *   <li>{@link UserKisAccountRepository#findByUserId} → 계좌(htsId 포함).</li>
  *   <li>{@link KisAuthService#getKisCredentials}(kisAccountId) → 사용자 appkey/secret (복호).</li>
- *   <li>approval base = {@code kis.base-url}(모의 trade 도메인), ws-url = {@code kis.realtime.fills.ws-url}(모의 :31000).</li>
+ *   <li>approval base = {@code kis.base-url}, ws-url = {@code kis.realtime.fills.ws-url}(:21000).</li>
  *   <li>htsId blank → {@link Result#error} (graceful degrade, 연결 생성 안 함).</li>
  * </ol>
  *
@@ -51,9 +51,8 @@ public class UserFillsConnectionFactory {
     private final KisFillFrameDecryptor decryptor;
     private final FillFrameParser fillFrameParser;
     private final tools.jackson.databind.ObjectMapper objectMapper;
-    private final String approvalBaseUrl;   // kis.base-url (모의 trade 도메인, fallback)
-    private final String fillsWsUrl;        // kis.realtime.fills.ws-url (모의 :31000)
-    private final String realFillsWsUrl;    // kis.realtime.fills.real-ws-url (실전 :21000)
+    private final String approvalBaseUrl;   // kis.base-url (trade 도메인, fallback)
+    private final String fillsWsUrl;        // kis.realtime.fills.ws-url (:21000)
 
     private final RestTemplate restTemplate = buildRestTemplate();
 
@@ -64,8 +63,7 @@ public class UserFillsConnectionFactory {
             FillFrameParser fillFrameParser,
             tools.jackson.databind.ObjectMapper objectMapper,
             @Value("${kis.base-url}") String approvalBaseUrl,
-            @Value("${kis.realtime.fills.ws-url:ws://ops.koreainvestment.com:31000}") String fillsWsUrl,
-            @Value("${kis.realtime.fills.real-ws-url:ws://ops.koreainvestment.com:21000}") String realFillsWsUrl) {
+            @Value("${kis.realtime.fills.ws-url:ws://ops.koreainvestment.com:21000}") String fillsWsUrl) {
         this.kisAccountRepository = kisAccountRepository;
         this.kisAuthService = kisAuthService;
         this.decryptor = decryptor;
@@ -73,7 +71,6 @@ public class UserFillsConnectionFactory {
         this.objectMapper = objectMapper;
         this.approvalBaseUrl = approvalBaseUrl;
         this.fillsWsUrl = fillsWsUrl;
-        this.realFillsWsUrl = realFillsWsUrl;
     }
 
     private static RestTemplate buildRestTemplate() {
@@ -131,11 +128,8 @@ public class UserFillsConnectionFactory {
             return Result.error("KIS 계좌 자격증명을 불러오지 못했습니다 (체결통보)");
         }
 
-        // 계정 모드(creds.baseUrl 도메인)로 approval 도메인 / 체결통보 ws-url / TR 을 결정.
-        boolean real = creds.baseUrl() != null && creds.baseUrl().contains("openapi.koreainvestment.com");
         String accountApprovalBaseUrl = (creds.baseUrl() != null && !creds.baseUrl().isBlank())
                 ? creds.baseUrl() : approvalBaseUrl;
-        String accountWsUrl = real ? realFillsWsUrl : fillsWsUrl;
 
         ConnectionCredentials connCreds = new ConnectionCredentials(
                 creds.appKey(), creds.appSecret(), accountApprovalBaseUrl);
@@ -144,15 +138,12 @@ public class UserFillsConnectionFactory {
             return Result.error("KIS 계좌 자격증명이 유효하지 않습니다 (체결통보)");
         }
 
-        // KR 전용 MVP: 모의=H0STCNI9, 실전=H0STCNI0. 계정 모드로 결정.
-        String trId = real ? RealtimeTr.KR_FILL.trId() : RealtimeTr.KR_FILL.mockTrId();
-
         UserFillsUpstreamConnection connection = new UserFillsUpstreamConnection(
                 userId,
                 connCreds,
-                trId,
+                RealtimeTr.KR_FILL.trId(),
                 htsId,
-                accountWsUrl,
+                fillsWsUrl,
                 decryptor,
                 fillFrameParser,
                 objectMapper,

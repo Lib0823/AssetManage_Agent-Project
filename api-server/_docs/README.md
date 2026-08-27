@@ -1,6 +1,6 @@
 # api-server 문서 인덱스
 
-AI 주식 자동매매 시스템의 백엔드 모듈이다. Spring Boot(Java 21)로 사용자 인증, KIS 모의투자 매매 실행, 시장/AI 분석 데이터 조회 REST API를 제공한다.
+AI 주식 자동매매 시스템의 백엔드 모듈이다. Spring Boot(Java 21)로 사용자 인증, KIS 실전투자 매매 실행, 시장/AI 분석 데이터 조회 REST API를 제공한다.
 
 이 디렉터리(`api-server/_docs/`)만 읽으면 (1) 전체 구조, (2) 진행 상황, (3) 기능 설계를 코드 기준으로 파악할 수 있도록 정리했다. 모든 명세는 `src/main/java/com/inbeom/apiserver/**` 실제 코드에 맞춰 작성되었다.
 
@@ -33,7 +33,7 @@ AI 주식 자동매매 시스템의 백엔드 모듈이다. Spring Boot(Java 21)
 | DB | PostgreSQL, Liquibase 마이그레이션 |
 | 빌드 | Gradle |
 | 서버 포트 | `7070`, context-path `/api` (full URL: `http://localhost:7070/api/...`) |
-| 외부 연동 | KIS Open API(모의투자 매매 + 실전 시세/재무), DART(공시·재무) |
+| 외부 연동 | KIS Open API(실전투자 매매 + 시세/재무), DART(공시·재무) |
 
 ---
 

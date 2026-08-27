@@ -77,45 +77,7 @@ public class KisApiClient {
     private String kisBaseUrl;
 
     /**
-     * 주어진 base URL 이 실전(real) 도메인인지 판정.
-     * - 실전: openapi.koreainvestment.com  · 모의: openapivts.koreainvestment.com
-     * (모의 도메인은 "openapivts." 라서 "openapi.koreainvestment.com" 을 포함하지 않는다.)
-     */
-    private boolean isRealDomain(String baseUrl) {
-        return baseUrl != null && baseUrl.contains("openapi.koreainvestment.com");
-    }
-
-    /** 하위호환: 전역 base-url(모의 기본) 기준 변환. */
-    public String convertTrId(String baseTrId) {
-        return convertTrId(baseTrId, kisBaseUrl);
-    }
-
-    /**
-     * Convert TR_ID based on the call's base URL (사용자별 모의/실전 도메인).
-     * - Virtual (openapivts): VTTC*  · Real (openapi): TTTC*
-     *
-     * IMPORTANT: VTTC/TTTC 국내 매매 TR 만 도메인 종속이라 변환한다. FHKST(시세/재무)
-     * 및 해외 TR(VTTS/VTTT/HHDFS)은 변환하지 않고 그대로 반환한다(해외는 호출부가 V/T 확정).
-     *
-     * @param baseTrId Base TR_ID (e.g., "VTTC8434R")
-     * @param baseUrl  이 호출의 도메인 (계정 모드로 결정)
-     */
-    public String convertTrId(String baseTrId, String baseUrl) {
-        if (baseTrId == null || baseTrId.length() < 4) {
-            return baseTrId;
-        }
-        String head = baseTrId.substring(0, 4);
-        if (!head.equals("VTTC") && !head.equals("TTTC")) {
-            return baseTrId;
-        }
-        String suffix = baseTrId.substring(4); // "8434R" 부분
-        String prefix = isRealDomain(baseUrl) ? "TTTC" : "VTTC";
-        return prefix + suffix;
-    }
-
-    /**
      * Call KIS API with authentication headers
-     * TR_ID는 base URL에 따라 자동 변환됩니다 (VTTC ↔ TTTC)
      */
     public <T> ResponseEntity<T> callKisApi(
             String endpoint,
@@ -131,11 +93,10 @@ public class KisApiClient {
     }
 
     /**
-     * Call KIS API with an explicit base URL (e.g. 실전 시세/재무 도메인).
+     * Call KIS API with an explicit base URL (e.g. 시세/재무 전용 도메인).
      *
-     * 기존 매매 흐름은 주입된 {@code kisBaseUrl}(모의 도메인)을 그대로 사용하고,
-     * CompanyInfoService 의 시세/재무 호출만 실전 도메인을 명시적으로 넘긴다.
-     * TR_ID 변환은 VTTC/TTTC 매매 prefix 에만 적용되므로 FHKST 시세/재무 TR_ID 는 그대로 전송된다.
+     * 매매 흐름은 주입된 {@code kisBaseUrl} 을 그대로 쓰고, CompanyInfoService 의
+     * 시세/재무 호출만 {@code kis.quote-base-url} 을 명시적으로 넘긴다.
      */
     public <T> ResponseEntity<T> callKisApi(
             String baseUrl,
@@ -149,19 +110,16 @@ public class KisApiClient {
             Class<T> responseType
     ) {
         String resolvedBaseUrl = (baseUrl != null && !baseUrl.isBlank()) ? baseUrl : kisBaseUrl;
+        log.debug("KIS call: baseUrl={}, trId={}", resolvedBaseUrl, trId);
 
-        // TR_ID 자동 변환: 이 호출의 도메인(resolvedBaseUrl) 기준 Virtual→VTTC* / Real→TTTC*. FHKST*/해외 TR 등은 변환되지 않음.
-        String convertedTrId = convertTrId(trId, resolvedBaseUrl);
-        log.debug("KIS call: baseUrl={}, trId: {} → {}", resolvedBaseUrl, trId, convertedTrId);
-
-        CachePolicy policy = cachePolicyFor(method, convertedTrId);
-        String cacheKey = (policy != null) ? responseCache.keyOf(resolvedBaseUrl, endpoint, convertedTrId) : null;
+        CachePolicy policy = cachePolicyFor(method, trId);
+        String cacheKey = (policy != null) ? responseCache.keyOf(resolvedBaseUrl, endpoint, trId) : null;
 
         // 1) 신선한 캐시가 있으면 KIS 를 호출하지 않는다 (토큰도 소비하지 않는다).
         KisResponseCache.Entry<T> cached =
                 (policy != null) ? responseCache.find(cacheKey, responseType, policy) : null;
         if (cached != null && cached.fresh()) {
-            log.debug("KIS cache hit: trId={}, endpoint={}", convertedTrId, endpoint);
+            log.debug("KIS cache hit: trId={}, endpoint={}", trId, endpoint);
             return cachedResponse(cached.body(), CACHE_HIT);
         }
 
@@ -169,31 +127,31 @@ public class KisApiClient {
         //    호출부(특히 Kafka 매매 컨슈머)가 "KIS 미접촉"을 구분할 수 있어야 하므로 전용 예외를 던진다.
         if (rateLimiter != null && !rateLimiter.tryAcquire(appKey)) {
             if (cached != null) {
-                log.warn("KIS rate limited; serving stale cache: trId={}, endpoint={}", convertedTrId, endpoint);
+                log.warn("KIS rate limited; serving stale cache: trId={}, endpoint={}", trId, endpoint);
                 return cachedResponse(cached.body(), CACHE_STALE);
             }
             throw new KisRateLimitExceededException(
-                    "KIS 호출 한도를 초과해 요청을 보내지 않았습니다 (trId=" + convertedTrId + ")");
+                    "KIS 호출 한도를 초과해 요청을 보내지 않았습니다 (trId=" + trId + ")");
         }
 
         // 3) 실제 호출. 실패하면 grace 기간 안의 마지막 성공값으로 폴백한다(stale-if-error).
         try {
             ResponseEntity<T> response = exchange(resolvedBaseUrl + endpoint, endpoint, method,
-                    convertedTrId, kisToken, appKey, appSecret, requestBody, responseType);
+                    trId, kisToken, appKey, appSecret, requestBody, responseType);
             if (policy != null) {
                 if (isSuccessBody(response.getBody())) {
                     responseCache.put(cacheKey, response.getBody(), policy);
                 } else if (cached != null) {
                     // rt_cd != 0 도 "조회 실패"다. 그대로 넘기면 화면이 빈 값으로 degrade 하므로
                     // 마지막 성공값이 있으면 그쪽이 사용자에게 더 쓸모 있다.
-                    log.warn("KIS returned rt_cd!=0; serving stale cache: trId={}", convertedTrId);
+                    log.warn("KIS returned rt_cd!=0; serving stale cache: trId={}", trId);
                     return cachedResponse(cached.body(), CACHE_STALE);
                 }
             }
             return response;
         } catch (KisApiException e) {
             if (cached != null) {
-                log.warn("KIS call failed ({}); serving stale cache: trId={}", e.getMessage(), convertedTrId);
+                log.warn("KIS call failed ({}); serving stale cache: trId={}", e.getMessage(), trId);
                 return cachedResponse(cached.body(), CACHE_STALE);
             }
             throw e;
@@ -205,7 +163,7 @@ public class KisApiClient {
             String url,
             String endpoint,
             HttpMethod method,
-            String convertedTrId,
+            String trId,
             String kisToken,
             String appKey,
             String appSecret,
@@ -217,7 +175,7 @@ public class KisApiClient {
         headers.set("authorization", "Bearer " + kisToken);
         headers.set("appkey", appKey);
         headers.set("appsecret", appSecret);
-        headers.set("tr_id", convertedTrId);  // 변환된 TR_ID 사용
+        headers.set("tr_id", trId);
         headers.set("custtype", "P");
 
         HttpEntity<?> request = new HttpEntity<>(requestBody, headers);
@@ -335,7 +293,7 @@ public class KisApiClient {
     }
 
     /**
-     * POST request with an explicit base URL (사용자별 모의/실전 매매 도메인).
+     * POST request with an explicit base URL.
      */
     public <T> ResponseEntity<T> post(
             String baseUrl,

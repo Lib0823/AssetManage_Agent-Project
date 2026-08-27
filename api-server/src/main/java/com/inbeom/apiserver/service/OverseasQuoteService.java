@@ -17,9 +17,9 @@ import java.util.Map;
 /**
  * 해외주식(미국) 현재가 조회 서비스.
  *
- * <p>해외 시세(현재가상세 HHDFS76200200 / 현재가 HHDFS00000300)는 모의(openapivts) 도메인에서
- * 제공되지 않으므로, 매매/잔고 흐름과 분리된 실전 시세 도메인 + 실전 quote 자격증명
- * ({@link KisQuoteService}, 설정 kis.quote-*)으로 호출한다. DB 의 모의 키는 이 경로에서 쓰지 않는다.
+ * <p>해외 시세(현재가상세 HHDFS76200200 / 현재가 HHDFS00000300)는 매매/잔고 흐름과 분리된
+ * 앱 단위 quote 자격증명({@link KisQuoteService}, 설정 kis.quote-*)으로 호출한다.
+ * DB 의 사용자별 매매 키는 이 경로에서 쓰지 않는다.
  *
  * <p>시세 미연동(quote 키 미설정)·해외시세 권한없음·rt_cd != 0·예외 시 절대 예외를 전파하지 않고
  * 가격 필드는 null, {@code notice} 에 안내 메시지를 담아 graceful degrade 한다.

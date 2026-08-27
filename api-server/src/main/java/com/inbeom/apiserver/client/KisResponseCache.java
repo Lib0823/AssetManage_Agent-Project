@@ -86,7 +86,7 @@ public class KisResponseCache {
 
     /**
      * 캐시 키. 같은 종목이라도 데이터 종류가 다르면 달라야 하므로 TR_ID 와 요청 URL(종목코드가
-     * 쿼리스트링에 들어 있다)을 함께 해싱한다. 도메인(모의/실전)도 응답이 다르므로 포함한다.
+     * 쿼리스트링에 들어 있다)을 함께 해싱한다. 도메인도 응답이 다르므로 포함한다.
      */
     public String keyOf(String baseUrl, String endpointWithQuery, String trId) {
         return trId + ":" + sha256Short(baseUrl + "|" + endpointWithQuery);

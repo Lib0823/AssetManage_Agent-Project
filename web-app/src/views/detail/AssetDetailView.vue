@@ -32,7 +32,7 @@ const domesticStocks = ref([])
 // 해외 주식(US) 데이터 (overseasApi.getBalance() 기반, USD 원본)
 const overseasStocks = ref([])
 
-// 해외 안내 메시지 (quote 비활성 / 모의 해외매매 미지원 등 graceful degrade)
+// 해외 안내 메시지 (quote 비활성 등 graceful degrade)
 const overseasNotice = ref('')
 
 // 국내 KIS 연동 불가(점검/네트워크/서버 오류) 여부.
@@ -336,7 +336,7 @@ const goToInfo = (stock) => {
 
 <template>
   <div class="asset-detail-screen">
-    <AppHeader title="자산 상세 정보" showBack show-kis-mode />
+    <AppHeader title="자산 상세 정보" showBack />
 
     <div class="content">
       <!-- Tabs -->
@@ -363,7 +363,7 @@ const goToInfo = (stock) => {
           </div>
         </div>
 
-        <!-- USD Card (해외 자산 요약 — KIS 모의 잔고 기준) -->
+        <!-- USD Card (해외 자산 요약 — KIS 잔고 기준) -->
         <div class="cash-card">
           <div class="cash-header">
             <h3 class="cash-title">USD</h3>

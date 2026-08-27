@@ -157,7 +157,7 @@ const periodOptions = [
   { key: '3months', label: '3개월' }
 ]
 
-// 캘린더 직접 기간 선택. KIS 모의 체결조회가 최근 3개월만 제공하므로 선택 범위도 3개월로 제한한다.
+// 캘린더 직접 기간 선택. KIS 체결조회가 최근 3개월만 제공하므로 선택 범위도 3개월로 제한한다.
 const showCalendar = ref(false)
 const customRange = ref(null) // { start: Date, end: Date } | null
 

@@ -35,23 +35,8 @@ public class KisAuthService {
     @Value("${kis.base-url}")
     private String kisBaseUrl;
 
-    @Value("${kis.real-base-url}")
-    private String kisRealBaseUrl;
-
     @Value("${kis.token-cache-ttl}")
     private long tokenCacheTtl;
-
-    /** 계정 모드 REAL 여부 판정 ("REAL" 대소문자 무시, null/기타는 모의). */
-    public boolean isReal(String mode) {
-        return "REAL".equalsIgnoreCase(mode);
-    }
-
-    /**
-     * 계정 모드 → 매매/조회/OAuth base-url. REAL 이면 실전 도메인, 그 외(null/MOCK)는 모의 도메인.
-     */
-    public String baseUrlFor(String mode) {
-        return isReal(mode) ? kisRealBaseUrl : kisBaseUrl;
-    }
 
     // KIS Access Token Cache: kis_account_id -> TokenCache
     private final Map<Long, KisTokenCache> userKisTokens = new ConcurrentHashMap<>();
@@ -78,9 +63,8 @@ public class KisAuthService {
         String appKey = decryptCredential(kisAccount.getAppKey(), "app_key", kisAccountId);
         String appSecret = decryptCredential(kisAccount.getAppSecret(), "app_secret", kisAccountId);
 
-        // 3. Issue KIS OAuth token against the account's domain (mode-aware)
-        String baseUrl = baseUrlFor(kisAccount.getAccountMode());
-        String kisToken = requestKisOAuthToken(appKey, appSecret, baseUrl);
+        // 3. Issue KIS OAuth token
+        String kisToken = requestKisOAuthToken(appKey, appSecret);
 
         // 4. Cache for 24h
         userKisTokens.put(kisAccountId, new KisTokenCache(kisToken, tokenCacheTtl));
@@ -90,13 +74,10 @@ public class KisAuthService {
     }
 
     /**
-     * Request KIS OAuth2 Token against a specific domain (mode-aware).
-     *
-     * @param baseUrl 계정 모드(MOCK/REAL)에 해당하는 KIS 도메인. null/blank 이면 모의 도메인으로 폴백.
+     * Request KIS OAuth2 Token.
      */
-    private String requestKisOAuthToken(String appKey, String appSecret, String baseUrl) {
-        String resolvedBaseUrl = (baseUrl != null && !baseUrl.isBlank()) ? baseUrl : kisBaseUrl;
-        String url = resolvedBaseUrl + "/oauth2/tokenP";
+    private String requestKisOAuthToken(String appKey, String appSecret) {
+        String url = kisBaseUrl + "/oauth2/tokenP";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -146,12 +127,8 @@ public class KisAuthService {
         String appKey = decryptCredential(kisAccount.getAppKey(), "app_key", kisAccountId);
         String appSecret = decryptCredential(kisAccount.getAppSecret(), "app_secret", kisAccountId);
 
-        // 계정 모드(MOCK/REAL) → 매매/조회 도메인. 호출부(TradingService/AssetService/OverseasTradingService/
-        // fills)가 creds.baseUrl() 로 KIS 호출 도메인을 결정한다.
-        String baseUrl = baseUrlFor(kisAccount.getAccountMode());
-
         return new KisCredentials(appKey, appSecret, kisAccount.getAccountNumber(),
-                kisAccount.getAccountProductCode(), baseUrl);
+                kisAccount.getAccountProductCode(), kisBaseUrl);
     }
 
     /**
@@ -201,8 +178,8 @@ public class KisAuthService {
     /**
      * KIS Credentials DTO.
      *
-     * <p>{@code baseUrl} 은 계정 모드(MOCK/REAL)에 해당하는 매매/조회 도메인이다.
-     * 호출부는 이 값을 {@code KisApiClient} 의 8-arg get/post 로 넘겨 사용자별 도메인 라우팅을 수행한다.
+     * <p>{@code baseUrl} 은 실전 매매/조회 도메인({@code kis.base-url})이다.
+     * 호출부는 이 값을 {@code KisApiClient} 의 8-arg get/post 로 넘긴다.
      */
     public record KisCredentials(
             String appKey,
