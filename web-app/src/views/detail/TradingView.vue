@@ -1,22 +1,16 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
 import { stockApi, tradingApi, overseasApi, marketApi } from '@/services/api'
 import { useRealtimeStore } from '@/stores/realtime'
-import { useAuthStore } from '@/stores/auth'
 import { isKisOutageError } from '@/utils/kisStatus'
 import { logger } from '@/utils/logger'
 import { showSuccess, showError } from '@/utils/toast'
 
 const route = useRoute()
 const router = useRouter()
-
-// KIS 계좌 모드 ('REAL'|'MOCK'|null). 예약주문은 실전 계좌에서만 동작.
-const authStore = useAuthStore()
-const { accountMode } = storeToRefs(authStore)
 
 const symbol = ref(route.params.symbol || '005930')  // Default to Samsung Electronics
 const stockName = ref(route.query.name || '삼성전자')  // Stock name
@@ -128,8 +122,7 @@ const marketDataLoading = computed(() => quoteLoading.value || orderableLoading.
 //
 // 매수가능조회(maxQuantity)는 다르다 — 백엔드 TradingService.verifyBuyingPower()가
 // 이 조회의 degrade(notice != null)를 fail-open으로 건너뛴다(조회 실패를 잔고부족으로
-// 오인해 정상 주문을 막으면 안 되기 때문, 특히 해외는 이 조회 자체가 모의투자 미지원일
-// 수 있다). 프론트가 여기서 하드 블록을 걸면 백엔드는 허용하려는 주문을 프론트가 막아
+// 오인해 정상 주문을 막으면 안 되기 때문). 프론트가 여기서 하드 블록을 걸면 백엔드는 허용하려는 주문을 프론트가 막아
 // 정책이 어긋난다. 그래서 한도를 몰라도(orderForm.maxQuantity == null) 제출은 허용하고,
 // 한도를 알고 있는데 초과한 경우에만 막는다 — 백엔드와 동일한 fail-open.
 const orderBlockReason = computed(() => {
@@ -573,9 +566,9 @@ const filteredOrders = computed(() => ({
   pending: pendingOrders.value
 }))
 
-// ── 예약주문 (국내 실전 계좌 전용 — KIS 모의 미지원) ──────────────────────────
-// 실전(REAL) + 국내 종목일 때만 폼/목록을 노출하고, 그 외에는 안내만 표시한다.
-const reservedEnabled = computed(() => accountMode.value === 'REAL' && !isOverseas.value)
+// ── 예약주문 (국내 전용) ─────────────────────────────────────────────────────
+// 국내 종목일 때만 폼/목록을 노출하고, 해외면 안내만 표시한다.
+const reservedEnabled = computed(() => !isOverseas.value)
 
 // Date → 'YYYY-MM-DD' (date input v-model용)
 const toDateInput = (date) => {
@@ -719,7 +712,7 @@ const realtimeNotice = computed(() => {
 
 <template>
   <div class="trading-screen">
-    <AppHeader title="실시간 매매" showBack show-kis-mode />
+    <AppHeader title="실시간 매매" showBack />
 
     <div class="content">
       <!-- Stock Header -->
@@ -787,14 +780,7 @@ const realtimeNotice = computed(() => {
             variant="banner"
             message="예약주문은 국내 계좌에서만 지원됩니다."
           />
-          <!-- 모의/미등록 계좌: 실전 전용 안내 -->
-          <KisMaintenanceNotice
-            v-else-if="accountMode !== 'REAL'"
-            variant="card"
-            message="예약주문은 실전 계좌에서만 지원됩니다 (현재 모의투자 모드)."
-          />
-
-          <!-- 실전 + 국내: 예약주문 폼 + 목록 -->
+          <!-- 국내: 예약주문 폼 + 목록 -->
           <template v-else>
             <div class="reserved-form">
               <div class="reserved-tabs">

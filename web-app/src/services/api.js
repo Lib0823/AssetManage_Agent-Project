@@ -162,7 +162,7 @@ export const tradingApi = {
   getHoldings: () => api.get('/trading/holdings'),
   getPendingOrders: () => api.get('/trading/pending-orders'),
   getOrderable: (stockCode, price) => api.get('/trading/orderable', { params: { stockCode, price } }),
-  // 예약주문 (국내 실전 계좌 전용 — KIS 모의 미지원)
+  // 예약주문 (국내 전용)
   getReservedOrders: () => api.get('/trading/reserved-orders'),
   placeReservedOrder: (body) => api.post('/trading/reserved-orders', body),
   cancelReservedOrder: (seq, params) => api.delete(`/trading/reserved-orders/${seq}`, { params })

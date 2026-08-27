@@ -29,8 +29,8 @@ const RECONNECT_MAX_MS = 30000
 // 엔드포인트가 없어 매번 실패하므로, 몇 번 시도 후 'disabled'로 포기하고 사용자 액션(구독) 시 재시도한다.
 const MAX_RECONNECT_ATTEMPTS = 4
 
-// 실계좌(REAL) 모드가 아닐 때(모의/미등록) 표시할 안내. 이 경우 연결 자체를 시도하지 않는다.
-const NOTICE_REALTIME_MOCK = '실시간 시세는 실전(REAL) 계좌 모드에서만 제공됩니다'
+// KIS 계좌가 등록되지 않았을 때 표시할 안내. 이 경우 연결 자체를 시도하지 않는다.
+const NOTICE_REALTIME_NO_ACCOUNT = '실시간 시세는 KIS 계좌를 등록해야 이용할 수 있습니다'
 
 /**
  * 연결 상태 (store와 동일 enum)
@@ -89,15 +89,15 @@ class RealtimeClient {
     this.intentionalClose = false
     // 연속 실패로 자동 재연결을 포기한 상태. 사용자 액션(subscribe/subscribeFills) 시 초기화된다.
     this.gaveUp = false
-    // 실시간 사용 여부. 실계좌(REAL) 모드에서만 true. false(기본, 모의/미등록)면 연결을 시도하지 않는다.
-    // 로그인·프로필 저장 시 계좌 모드에 따라 setEnabled()로 갱신한다.
+    // 실시간 사용 여부. KIS 계좌가 등록된 경우에만 true. false(기본, 미등록)면 연결을 시도하지 않는다.
+    // 로그인·프로필 저장 시 계좌 등록 여부에 따라 setEnabled()로 갱신한다.
     this.enabled = false
   }
 
   /**
-   * 실시간 연결 사용 여부 설정. 실계좌(REAL) 모드에서만 true 로 켠다.
+   * 실시간 연결 사용 여부 설정. KIS 계좌가 등록된 경우에만 true 로 켠다.
    * - true : 이전 포기 상태를 초기화하고, 구독이 있으면 즉시 연결
-   * - false: 진행 중 연결/타이머를 정리하고 재연결을 막는다(모의 모드 → 콘솔 에러 0)
+   * - false: 진행 중 연결/타이머를 정리하고 재연결을 막는다(미등록 → 콘솔 에러 0)
    */
   setEnabled(enabled) {
     const next = !!enabled
@@ -111,11 +111,11 @@ class RealtimeClient {
         this.connect()
       }
     } else {
-      this._disable(NOTICE_REALTIME_MOCK)
+      this._disable(NOTICE_REALTIME_NO_ACCOUNT)
     }
   }
 
-  /** 연결을 의도적으로 종료하고 재연결을 억제한다(모의 모드 전환/로그아웃). */
+  /** 연결을 의도적으로 종료하고 재연결을 억제한다(계좌 미등록/로그아웃). */
   _disable(notice) {
     this.intentionalClose = true
     if (this.reconnectTimer) {
@@ -177,11 +177,11 @@ class RealtimeClient {
     return () => this.statusListeners.delete(fn)
   }
 
-  /** 연결 (멱등). 비활성(모의)·토큰 없음이면 연결 시도하지 않고 disabled 처리. */
+  /** 연결 (멱등). 비활성(계좌 미등록)·토큰 없음이면 연결 시도하지 않고 disabled 처리. */
   connect() {
-    // 실계좌 모드가 아니면 아예 연결을 시도하지 않는다(모의/미등록 → 콘솔 WS 에러 방지).
+    // KIS 계좌가 없으면 아예 연결을 시도하지 않는다(미등록 → 콘솔 WS 에러 방지).
     if (!this.enabled) {
-      this._setState('disabled', NOTICE_REALTIME_MOCK)
+      this._setState('disabled', NOTICE_REALTIME_NO_ACCOUNT)
       return
     }
 

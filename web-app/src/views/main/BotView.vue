@@ -267,7 +267,7 @@ const isStockExpanded = (symbol) => {
 
 <template>
   <div class="bot-screen">
-    <AppHeader title="투자 봇" showIcon icon="bot" show-kis-mode />
+    <AppHeader title="투자 봇" showIcon icon="bot" />
 
     <div class="content">
       <!-- KIS 점검 안내 배너 -->

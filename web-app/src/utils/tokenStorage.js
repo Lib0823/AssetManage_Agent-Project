@@ -1,5 +1,5 @@
 /**
- * 인증 토큰(accessToken/refreshToken/user/accountMode) 저장소.
+ * 인증 토큰(accessToken/refreshToken/user) 저장소.
  *
  * "자동 로그인" 설정(uiSettings.autoLogin)에 따라 저장 위치를 가른다:
  * - true(기본값)  → localStorage: 브라우저를 껐다 켜도 로그인 유지
@@ -10,7 +10,7 @@
  */
 import { readUiSettings } from './uiSettings'
 
-const KEYS = ['accessToken', 'refreshToken', 'user', 'accountMode']
+const KEYS = ['accessToken', 'refreshToken', 'user']
 
 const activeStorage = () => (readUiSettings().autoLogin === false ? sessionStorage : localStorage)
 const otherStorage = (storage) => (storage === localStorage ? sessionStorage : localStorage)

@@ -124,9 +124,9 @@ export const useRealtimeStore = defineStore('realtime', () => {
   }
 
   /**
-   * 실시간 사용 여부 설정. 실계좌(REAL) 모드에서만 true.
-   * 로그인/프로필 저장 시 계좌 모드에 따라 호출한다. false면 연결을 시도하지 않아
-   * 모의 모드에서 콘솔 WebSocket 에러가 발생하지 않는다.
+   * 실시간 사용 여부 설정. KIS 계좌가 등록된 경우에만 true.
+   * 로그인/프로필 저장 시 계좌 등록 여부에 따라 호출한다. false면 연결을 시도하지 않아
+   * 계좌 미등록 상태에서 콘솔 WebSocket 에러가 발생하지 않는다.
    */
   function setEnabled(enabled) {
     ensureStatusListener()

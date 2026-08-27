@@ -341,7 +341,7 @@ onMounted(() => {
 
 <template>
   <div class="home-screen">
-    <AppHeader title="홈" showIcon icon="home" show-kis-mode />
+    <AppHeader title="홈" showIcon icon="home" />
 
     <div class="content">
       <!-- Notification Banner -->
