@@ -76,6 +76,23 @@ public class KisResilienceProperties {
         /** 주식현재가 호가/예상체결. */
         private static final String TR_ORDERBOOK = "FHKST01010200";
 
+        /**
+         * 장내채권 시세 2종: 현재가 · 호가.
+         *
+         * <p>주식 시세와 같은 성격(읽기 전용, 화면이 반복 조회)이라 같은 TTL 을 쓴다. 장내채권은
+         * 거래가 드물어 30초 신선도가 오히려 주식보다 여유롭다.
+         *
+         * <p>여기에 넣은 진짜 이유는 두 가지다. (1) 캐시가 없으면 stale-if-error 폴백도 없어
+         * KIS 장애 시 채권 화면이 즉시 빈 값이 된다. (2) 공개 시세 경로는 <b>앱 단위 단일 키</b>를
+         * 쓰므로 토큰 버킷 하나를 모든 익명 사용자가 공유하는데, 채권 상세가 한 번에 4개 API 를
+         * 부른다 — 캐시 히트는 토큰을 소비하지 않으므로 채권 조회가 주식 시세 여력을 잠식하지 않는다.
+         *
+         * <p><b>잔고(CTSC8407R)·매도(TTTC0958U)·체결(CTSC8013R)은 절대 넣지 않는다.</b>
+         * 주문·잔고를 캐시하면 "주문이 나간 것처럼 보이지만 실제로는 안 나간" 상태가 만들어진다.
+         */
+        private static final Set<String> TR_BOND_QUOTE =
+                Set.of("FHKBJ773400C0", "FHKBJ773401C0");
+
         /** 국내주식 재무 3종: 손익계산서 · 재무비율 · 안정성비율. */
         private static final Set<String> TR_FINANCE =
                 Set.of("FHKST66430200", "FHKST66430300", "FHKST66430600");
@@ -86,7 +103,8 @@ public class KisResilienceProperties {
          * <p><b>allowlist 인 이유</b>: 캐시는 {@code KisApiClient} 라는 모든 KIS 호출의 공통
          * 관문에 붙어 있다. 여기서 무엇이든 캐시하면 잔고·주문가능금액·체결내역처럼
          * <b>절대 낡으면 안 되는 조회</b>까지 캐시되어 매매 판단이 오래된 값으로 이뤄진다.
-         * 그래서 "종목 상세 화면이 반복 조회하는 읽기 전용 시세/재무" 5개 TR 만 명시적으로 연다.
+         * 그래서 "상세 화면이 반복 조회하는 읽기 전용 시세/재무" 7개 TR(주식 시세 2 · 재무 3 ·
+         * 채권 시세 2)만 명시적으로 연다.
          *
          * @return 캐시 대상이 아니면 null
          */
@@ -94,7 +112,7 @@ public class KisResilienceProperties {
             if (trId == null) {
                 return null;
             }
-            if (TR_PRICE.equals(trId) || TR_ORDERBOOK.equals(trId)) {
+            if (TR_PRICE.equals(trId) || TR_ORDERBOOK.equals(trId) || TR_BOND_QUOTE.contains(trId)) {
                 return new CachePolicy(quoteTtl, quoteStaleGrace);
             }
             if (TR_FINANCE.contains(trId)) {
