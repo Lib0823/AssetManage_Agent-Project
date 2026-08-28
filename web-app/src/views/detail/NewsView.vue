@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import AssetTabs from '@/components/common/AssetTabs.vue'
 import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
+import UnsupportedTabNotice from '@/components/common/UnsupportedTabNotice.vue'
 import { newsApi } from '@/services/api'
 import { isKisOutageError } from '@/utils/kisStatus'
 
@@ -13,9 +14,13 @@ const router = useRouter()
 const tabs = ref({ main: 'stocks', sub: 'domestic' })
 const newTabList = [
   { key: 'stocks', label: '주식', disabled: false },
+  // 채권 탭은 열려 있지만 뉴스는 없다 — ai-agent 뉴스 파이프라인이 주식 종목코드 기준이라
+  // 채권 관련 기사를 수집·분석하지 않는다. 빈 목록 대신 이유를 안내한다.
+  { key: 'bonds', label: '채권', disabled: false },
   // 코인은 미지원 — AssetTabs/InvestmentTabs 기본값과 동일하게 비활성으로 노출한다.
   { key: 'coins', label: '코인', disabled: true }
 ]
+const isBonds = computed(() => tabs.value.main === 'bonds')
 const dateFilters = [
   { key: 'today', label: '오늘' },
   { key: 'yesterday', label: '어제' },
@@ -229,8 +234,16 @@ onMounted(() => {
 
     <div class="content">
       <!-- Tabs -->
-      <AssetTabs v-model="tabs" :tabs="newTabList" />
+      <AssetTabs v-model="tabs" :tabs="newTabList" :showSubTabs="!isBonds" />
 
+      <!-- 채권: 뉴스 파이프라인이 주식 종목코드 기준이라 채권 기사가 없다 -->
+      <UnsupportedTabNotice
+        v-if="isBonds"
+        title="채권 뉴스는 지원하지 않습니다"
+        message="뉴스 수집·감성분석이 주식 종목 기준으로 동작해 채권 관련 기사는 제공되지 않습니다."
+      />
+
+      <template v-else>
       <!-- Date Filter Buttons -->
       <div class="date-filter-section">
         <button
@@ -304,6 +317,7 @@ onMounted(() => {
           {{ newsList.length > 0 ? '조건에 맞는 뉴스가 없습니다' : '뉴스가 없습니다' }}
         </div>
       </div>
+      </template>
     </div>
   </div>
 </template>

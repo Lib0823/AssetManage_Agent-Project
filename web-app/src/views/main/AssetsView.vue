@@ -17,9 +17,16 @@ import {
   LinearScale,
   Filler
 } from 'chart.js'
-import { assetApi, overseasApi, marketApi } from '@/services/api'
+import { assetApi, overseasApi, marketApi, bondApi } from '@/services/api'
 import { logger } from '@/utils/logger'
 import { normalizeAssetOrder, uiSettings } from '@/utils/uiSettings'
+import {
+  bondLotKey,
+  buildBondLotQuery,
+  formatAmount,
+  formatKisDate,
+  formatQuantity
+} from '@/utils/bond'
 
 ChartJS.register(
   ArcElement,
@@ -41,7 +48,15 @@ const kisUnavailable = ref(false)
 // 총자산 일별 추이 (자산 추이 라인차트용). [{ date: 'YYYY-MM-DD', totalAsset: number }]
 const history = ref([])
 
-// 자산 요약 (실데이터로 채움). 채권/코인은 추후 지원 → 0.
+// 보유 채권 (매수 로트 단위). 이 목록이 채권 기능의 유일한 진입점이다 —
+// KIS 에 채권 검색 API 가 없어 검색 화면에서 채권으로 들어올 수 없다.
+const bondHoldings = ref([])
+// 채권 잔고 안내(미연동/조회 실패). 있으면 금액 대신 안내를 띄운다.
+const bondNotice = ref('')
+// 채권 매수금액 합계 (총자산 합산용)
+const bondsTotal = ref(0)
+
+// 자산 요약 (실데이터로 채움). 코인은 추후 지원 → 0.
 const assetSummary = ref({
   totalAsset: 0,
   totalChange: 0,
@@ -87,9 +102,48 @@ const loadHistory = async () => {
   }
 }
 
+/**
+ * 보유 채권 잔고 조회 → 로트 목록 + 매수금액 합계.
+ *
+ * 금액은 **매수금액 기준**이다(평가금액이 아니다) — KIS 채권 잔고 응답에 현재가 기준
+ * 평가금액 필드 자체가 없다. 카드에도 그 사실을 표시한다.
+ *
+ * 조회 실패는 화면을 막지 않고 안내만 남긴다(0원으로 조용히 표시하면 "채권을 다 팔았다"로
+ * 오인된다). 총자산에는 0 으로 반영된다. 이 함수는 예외를 던지지 않는다 — 주식 잔고 조회가
+ * 실패해도 채권 카드는 자기 상태를 표시해야 하므로 loadAssets 의 try 밖에서 호출한다.
+ */
+const loadBondBalance = async () => {
+  bondNotice.value = ''
+  try {
+    const res = await bondApi.getBalance()
+    const data = res?.data ?? null
+    if (!data) {
+      bondHoldings.value = []
+      bondsTotal.value = 0
+      bondNotice.value = '채권 잔고를 불러올 수 없습니다'
+      return
+    }
+    bondHoldings.value = Array.isArray(data.holdings) ? data.holdings : []
+    bondsTotal.value = toNumber(data.totalBuyAmount)
+    bondNotice.value = data.notice || ''
+  } catch (error) {
+    logger.debug('채권 잔고 조회 실패:', error)
+    bondHoldings.value = []
+    bondsTotal.value = 0
+    bondNotice.value = isKisOutageError(error)
+      ? 'KIS 점검 중이거나 일시적인 연동 오류로 채권 잔고를 불러올 수 없어요.'
+      : '채권 잔고를 불러오지 못했습니다'
+  }
+}
+
 const loadAssets = async () => {
   loading.value = true
   kisUnavailable.value = false
+
+  // 채권은 주식 잔고와 독립된 KIS TR 이라 주식 조회가 실패해도 따로 보여준다.
+  // (loadBondBalance 는 예외를 던지지 않는다)
+  await loadBondBalance()
+
   try {
     const [balanceRes, holdingsRes] = await Promise.all([
       assetApi.getBalance(),
@@ -138,7 +192,14 @@ const loadAssets = async () => {
 
     const stocksTotal = stocksAmount + overseasKrw
     const stocksProfitTotal = stockProfit + overseasProfitKrw
-    const totalAsset = cashAmount + stocksTotal
+
+    // 채권(매수금액 기준)을 총자산에 합산한다.
+    //
+    // 주의: 아래 recordSnapshot 이 이 값을 asset_daily_snapshot 에 쓰므로, 채권이 합산에
+    // 들어간 날부터 총자산 시계열이 계단처럼 뛴다(자산이 늘어난 게 아니라 집계 범위가
+    // 넓어진 것). 채권 잔고에 과거 시계열이 없어 소급 보정이 불가능하므로 불연속은
+    // 불가피하며, 이 사실은 _workspace/dev_bond_frontend.md 에 기록해 뒀다.
+    const totalAsset = cashAmount + stocksTotal + bondsTotal.value
 
     assetSummary.value = {
       totalAsset,
@@ -153,7 +214,8 @@ const loadAssets = async () => {
           change: stocksProfitTotal,
           changePercent: stocksTotal > 0 ? stocksProfitTotal / stocksTotal : 0
         },
-        bonds: { amount: 0, change: 0, changePercent: 0 },
+        // 채권은 매수금액 기준이라 전일대비/수익률을 계산할 근거가 없다 → 0 고정.
+        bonds: { amount: bondsTotal.value, change: 0, changePercent: 0 },
         coins: { amount: 0, change: 0, changePercent: 0 }
       }
     }
@@ -355,6 +417,14 @@ const goToDetail = (type) => {
   })
 }
 
+// 보유 로트 → 채권 상세.
+// buyDate/buySeq(+ 분리과세 추정값)를 쿼리로 함께 넘긴다. 매도 화면까지 그대로 운반되며,
+// 없으면 어느 매수분을 파는지 특정할 수 없어 매도 요청이 400 이 된다.
+const goToBondDetail = (lot) => {
+  if (!lot?.bondCode) return
+  router.push({ path: `/bonds/${lot.bondCode}`, query: buildBondLotQuery(lot) })
+}
+
 const handleRefresh = () => {
   loadAssets()
 }
@@ -506,9 +576,64 @@ const handleRefresh = () => {
             <div class="card-indicator" :style="{ backgroundColor: assetColors.stocks }"></div>
           </section>
 
-          <!-- Bonds (추후 지원) -->
-          <section v-else-if="section === 'bonds'" class="asset-card disabled">
-            <div class="disabled-text">채권 (추후 지원)</div>
+          <!--
+            Bonds — 채권 기능의 유일한 진입점.
+            KIS 에 채권 검색 API 가 없어 검색 화면에서 채권으로 들어올 수 없다.
+            여기서 로트를 눌러야만 상세·매도로 갈 수 있다.
+            주식 잔고와 독립된 TR 이므로 kisUnavailable 과 무관하게 자기 상태를 표시한다.
+          -->
+          <section v-else-if="section === 'bonds'" class="asset-card bonds">
+            <div class="card-header">
+              <div class="card-icon">{{ assetIcons.bonds }}</div>
+              <div class="card-title-group">
+                <h3 class="card-title">채권</h3>
+                <span class="card-percentage">{{ calculatePercentage(bondsTotal, assetSummary.totalAsset) }}%</span>
+              </div>
+            </div>
+
+            <div class="card-body">
+              <div class="card-value-section">
+                <!-- KIS 채권 잔고에는 평가금액 필드가 없다. 매수금액임을 반드시 밝힌다. -->
+                <div class="value-label">매수 금액 기준 (평가 금액 아님)</div>
+                <!--
+                  assetSummary.breakdown 이 아니라 bondsTotal 을 직접 읽는다.
+                  주식 잔고 조회가 실패하면 assetSummary 가 갱신되지 않아, breakdown 을 쓰면
+                  로트는 보이는데 합계만 0원인 화면이 된다.
+                -->
+                <div class="value-amount">{{ formatAmount(bondsTotal) }}<span class="unit">원</span></div>
+              </div>
+
+              <!--
+                notice 는 목록과 배타가 아니다 — 연속조회 상한에 걸리면 백엔드가
+                holdings(일부) + notice 를 함께 내려준다. v-else 체인으로 묶으면
+                그 경우 로트가 한 건도 안 보여, 채권 기능의 주 진입점이 막힌다.
+                AssetDetailView 와 같은 구조로 둔다(배너는 독립 v-if).
+              -->
+              <KisMaintenanceNotice v-if="bondNotice" variant="banner" :message="bondNotice" />
+
+              <p v-if="bondHoldings.length === 0" class="bond-empty">
+                보유 중인 채권이 없습니다
+              </p>
+
+              <div v-else class="bond-lot-list">
+                <button
+                  v-for="lot in bondHoldings"
+                  :key="bondLotKey(lot)"
+                  type="button"
+                  class="bond-lot"
+                  @click="goToBondDetail(lot)"
+                >
+                  <span class="bond-lot-main">
+                    <span class="bond-lot-name">{{ lot.bondName || lot.bondCode }}</span>
+                    <span class="bond-lot-sub">매수일 {{ formatKisDate(lot.buyDate) }} · {{ formatQuantity(lot.quantity) }}</span>
+                  </span>
+                  <span class="bond-lot-amount">{{ formatAmount(lot.buyAmount) }}원</span>
+                  <span class="bond-lot-arrow">›</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="card-indicator" :style="{ backgroundColor: assetColors.bonds }"></div>
           </section>
 
           <!-- Coins (추후 지원) -->
@@ -830,6 +955,84 @@ const handleRefresh = () => {
   font-size: var(--font-size-base);
   color: var(--color-text-tertiary);
   font-weight: var(--font-weight-medium);
+}
+
+/* 채권 카드는 카드 전체가 아니라 로트 행이 각각 링크다(매도 대상이 로트 단위이므로). */
+.asset-card.bonds {
+  cursor: default;
+}
+
+.asset-card.bonds:hover {
+  transform: none;
+  box-shadow: 0 4px 16px var(--canvas-card-shadow);
+}
+
+.bond-empty {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-medium);
+  padding: 12px;
+  background: var(--canvas-hairline-faint);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.bond-lot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bond-lot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  background: var(--canvas-hairline-faint);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s;
+}
+
+.bond-lot:hover {
+  background: var(--canvas-hairline-soft);
+}
+
+.bond-lot-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bond-lot-name {
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bond-lot-sub {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.bond-lot-amount {
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+.bond-lot-arrow {
+  font-size: 18px;
+  color: var(--color-text-tertiary);
 }
 
 .card-header {

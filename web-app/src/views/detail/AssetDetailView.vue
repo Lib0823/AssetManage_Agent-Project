@@ -4,10 +4,11 @@ import { useRouter, useRoute } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import AssetTabs from '@/components/common/AssetTabs.vue'
 import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
-import { assetApi, overseasApi, marketApi } from '@/services/api'
+import { assetApi, overseasApi, marketApi, bondApi } from '@/services/api'
 import { isKisOutageError } from '@/utils/kisStatus'
 import { useRealtimeStore } from '@/stores/realtime'
 import { logger } from '@/utils/logger'
+import { bondLotKey, buildBondLotQuery, formatAmount, formatKisDate, formatQuantity } from '@/utils/bond'
 
 const router = useRouter()
 const route = useRoute()
@@ -72,6 +73,14 @@ const currentSummary = computed(() => {
 
 // 현재 탭의 통화 단위
 const isOverseas = computed(() => tabs.value.sub !== 'domestic')
+
+// 보유 채권 (매수 로트 단위). 채권 탭을 처음 열 때만 조회한다 — KIS 호출을 아끼기 위해
+// 마운트 시점이 아니라 탭 전환 시점에 lazy 로드한다.
+const bondHoldings = ref([])
+const bondTotalBuyAmount = ref(0)
+const bondNotice = ref('')
+const bondLoading = ref(false)
+const bondLoaded = ref(false)
 
 // 현금 데이터 (API에서 가져옴, KRW만 지원)
 const cashDetail = ref({
@@ -212,6 +221,35 @@ const loadOverseasBalance = async () => {
   }
 }
 
+/**
+ * 보유 채권 조회 (채권 탭 lazy 로드).
+ *
+ * 금액은 **매수금액 기준**이다 — KIS 채권 잔고 응답에 평가금액 필드가 없다.
+ * 조회 실패는 빈 목록 + 안내로 degrade 한다(0원으로 조용히 표시하면 오해를 부른다).
+ */
+const loadBondBalance = async () => {
+  if (bondLoaded.value || bondLoading.value) return
+  bondLoading.value = true
+  bondNotice.value = ''
+  try {
+    const res = await bondApi.getBalance()
+    const data = res?.data ?? null
+    bondHoldings.value = Array.isArray(data?.holdings) ? data.holdings : []
+    bondTotalBuyAmount.value = num(data?.totalBuyAmount)
+    bondNotice.value = data?.notice || ''
+    bondLoaded.value = true
+  } catch (error) {
+    logger.debug('Failed to load bond balance:', error)
+    bondHoldings.value = []
+    bondTotalBuyAmount.value = 0
+    bondNotice.value = isKisOutageError(error)
+      ? 'KIS 점검 중이거나 일시적인 연동 오류로 채권 잔고를 불러올 수 없어요.'
+      : '채권 잔고를 불러오지 못했습니다'
+  } finally {
+    bondLoading.value = false
+  }
+}
+
 // ── 실시간 체결가(tick) 구독 ──────────────────────────────────────────────
 // 현재 탭의 가시 보유 종목 심볼만 tick 구독 → 카드의 currentPrice 라이브 갱신.
 // degrade(연결 disabled/reconnecting/closed)일 때는 구독만 보류하고
@@ -271,6 +309,11 @@ onMounted(async () => {
     }
   }
 
+  // 채권 탭으로 바로 진입한 경우(?main=bonds)에도 데이터가 비지 않게 한다.
+  if (tabs.value.main === 'bonds') {
+    loadBondBalance()
+  }
+
   // Load data
   await Promise.all([loadHoldings(), loadBalance(), loadOverseasBalance(), loadExchangeRate()])
 
@@ -287,6 +330,10 @@ watch(
       syncTickSubscriptions()
     } else {
       clearTickSubscriptions()
+    }
+    // 채권 탭을 처음 열 때만 잔고를 조회한다 (loadBondBalance 가 중복 호출을 막는다).
+    if (tabs.value.main === 'bonds') {
+      loadBondBalance()
     }
   }
 )
@@ -331,6 +378,12 @@ const goToTrade = (stock) => {
 
 const goToInfo = (stock) => {
   router.push(`/company/${stock.symbol}`)
+}
+
+// 보유 로트 → 채권 상세. buyDate/buySeq 를 쿼리로 함께 넘긴다(매도에 필수).
+const goToBondDetail = (lot) => {
+  if (!lot?.bondCode) return
+  router.push({ path: `/bonds/${lot.bondCode}`, query: buildBondLotQuery(lot) })
 }
 </script>
 
@@ -384,6 +437,53 @@ const goToInfo = (stock) => {
               </span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!--
+        채권 화면.
+        이 분기가 없으면 채권 탭이 빈 화면을 보여준다(현금/주식만 v-if 로 걸려 있었다).
+        매도는 로트 단위이므로 각 행이 buyDate/buySeq 를 달고 상세로 이동한다.
+      -->
+      <div v-if="tabs.main === 'bonds'" class="bond-section">
+        <div class="summary-card">
+          <div class="summary-header">
+            <h3 class="summary-title">보유 채권</h3>
+          </div>
+          <div class="summary-main">
+            <div class="main-info">
+              <!-- KIS 채권 잔고에는 평가금액 필드가 없다. 매수금액임을 밝힌다. -->
+              <span class="main-label">총매수금액 (평가금액 아님)</span>
+              <span class="main-value">{{ formatAmount(bondTotalBuyAmount) }}<span class="unit">원</span></span>
+            </div>
+          </div>
+        </div>
+
+        <KisMaintenanceNotice v-if="bondNotice" variant="banner" :message="bondNotice" />
+
+        <div v-if="bondLoading" class="empty-state">불러오는 중...</div>
+
+        <div v-else-if="bondHoldings.length === 0" class="empty-state">
+          보유 중인 채권이 없습니다
+        </div>
+
+        <div v-else class="bond-list">
+          <button
+            v-for="lot in bondHoldings"
+            :key="bondLotKey(lot)"
+            type="button"
+            class="bond-row"
+            @click="goToBondDetail(lot)"
+          >
+            <span class="bond-row-main">
+              <span class="bond-row-name">{{ lot.bondName || lot.bondCode }}</span>
+              <span class="bond-row-sub">
+                매수일 {{ formatKisDate(lot.buyDate) }} · 수량 {{ formatQuantity(lot.quantity) }}
+              </span>
+            </span>
+            <span class="bond-row-amount">{{ formatAmount(lot.buyAmount) }}원</span>
+            <span class="bond-row-arrow">›</span>
+          </button>
         </div>
       </div>
 
@@ -891,6 +991,70 @@ const goToInfo = (stock) => {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+}
+
+/* ── 채권 (보유 로트 목록) ── */
+.bond-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.bond-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.bond-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-md);
+  border: none;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  text-align: left;
+}
+
+.bond-row:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.bond-row-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bond-row-name {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bond-row-sub {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.bond-row-amount {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+.bond-row-arrow {
+  font-size: 18px;
+  color: var(--color-text-tertiary);
 }
 
 .cash-card {

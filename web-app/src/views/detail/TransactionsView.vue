@@ -4,9 +4,10 @@ import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import InvestmentTabs from '@/components/common/InvestmentTabs.vue'
 import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
-import { tradingApi, overseasApi } from '@/services/api'
+import { tradingApi, overseasApi, bondApi } from '@/services/api'
 import { isKisOutageError } from '@/utils/kisStatus'
 import { logger } from '@/utils/logger'
+import { formatAmount } from '@/utils/bond'
 
 const router = useRouter()
 
@@ -16,6 +17,9 @@ const errorMessage = ref('')
 
 // 해외(KIS 연동) 탭 점검중 여부 — 국내(DB 기반) 탭에는 영향 없음
 const overseasKisDown = ref(false)
+
+// 채권 거래내역 안내 (조회 실패/미연동). 채권 조회는 degrade 경로라 예외 대신 notice 가 온다.
+const bondNotice = ref('')
 
 // 거래 내역 데이터 (API에서 가져옴)
 const history = ref([])
@@ -29,6 +33,12 @@ const orders = ref({
 // Load trade history
 // 해외(US) 탭 여부 + KIS 일시(yyyyMMddHHmmss) 파서
 const isOverseas = computed(() => tabs.value.sub === 'overseas')
+
+// 채권 탭. **분기가 없으면 이 화면은 주식 거래내역을 채권인 것처럼 보여준다**(조용한 오류).
+// 채권 거래내역은 DB 가 아니라 KIS 에서 직접 조회한다 — 장내채권은 유동성이 낮아 미체결이
+// 정상적으로 자주 발생하고, 주문 시점에 DB 에 쓰면 "주문"을 "체결"로 보여주게 된다.
+const isBonds = computed(() => tabs.value.main === 'bonds')
+
 const parseKisDateTime = (s) => {
   if (!s || s.length < 8) return new Date(NaN)
   const y = +s.slice(0, 4), mo = +s.slice(4, 6) - 1, d = +s.slice(6, 8)
@@ -41,6 +51,40 @@ const loadHistory = async () => {
     loading.value = true
     errorMessage.value = ''
     overseasKisDown.value = false
+    bondNotice.value = ''
+
+    // 채권: KIS 채권 체결조회(CTSC8013R). 서버가 기간 미지정 시 최근 90일을 준다.
+    if (isBonds.value) {
+      const res = await bondApi.getHistory()
+      const data = res?.data ?? null
+      bondNotice.value = data?.notice || ''
+      const bList = Array.isArray(data?.list) ? data.list : []
+      history.value = bList.map((t, idx) => {
+        const at = parseKisDateTime(`${t.orderDate || ''}${t.orderTime || ''}`)
+        const executedQty = Number(t.executedQty) || 0
+        return {
+          id: t.orderNo || `bond-${idx}`,
+          symbol: t.bondCode,
+          name: t.bondName || t.bondCode,
+          type: String(t.side || '').toUpperCase() === 'SELL' ? 'sell' : 'buy',
+          quantity: executedQty || Number(t.orderQty) || 0,
+          price: Number(t.executedPrice) || 0,
+          amount: Number(t.executedAmount) || 0,
+          orderedAt: at,
+          date: at.toLocaleDateString('ko-KR'),
+          time: at.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+          // 체결수량 0 = 미체결. 아래 요약/미체결 섹션이 이 값으로 갈린다.
+          status: executedQty > 0 ? 'COMPLETED' : 'PENDING',
+          // KIS 처리상태명 원문 (부분체결 등을 사용자가 구분할 수 있게 그대로 노출)
+          statusText: t.status || '',
+          currency: '원',
+          isBond: true
+        }
+      })
+      orders.value.pending = history.value.filter((t) => t.status === 'PENDING')
+      orders.value.reserved = []
+      return
+    }
 
     // 해외(US): 체결내역 + 미체결을 overseasApi 로 조회 (USD)
     if (isOverseas.value) {
@@ -139,12 +183,21 @@ onMounted(() => {
   loadHistory()
 })
 
-// 국내/해외 탭 전환 시 데이터 소스 전환 재로드
-watch(() => tabs.value.sub, () => {
+// 탭 전환 시 데이터 소스 전환 재로드.
+// main(주식/채권)도 봐야 한다 — sub 만 보면 채권 탭에서 주식 내역이 그대로 남는다.
+watch(() => [tabs.value.main, tabs.value.sub], () => {
+  history.value = []
+  orders.value = { pending: [], reserved: [] }
   loadHistory()
 })
 
 const goToTrading = (order) => {
+  // 채권은 주식 주문 화면(/trading)이 아니라 채권 상세로 보낸다.
+  // (매도는 매수 로트 단위라 거래내역 행만으로는 주문을 만들 수 없다)
+  if (order.isBond) {
+    router.push(`/bonds/${order.symbol}`)
+    return
+  }
   router.push(`/trading/${order.symbol}`)
 }
 
@@ -255,6 +308,9 @@ const formatNumber = (num) => {
   return new Intl.NumberFormat('ko-KR').format(num)
 }
 
+// 금액 표시. 채권 단가·금액은 소수를 가지므로 원화 정수 포맷터로 자르면 안 된다.
+const formatMoney = (num) => (isBonds.value ? formatAmount(num) : formatNumber(num))
+
 const getTypeLabel = (type) => {
   switch (type) {
     case 'buy': return '매수'
@@ -270,8 +326,8 @@ const getTypeLabel = (type) => {
     <AppHeader title="거래 내역" showIcon icon="news" />
 
     <div class="content">
-      <!-- Tabs -->
-      <InvestmentTabs v-model="tabs" />
+      <!-- Tabs — 채권은 국내/해외 구분이 없다(장내채권 전용) -->
+      <InvestmentTabs v-model="tabs" :showSubTabs="!isBonds" />
 
       <!-- Loading State -->
       <div v-if="loading" class="state-container">
@@ -302,12 +358,17 @@ const getTypeLabel = (type) => {
       <!-- Empty State -->
       <div v-else-if="history.length === 0" class="state-container empty-state">
         <div class="empty-icon">📊</div>
-        <p class="empty-message">거래 내역이 없습니다</p>
-        <p class="empty-submessage">첫 거래를 시작해보세요</p>
+        <p class="empty-message">{{ isBonds ? '채권 거래 내역이 없습니다' : '거래 내역이 없습니다' }}</p>
+        <p class="empty-submessage">
+          {{ bondNotice || (isBonds ? '보유 채권은 자산 화면에서 확인할 수 있습니다' : '첫 거래를 시작해보세요') }}
+        </p>
       </div>
 
       <!-- Normal Content -->
       <template v-else>
+
+      <!-- 채권 조회 degrade 안내 (목록은 있지만 일부만 온 경우) -->
+      <p v-if="bondNotice" class="bond-notice">{{ bondNotice }}</p>
 
       <!-- Pending/Reserved Orders Section -->
       <section class="pending-section">
@@ -324,7 +385,7 @@ const getTypeLabel = (type) => {
               <span :class="['order-type', order.type]">{{ getTypeLabel(order.type) }}</span>
               <span class="order-name">{{ order.name }}</span>
             </div>
-            <span class="order-price">{{ formatNumber(order.price) }}{{ order.currency }}</span>
+            <span class="order-price">{{ formatMoney(order.price) }}{{ order.currency }}</span>
           </div>
         </div>
       </section>
@@ -374,11 +435,11 @@ const getTypeLabel = (type) => {
           <div class="summary-card">
             <div class="summary-item">
               <span class="summary-type buy">총 매수</span>
-              <span class="summary-amount">{{ formatNumber(summary.buy.amount) }}</span>
+              <span class="summary-amount">{{ formatMoney(summary.buy.amount) }}</span>
             </div>
             <div class="summary-item">
               <span class="summary-type sell">총 매도</span>
-              <span class="summary-amount">{{ formatNumber(summary.sell.amount) }}</span>
+              <span class="summary-amount">{{ formatMoney(summary.sell.amount) }}</span>
             </div>
           </div>
         </div>
@@ -390,8 +451,10 @@ const getTypeLabel = (type) => {
             <span class="history-name">
               {{ item.name || item.label }}
               <span v-if="item.aiTraded" class="ai-badge">🤖 AI</span>
+              <!-- 채권은 미체결/부분체결이 흔하므로 KIS 처리상태를 그대로 보여준다 -->
+              <span v-if="item.statusText" class="status-badge">{{ item.statusText }}</span>
             </span>
-            <span class="history-amount">{{ formatNumber(item.amount) }}{{ item.currency }}</span>
+            <span class="history-amount">{{ formatMoney(item.amount) }}{{ item.currency }}</span>
           </div>
           <p v-if="filteredHistory.length === 0" class="empty-submessage">
             선택한 기간의 거래 내역이 없습니다
@@ -844,6 +907,29 @@ const getTypeLabel = (type) => {
   flex: 1;
   font-size: var(--font-size-sm);
   color: var(--color-text-primary);
+}
+
+/* 채권 처리상태(미체결/부분체결 등) 원문 배지 */
+.status-badge {
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  background: var(--canvas-hairline-soft);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+/* 채권 거래내역 degrade 안내 */
+.bond-notice {
+  margin: 0 var(--spacing-lg) var(--spacing-md);
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #F59E0B;
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
 }
 
 .ai-badge {

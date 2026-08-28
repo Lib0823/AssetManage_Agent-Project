@@ -192,6 +192,27 @@ export const overseasApi = {
   sell: (order) => api.post('/overseas/sell', order)
 }
 
+// Bond API (Spring Boot api-server — BondController)
+//
+// 범위는 "보유 조회 + 매도"다. KIS 채권 API 에 종목명/키워드로 채권을 찾는 API 가 없어
+// (전부 12자리 표준코드를 입력으로 요구) 검색 화면을 만들 수 없고, 검색이 없으니 매수 진입
+// 경로도 없다. 유일한 진입점은 자산 화면의 보유 채권 카드다.
+export const bondApi = {
+  // 보유 채권 잔고 (AUTH). 응답은 종목이 아니라 '매수 로트' 목록이며 매도에 필요한
+  // buyDate/buySeq/separateTaxation 이 각 행에 들어 있다.
+  getBalance: () => api.get('/bonds/balance'),
+  // params: { startDate?, endDate? } (yyyyMMdd). 생략 시 서버가 최근 90일.
+  getHistory: (params) => api.get('/bonds/history', { params }),
+  // payload 의 buyDate/buySeq/separateTaxation 은 잔고 응답을 그대로 되돌려 보내는 값이다
+  // (사용자 입력이 아니다). 빠지면 서버가 400 을 준다.
+  sell: (payload) => api.post('/bonds/sell', payload),
+  // 시세 계열은 공개(permitAll). bondCode 는 12자리 영숫자(KR2033022D33) — 주식의 6자리 숫자가 아니다.
+  getBondInfo: (bondCode) => api.get(`/bonds/${bondCode}`),
+  getIssueInfo: (bondCode) => api.get(`/bonds/${bondCode}/issue-info`),
+  getPrice: (bondCode) => api.get(`/bonds/${bondCode}/price`),
+  getOrderbook: (bondCode) => api.get(`/bonds/${bondCode}/orderbook`)
+}
+
 // Favorite API (Spring Boot api-server)
 export const favoriteApi = {
   list: () => api.get('/favorites'),
