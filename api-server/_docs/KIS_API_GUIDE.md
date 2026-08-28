@@ -120,6 +120,30 @@ TR_ID는 전부 **실전투자값 고정**입니다(모의/실전 분기 없음)
 
 > **미체결 주문 (`GET /trading/pending-orders`):** 검증되지 않은 신규 미체결 전용 TR(예: `TTTC8036R`)을 도입하지 않습니다. 거래내역과 동일한 `inquire-daily-ccld`(`TTTC0081R`) 결과를 재사용하여, 그중 미체결(잔량>0 또는 `orderStatus`가 `PENDING`/`PARTIAL`)인 행만 필터링해 제공합니다. 실데이터 기반·저위험 방식이며 예외/빈결과 시 빈 리스트를 반환합니다.
 
+**장내채권 (domestic-bond)**
+
+| TR_ID | 기능 | 엔드포인트 |
+|-------|------|------------|
+| `CTSC8407R` | inquire-balance (보유 채권 — 로트 단위) | `/uapi/domestic-bond/v1/trading/inquire-balance` |
+| `TTTC0958U` | sell (매도 주문) | `/uapi/domestic-bond/v1/trading/sell` |
+| `CTSC8013R` | inquire-daily-ccld (일별 체결조회 = 거래내역) | `/uapi/domestic-bond/v1/trading/inquire-daily-ccld` |
+| `CTPF1114R` | search-bond-info (종목 기본조회 — **검색 아님**) | `/uapi/domestic-bond/v1/quotations/search-bond-info` |
+| `CTPF1101R` | issue-info (발행 정보) | `/uapi/domestic-bond/v1/quotations/issue-info` |
+| `FHKBJ773400C0` | inquire-price (현재가) | `/uapi/domestic-bond/v1/quotations/inquire-price` |
+| `FHKBJ773401C0` | inquire-asking-price (호가) | `/uapi/domestic-bond/v1/quotations/inquire-asking-price` |
+
+> **채권 검색 API는 존재하지 않습니다.** `search-bond-info`는 이름과 달리 `PDNO`(12자리 종목코드)를 필수로 받는 **기본조회**이며, KIS 채권 API 18개 중 종목명·키워드로 찾는 것이 하나도 없습니다(2026-08 전수 확인). 그래서 이 프로젝트의 채권 기능은 **보유 채권 조회 + 매도**로 범위가 잡혀 있고, 진입점은 검색이 아니라 자산 화면의 채권 카드입니다. 매수는 진입 경로가 없어 함께 보류됐습니다.
+
+> **매도는 종목이 아니라 "매수 로트" 단위입니다.** 잔고가 `pdno` + `buy_dt` + `buy_sqno` 단위로 로트를 쪼개 돌려주므로, 같은 채권을 다른 날 샀으면 별개 행입니다. 매도 요청에 `BUY_DT`/`BUY_SEQ`가 필수이며 — **응답 필드는 `buy_sqno`인데 요청 파라미터는 `BUY_SEQ`로 이름이 다릅니다.** 그대로 매핑하면 조용히 빈 값이 나갑니다.
+
+> **매도 필수 파라미터가 매수와 다릅니다**: `ORD_DVSN`(주문구분), `SPRX_YN`(분리과세여부), `SLL_AGCO_OPPS_SLL_YN`(매도대행사반대매도여부)가 추가로 필요합니다. **`SPRX_YN`을 임의로 `N` 고정하면 안 됩니다** — 세금 처리가 달라지므로, 값이 없으면 서버가 400을 반환합니다.
+
+> **잔고 조회는 연속조회가 필요합니다.** `INQR_CNDT`(필수), `CTX_AREA_FK200`, `CTX_AREA_NK200`을 받고 응답 헤더 `tr_cont`가 `M`이면 다음 페이지를 이어 받아야 합니다. 처리하지 않으면 보유 채권이 많을 때 첫 페이지만 보이고 총자산이 과소 계산됩니다.
+
+> **채권 단가는 소수점을 갖습니다**(액면 기준가, 예 `9850.5`). 종목코드도 6자리 숫자가 아니라 **12자리 영숫자 혼합**(`KR2033022D33`)입니다. 주식용 정수 가격·6자리 코드 가정을 재사용하면 안 됩니다.
+
+> **미확정 항목(실계좌 검증 필요)**: `ORD_QTY2`의 수량 단위(액면금액인지 좌수인지)가 공개 자료로 판별되지 않아, 금액 환산 계수를 `kis.bond.face-value-divisor` 설정값으로 분리해 두었습니다(기본 100은 추정). `PRDT_TYPE_CD="302"` 하드코딩 가능 여부도 미확인입니다.
+
 > **배당 수령·현금 입출금 내역 (미지원, 공식 확인 2026-06):** KIS 국내주식 OpenAPI에는 개인 **현금 입출금 내역(ledger)** 전용 TR이 없습니다(`ksdinfo/mand-deposit`=예탁원 의무예치일정, `pension/inquire-deposit`=퇴직연금 예수금뿐). 개인 **배당 수령 내역** 전용 TR도 없습니다. 배당 관련으로는 종목 기준 **예탁원정보(배당일정) `HHKDB669102C0`**(`ksdinfo_dividend`, 배당기준일·주당배당금·배당률)와 **배당률 상위 순위**(`국내주식-106`)만 제공됩니다. 따라서 거래내역 화면의 "기타(배당금)" 합계는 데이터 소스가 없어 제거했고, 매매 손익은 `TTTC8715R`(기간별매매손익)/`TTTC8494R`(잔고 실현손익)로만 확인 가능합니다. 향후 '배당 캘린더'가 필요하면 `HHKDB669102C0`로 별도 구현하세요. (근거: 공식 `koreainvestment/open-trading-api` 레포)
 
 ---

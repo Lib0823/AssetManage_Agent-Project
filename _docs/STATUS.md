@@ -16,6 +16,7 @@
 | 📊 거래내역 | ✅ | KIS 직접 조회(최근 3개월), DB 미저장(정합성 우선) |
 | 💹 매매 실행 (주문) | 🔄 | api-server 주문 API 완료(수동 주문도 `trade_history` 기록), ai-agent Kafka 발행 경로 e2e 실계좌 검증 남음 |
 | 🧠 AI 분석 파이프라인 | ✅ | ai-agent 6단계 파이프라인 구현 + DB 적재 + api-server 조회 API + web-app 화면 렌더까지 연동 완료 |
+| 💵 채권 (장내채권) | ✅ | 보유 조회·시세·매도·거래내역. **검색·매수는 KIS API 부재로 불가** |
 | 📈 AI 분석 화면 (web-app) | ✅ | `MarketAnalysisView`(히트맵·감성·수급·5일 전망)·`CompanyDetailView`(종목 상세) 실연동. matplotlib PNG 차트 생성만 미구현(클라이언트 렌더로 대체) |
 
 ---
@@ -117,6 +118,19 @@
 | AI 분석 화면(종합·정량·감성·시계열) | - | - | ✅ `MarketAnalysisView`/`CompanyDetailView` | ✅ |
 
 > matplotlib PNG 차트 생성(`heatmap_today.png` 등)은 여전히 미구현. web-app은 DB 원시 데이터를 받아 클라이언트에서 직접 렌더한다.
+
+### 💵 채권 (장내채권)
+| 기능 | api-server | web-app | 연동 |
+|------|-----------|---------|------|
+| 보유 채권 조회 (`GET /bonds/balance`, KIS `CTSC8407R`) | ✅ | `AssetsView` 채권 카드(진입점)·`AssetDetailView` | ✅ |
+| 채권 시세·호가·발행정보 (`/bonds/{code}/**`) | ✅ | `BondDetailView` | ✅ |
+| 매도 (`POST /bonds/sell`, KIS `TTTC0958U`) | ✅ | `BondSellView` | ✅ |
+| 거래내역 (`GET /bonds/history`, KIS `CTSC8013R`) | ✅ | `TransactionsView` 채권 탭 | ✅ |
+| 채권 검색·매수 | ❌ 불가 | ❌ | ❌ |
+
+> **채권 검색·매수가 없는 이유**: KIS 채권 API 18개 중 종목명·키워드로 찾는 API가 하나도 없습니다(2026-08 전수 확인). `search-bond-info`는 이름과 달리 12자리 종목코드를 받는 기본조회입니다. 검색이 없으면 상세 화면 진입 경로가 없어 매수도 불가능하므로, **진입점을 잔고로 삼는 "보유 조회 + 매도"**로 범위를 잡았습니다. 상세: [`api-server/_docs/KIS_API_GUIDE.md`](../api-server/_docs/KIS_API_GUIDE.md) §4
+>
+> **매도는 매수 로트 단위**(`BUY_DT`+`BUY_SEQ`)이며, 자산 금액은 **매수금액 기준**입니다(KIS 잔고가 평가금액을 주지 않음). 수량 단위가 미확정이라 예상 금액은 참고용으로 표시하며, 환산 계수는 `kis.bond.face-value-divisor` 설정값으로 분리돼 있습니다.
 
 ### 📰 뉴스
 | 기능 | api-server | web-app | 연동 |
