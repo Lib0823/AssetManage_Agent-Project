@@ -140,7 +140,7 @@
 | 메서드 | 경로 | 인증 | 설명 |
 |---|---|---|---|
 | GET | `/coins/markets` | PUBLIC | 원화마켓 목록 (`/v1/market/all?isDetails=true` 필터) |
-| GET | `/coins/{market}/ticker` | PUBLIC | 현재가 (`/v1/ticker`) |
+| GET | `/coins/tickers?markets=A,B,C` | PUBLIC | 현재가 **배치** (`/v1/ticker`) — 아래 정정 참고 |
 | GET | `/coins/{market}/orderbook` | PUBLIC | 호가 (`/v1/orderbook`) |
 | GET | `/coins/{market}/candles?unit=` | PUBLIC | 캔들 (`/v1/candles/*`) |
 | GET | `/coins/accounts` | AUTH | 보유 자산 (`/v1/accounts`) |
@@ -148,6 +148,8 @@
 | POST | `/coins/sell` | AUTH | 매도 (`/v1/orders`, side=ask) |
 | GET | `/coins/history` | AUTH | `coin_trade_history` 조회 |
 | GET/PUT | `/users/upbit-account` | AUTH | 업비트 키 등록·수정 |
+
+> **정정 (2026-08-29, 구현 후)**: 이 표의 초판은 단건 `GET /coins/{market}/ticker`를 적었으나, 구현은 **배치 `GET /coins/tickers?markets=A,B,C`** 하나만 제공한다. 자산 화면은 보유 종목 전체의 평가금액을 구해야 하는데, 단건 엔드포인트가 있으면 종목마다 루프를 돌게 되고 **업비트 시세 한도(IP당 10 req/s)를 즉시 소진해 전체 사용자의 시세가 막힌다.** rate limit 관점에서 구현이 옳으므로 스펙을 구현에 맞춘다. Liquibase changeset 번호도 초판의 `v1.30`이 아니라 **`v1.29`**로 확정됐다.
 
 **주문 요청 DTO**는 사용자 의도(`orderType: LIMIT | MARKET`, `side: BUY | SELL`, `quantity`, `price`)를 받고, `CoinTradingService`가 업비트의 `ord_type` 3종으로 변환한다. 프론트가 업비트 내부 규칙을 알 필요 없게 한다.
 

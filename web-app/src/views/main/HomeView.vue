@@ -3,8 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
-import { tradingApi, marketApi } from '@/services/api'
-import { mockMarketIndices } from '@/services/mockData'
+import { tradingApi, marketApi, coinApi } from '@/services/api'
 import { logger } from '@/utils/logger'
 
 const router = useRouter()
@@ -238,25 +237,54 @@ const loadNotifications = async () => {
 }
 
 // 2. 주요 지수 ← /market/indices (categories rendered dynamically)
-// 코인 카테고리만 mock 을 유지(코인은 지원 범위 밖). 국내·해외 지수는 실데이터만 사용한다.
-const mockIndexCategory = (key) => {
-  const m = mockMarketIndices[key]
-  if (!m) return null
-  return {
-    key,
-    label: m.label,
-    items: (m.items || []).map((i) => ({
-      label: i.label,
-      value: i.value,
-      change: i.change,
-      change_percent: i.changePercent
-    }))
+//
+// 코인 카테고리는 **업비트 실데이터**다. 예전에는 mock(비트코인 135,420,000원 등)을 썼는데,
+// 코인이 실거래 기능이 된 지금은 그 숫자가 홈 화면에 뜨는 **거짓 시세**가 된다.
+// 국내·해외 지수가 이미 "없으면 카드를 생략, 가짜로 덮지 않는다" 규칙을 따르고 있어
+// 코인도 같은 규칙으로 통일했다.
+
+/** 홈 카드에 띄울 대표 코인. 마켓 목록(288개)을 받지 않으려고 이름을 여기 둔다. */
+const HOME_COIN_MARKETS = [
+  { market: 'KRW-BTC', label: '비트코인' },
+  { market: 'KRW-ETH', label: '이더리움' },
+  { market: 'KRW-XRP', label: '리플' },
+  { market: 'KRW-SOL', label: '솔라나' }
+]
+
+/**
+ * 대표 코인 시세 → 지수 카드 한 장. **배치 1회**로 받는다(종목별 루프 금지 —
+ * 업비트 시세 한도는 IP당 10 req/s 이고 전체 사용자가 그 하나를 공유한다).
+ * 실패하거나 값이 비면 null 을 돌려 카드를 생략한다.
+ */
+const loadCoinIndexCategory = async () => {
+  try {
+    const res = await coinApi.getTickers(HOME_COIN_MARKETS.map((c) => c.market))
+    const list = Array.isArray(res?.data) ? res.data : []
+    const byMarket = new Map(list.filter((t) => t?.market).map((t) => [t.market, t]))
+
+    const items = HOME_COIN_MARKETS.map(({ market, label }) => {
+      const t = byMarket.get(market)
+      const value = Number(t?.tradePrice)
+      if (!Number.isFinite(value)) return null
+      return {
+        label,
+        value,
+        change: Number(t.signedChangePrice) || 0,
+        // 다른 카테고리와 단위를 맞춘다 — 업비트는 비율(0.0176)로 주고 카드는 %(1.76)로 그린다.
+        change_percent: (Number(t.signedChangeRate) || 0) * 100
+      }
+    }).filter(Boolean)
+
+    return items.length > 0 ? { key: 'coin', label: '코인', items } : null
+  } catch (error) {
+    logger.debug('코인 시세 조회 실패, 코인 카드 생략:', error)
+    return null
   }
 }
 
 const loadIndices = async () => {
   // 국내·해외: KIS 실데이터만 사용(없으면 표시 안 함, 가짜로 덮지 않음).
-  // 코인: 지원 범위 밖이라 mock 유지. 표시 순서: 국내 → 해외 → 코인.
+  // 코인: 업비트 실데이터. 표시 순서: 국내 → 해외 → 코인.
   const order = ['domestic', 'overseas', 'coin']
   const fromApi = {}
   try {
@@ -273,12 +301,15 @@ const loadIndices = async () => {
     logger.debug('Failed to load indices:', error)
   }
 
-  // 국내·해외 지수는 KIS 실데이터만 노출한다. 비어 있으면 가짜 지수로 덮지 않고 카드를 생략한다
-  // (사용자가 가짜 숫자를 실데이터로 오인하지 않도록). 코인만 mock 유지(지원 범위 밖).
+  // 코인은 업비트에서 직접 받는다(백엔드 /market/indices 가 코인을 주면 그쪽을 우선).
+  const coinCategory = fromApi.coin ?? (await loadCoinIndexCategory())
+
+  // 어느 카테고리든 실데이터가 없으면 가짜로 덮지 않고 카드를 생략한다
+  // (사용자가 가짜 숫자를 실데이터로 오인하지 않도록).
   // 국내가 비면 KIS 점검/미연동으로 보고 상단 점검 안내를 표시한다.
   indicesKisDown.value = !fromApi.domestic
   indexCategories.value = order
-    .map((key) => (key === 'coin' ? fromApi.coin || mockIndexCategory('coin') : fromApi[key] || null))
+    .map((key) => (key === 'coin' ? coinCategory : fromApi[key] || null))
     .filter(Boolean)
   indicesLoading.value = false
 }
@@ -405,12 +436,17 @@ onMounted(() => {
         <div v-if="indicesLoading" class="loading-state">
           <span class="loading-spinner"></span> 지수 불러오는 중...
         </div>
+        <!--
+          KIS 점검 안내는 카드를 대체하지 않고 위에 얹는다.
+          코인 지수는 업비트에서 오므로 KIS 가 죽어도 멀쩡하다 — 예전처럼 카드 전체를 안내로
+          바꾸면 정상 동작하는 코인 시세까지 같이 가려진다.
+        -->
         <KisMaintenanceNotice
-          v-else-if="indicesKisDown"
+          v-if="!indicesLoading && indicesKisDown"
           variant="banner"
           class="indices-notice"
         />
-        <div v-else class="indices-swipe-container">
+        <div v-if="!indicesLoading && indexCategories.length > 0" class="indices-swipe-container">
           <div class="swipe-fade left" :class="{ visible: currentIndexSlide > 0 }"></div>
           <div class="swipe-fade right" :class="{ visible: currentIndexSlide < indexCategories.length - 1 }"></div>
           <div

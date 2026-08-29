@@ -20,7 +20,7 @@
 - **API 키는 Jasypt(`PBEWITHHMACSHA512ANDAES_256`)로 암호화 저장**하고, 복호화 실패 시 **평문 폴백 금지**(fail-closed — `KisAuthService:164-176` 패턴).
 - 원화(KRW) 마켓만 다룬다. BTC/USDT 마켓 제외.
 - 조회 경로는 graceful degrade, 주문 경로는 예외 전파.
-- Liquibase는 새 changeset만 추가. 채권 계획이 `v1.29`를 쓰므로 이 계획은 `v1.30`부터.
+- Liquibase는 새 changeset만 추가. 채권 기능은 신규 테이블이 없어 changeset을 추가하지 않았다. 현재 최신은 `v1.28`이므로 이 계획은 `v1.29`부터.
 - 이 계획은 **ai-agent를 건드리지 않는다.**
 
 ---
@@ -43,7 +43,7 @@
 ## Task 1 (backend-engineer): DB — 업비트 계좌 + 코인 거래이력
 
 **Files:**
-- Create: `api-server/src/main/resources/db/changelog/mvp/v1.30-upbit-account-and-coin-history.yaml`
+- Create: `api-server/src/main/resources/db/changelog/mvp/v1.29-upbit-account-and-coin-history.yaml`
 - Modify: `api-server/src/main/resources/db/changelog/db.changelog-master.yaml`
 - Create: `api-server/src/main/java/com/inbeom/apiserver/domain/UserUpbitAccount.java`
 - Create: `api-server/src/main/java/com/inbeom/apiserver/domain/CoinTradeHistory.java`
@@ -58,7 +58,7 @@
 ```yaml
 databaseChangeLog:
   - changeSet:
-      id: 1.30.1-create-user-upbit-accounts
+      id: 1.29.1-create-user-upbit-accounts
       author: inbeom
       context: mvp
       changes:
@@ -83,7 +83,7 @@ databaseChangeLog:
         - dropTable: { tableName: user_upbit_accounts }
 
   - changeSet:
-      id: 1.30.2-create-coin-trade-history
+      id: 1.29.2-create-coin-trade-history
       author: inbeom
       context: mvp
       changes:

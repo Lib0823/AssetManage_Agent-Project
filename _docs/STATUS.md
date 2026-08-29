@@ -17,6 +17,7 @@
 | 💹 매매 실행 (주문) | 🔄 | api-server 주문 API 완료(수동 주문도 `trade_history` 기록), ai-agent Kafka 발행 경로 e2e 실계좌 검증 남음 |
 | 🧠 AI 분석 파이프라인 | ✅ | ai-agent 6단계 파이프라인 구현 + DB 적재 + api-server 조회 API + web-app 화면 렌더까지 연동 완료 |
 | 💵 채권 (장내채권) | ✅ | 보유 조회·시세·매도·거래내역. **검색·매수는 KIS API 부재로 불가** |
+| 🪙 코인 (업비트 원화 마켓) | 🔄 | 시세·자산·매수/매도·거래내역 구현 완료. **실제 업비트 키로 인증 경로 미검증**(HS256 수용 여부 포함) |
 | 📈 AI 분석 화면 (web-app) | ✅ | `MarketAnalysisView`(히트맵·감성·수급·5일 전망)·`CompanyDetailView`(종목 상세) 실연동. matplotlib PNG 차트 생성만 미구현(클라이언트 렌더로 대체) |
 
 ---
@@ -103,7 +104,7 @@
 > **국내 정규 매수/매도는 화면 라벨과 무관하게 항상 시장가로 체결됩니다**(`ORD_DVSN="01"`, 가격 입력값은 매수여력 검증에만 사용). 화면 라벨은 "정규장 (시장가)"로 표기(2026-08 QA에서 "지정가" 오표기 수정). 실제 지정가 주문을 지원하는 것은 예약주문 폼뿐입니다.
 >
 > 수동 웹 주문도 `trade_history`에 기록되어(2026-08 QA에서 추가) 홈 화면 "최근 거래"에 자동매매 주문과 함께 표시됩니다.
-> 해외주식(US)은 **지정가 전용**이며 잔고(`TTTS3012R`)·매수(`TTTT1002U`)·매도(`TTTT1006U`)·현재가(`HHDFS76200200`)를 사용. **해외 호가·실시간 시세·미국 외 타국가는 미지원**(현재가는 real quote 도메인). 코인은 비활성 유지.
+> 해외주식(US)은 **지정가 전용**이며 잔고(`TTTS3012R`)·매수(`TTTT1002U`)·매도(`TTTT1006U`)·현재가(`HHDFS76200200`)를 사용. **해외 호가·실시간 시세·미국 외 타국가는 미지원**(현재가는 real quote 도메인). 코인은 업비트 연동으로 활성화됐다(아래 [🪙 코인](#-코인-업비트-원화-마켓) 참고).
 
 > **실시간 시세 WebSocket (Phase 1)**: api-server가 KIS WebSocket 브리지 `/ws/realtime`를 제공(Browser ⇄ Spring ⇄ KIS upstream). 국내 `H0STASP0`(호가)/`H0STCNT0`(체결가), 미국 `HDFSASP0`/`HDFSCNT0`. **체결통보(`H0STCNI0`, 국내)는 Phase 2 구현**(플래그 `kis.realtime.fills.enabled` 뒤, HTS ID·AES·유저당 연결; 해외 `H0GSCNI0`도 구현). **HARD LIMIT — 라이브 데이터는 장중이어야 흐릅니다. 체결통보는 추가로 HTS ID 설정 + 실제 체결 필요.** 상세: [`api-server/_docs/KIS_API_GUIDE.md`](../api-server/_docs/KIS_API_GUIDE.md) §5
 
@@ -131,6 +132,25 @@
 > **채권 검색·매수가 없는 이유**: KIS 채권 API 18개 중 종목명·키워드로 찾는 API가 하나도 없습니다(2026-08 전수 확인). `search-bond-info`는 이름과 달리 12자리 종목코드를 받는 기본조회입니다. 검색이 없으면 상세 화면 진입 경로가 없어 매수도 불가능하므로, **진입점을 잔고로 삼는 "보유 조회 + 매도"**로 범위를 잡았습니다. 상세: [`api-server/_docs/KIS_API_GUIDE.md`](../api-server/_docs/KIS_API_GUIDE.md) §4
 >
 > **매도는 매수 로트 단위**(`BUY_DT`+`BUY_SEQ`)이며, 자산 금액은 **매수금액 기준**입니다(KIS 잔고가 평가금액을 주지 않음). 수량 단위가 미확정이라 예상 금액은 참고용으로 표시하며, 환산 계수는 `kis.bond.face-value-divisor` 설정값으로 분리돼 있습니다.
+
+### 🪙 코인 (업비트 원화 마켓)
+| 기능 | api-server | web-app | 연동 |
+|------|-----------|---------|------|
+| 마켓 목록 (`GET /coins/markets`, PUBLIC) | ✅ | `CoinSearchView` | ✅ |
+| 시세 배치 조회 (`GET /coins/tickers?markets=A,B,C`, PUBLIC) | ✅ | `AssetsView` 코인 카드·목록 | ✅ |
+| 호가·캔들 (`GET /coins/{market}/orderbook`·`/candles`, PUBLIC) | ✅ | `CoinDetailView` | ✅ |
+| 잔고 (`GET /coins/accounts`) | ✅ | `AssetDetailView` 코인 탭 | ✅ |
+| 매수/매도 (`POST /coins/buy`·`/sell`) | ✅ | `CoinTradingView` | ✅ |
+| 거래내역 (`GET /coins/history`) | ✅ | `TransactionsView` 코인 탭 | ✅ |
+| API 키 등록 (`GET/PUT /users/upbit-account`) | ✅ | `SettingsView` | ✅ |
+
+> **시세는 무인증, 매매는 사용자별 키**입니다. 시세 4개 경로만 PUBLIC으로 열려 있고(`KRW-[A-Z0-9]{1,20}` 패턴 — 비원화 마켓은 403), 나머지는 JWT 인증이 필요합니다. rate limit 버킷도 분리돼 있습니다: 시세는 **IP 단위**(업비트 한도가 IP에 걸리므로 전 사용자가 서버 공인 IP 하나를 공유), 주문은 **access_key 단위**.
+>
+> **시장가 주문은 매수/매도의 입력 필드가 다릅니다** — 매수는 `price`에 **총액**, 매도는 `quantity`에 **수량**(업비트 규격). 금액·수량은 전 구간 `BigDecimal` + `toPlainString()`으로 다뤄 소수 8자리가 지수표기로 변질되지 않게 합니다.
+>
+> **`submittedState`는 "접수 상태"이지 체결 상태가 아니며 갱신되지 않습니다.** 주문 조회 API가 범위 밖이라, "체결됨"으로 표시하면 사용자가 중복 주문을 냅니다.
+>
+> ⚠️ **실제 업비트 키로 인증 경로를 아직 검증하지 못했습니다.** 특히 업비트가 **HS256 서명을 수용하는지** 미확인입니다(업비트 문서는 HS512를 권장하나, 40자=320비트 키로는 jjwt가 HS512를 허용하지 않음). 거부되면 `javax.crypto.Mac("HmacSHA512")` 수동 구현으로 바꿔야 합니다 — **키 확보 시 `GET /v1/accounts` 1회 호출로 가장 먼저 확인할 것.** 공개 시세 경로는 실서버에서 실데이터 수신까지 확인했습니다. 상세: [`api-server/_docs/UPBIT_API_GUIDE.md`](../api-server/_docs/UPBIT_API_GUIDE.md)
 
 ### 📰 뉴스
 | 기능 | api-server | web-app | 연동 |

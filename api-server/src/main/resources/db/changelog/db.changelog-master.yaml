@@ -148,6 +148,11 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.28-remove-kis-account-mode.yaml
       context: mvp
 
+  # Phase 28: 업비트 코인 거래 — 사용자별 업비트 API 키 + 코인 주문 이력
+  - include:
+      file: classpath:db/changelog/mvp/v1.29-upbit-account-and-coin-history.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================

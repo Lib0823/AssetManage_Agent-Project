@@ -140,6 +140,11 @@ export const userApi = {
   deleteAccount: () => api.delete('/users/me'),
   getKisAccount: () => api.get('/users/kis-account'),
   updateKisAccount: (data) => api.put('/users/kis-account', data),
+  // 업비트 계좌. 조회 응답에는 Secret Key 필드 자체가 없고 Access Key 도 앞 4자 마스킹만 온다
+  // (`UpbitAccountResponse`). 그래서 수정 시 입력칸을 되채울 수 없고,
+  // **빈 값은 "지우기"가 아니라 "기존 키 유지"** 로 서버가 해석한다.
+  getUpbitAccount: () => api.get('/users/upbit-account'),
+  updateUpbitAccount: (data) => api.put('/users/upbit-account', data),
   getTradeConfig: () => api.get('/users/trade-config'),
   updateTradeConfig: (data) => api.put('/users/trade-config', data)
 }
@@ -211,6 +216,35 @@ export const bondApi = {
   getIssueInfo: (bondCode) => api.get(`/bonds/${bondCode}/issue-info`),
   getPrice: (bondCode) => api.get(`/bonds/${bondCode}/price`),
   getOrderbook: (bondCode) => api.get(`/bonds/${bondCode}/orderbook`)
+}
+
+// Coin API (Spring Boot api-server — CoinController, 업비트 원화마켓 전용)
+//
+// market 은 `KRW-BTC` 형식(통화-심볼)이다. 6자리 종목코드가 아니며, 비원화 마켓(BTC-ETH 등)은
+// 서버 경로 패턴이 아예 받지 않는다.
+export const coinApi = {
+  // 원화마켓 전체 목록 (유의/주의 플래그 포함). 288개 안팎이고 자주 안 바뀌므로
+  // 받아서 **클라이언트에서 검색 필터링**한다.
+  getMarkets: () => api.get('/coins/markets'),
+  // 현재가 **배치** 조회. 단건 조회 메서드를 의도적으로 두지 않았다 —
+  // 보유 종목마다 호출하면 업비트 시세 한도(IP당 10 req/s)를 즉시 소진해
+  // **전체 사용자의 시세**가 막힌다. 서버에도 단건 엔드포인트가 없다.
+  getTickers: (markets) =>
+    api.get('/coins/tickers', {
+      params: { markets: Array.isArray(markets) ? markets.join(',') : markets }
+    }),
+  getOrderbook: (market) => api.get(`/coins/${market}/orderbook`),
+  // unit: days/weeks/months 또는 분봉 숫자(1,3,5,10,15,30,60,240). 그 외는 서버가 400.
+  getCandles: (market, unit = 'days', count = 100) =>
+    api.get(`/coins/${market}/candles`, { params: { unit, count } }),
+  // 보유 자산 (AUTH). 평가금액이 없다 — 수량만 오므로 getTickers 배치 1회로 환산한다.
+  getAccounts: () => api.get('/coins/accounts'),
+  // payload: { market, orderType: 'LIMIT'|'MARKET', quantity?, price?, idempotencyKey? }
+  // **시장가는 매수/매도의 입력이 다르다** — 매수는 price 에 총액, 매도는 quantity 에 수량.
+  buy: (payload) => api.post('/coins/buy', payload),
+  sell: (payload) => api.post('/coins/sell', payload),
+  // 주문 이력 (AUTH). submittedState 는 접수 상태이며 체결 상태가 아니다.
+  getHistory: () => api.get('/coins/history')
 }
 
 // Favorite API (Spring Boot api-server)

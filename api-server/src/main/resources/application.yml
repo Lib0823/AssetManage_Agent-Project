@@ -229,6 +229,30 @@ logging:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
+# ---------------------------------------------------------------------------
+# 업비트(Upbit) Open API — 코인 거래
+#
+# 자격증명은 여기에 없다. KIS 의 공유 시세 키와 달리 업비트 시세는 인증이 아예 필요 없고,
+# 매매 키는 전부 user_upbit_accounts 에 사용자별로 Jasypt 암호화 저장된다.
+#
+# rate limit 버킷은 KisRateLimiter(Redis Lua 토큰 버킷)를 그대로 재사용한다. 따라서
+# kis.resilience.rate-limit.enabled=false 로 끄면 업비트 쪽 제한도 함께 꺼진다(fail-open).
+# ---------------------------------------------------------------------------
+upbit:
+  base-url: ${UPBIT_BASE_URL:https://api.upbit.com}
+
+  # 시세: 업비트 공식 한도 10 req/s, 적용 단위는 **IP**.
+  # IP 단위라 전체 사용자가 서버 공인 IP 하나의 한도를 공유한다 — 이 연동에서 가장 먼저 막히는 곳이다.
+  # 한도에 딱 맞추지 않고 8/s 로 두는 이유: 429 가 누적되면 업비트가 418(일시 차단)로 올린다.
+  quote:
+    capacity: ${UPBIT_QUOTE_RATE_CAPACITY:10}
+    refill-per-second: ${UPBIT_QUOTE_RATE_REFILL:8}
+
+  # 주문: 업비트 공식 한도 12 req/s, 적용 단위는 Pocket(계정) — 사용자끼리 간섭하지 않는다.
+  order:
+    capacity: ${UPBIT_ORDER_RATE_CAPACITY:12}
+    refill-per-second: ${UPBIT_ORDER_RATE_REFILL:10}
+
 # Actuator Configuration (Health Check)
 management:
   endpoints:

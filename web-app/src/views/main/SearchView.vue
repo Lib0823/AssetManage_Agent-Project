@@ -34,13 +34,22 @@ const isDomestic = computed(() => tabs.value.sub === 'domestic')
 // 결과를 채권인 것처럼 보여주므로 반드시 걸러낸다.
 const isBonds = computed(() => tabs.value.main === 'bonds')
 
+// 코인 탭. 코인 검색은 **가능하지만 이 화면에서는 하지 않는다** — 이 화면의 검색은
+// `stock_master`(주식 종목 마스터) 기반이고, 코인은 업비트 마켓 목록을 받아 클라이언트에서
+// 거르는 전혀 다른 경로다. 두 검색을 한 입력창에 섞으면 결과의 출처가 불투명해지므로
+// 전용 화면(`/coins`)으로 보낸다.
+const isCoins = computed(() => tabs.value.main === 'coins')
+
+// 주식이 아닌 탭(채권·코인)에서는 국내/해외 서브탭이 의미가 없다.
+const isStockTab = computed(() => !isBonds.value && !isCoins.value)
+
 // 검색어 없이 기본 상위 종목을 보여주는 상태(국내=코스피, 해외=S&P500)
 const showingTopStocks = computed(() => !searchQuery.value.trim())
 
 const filteredResults = computed(() => {
-  // 채권 탭에서는 주식 결과가 새어나가지 않도록 목록 자체를 비운다
+  // 채권·코인 탭에서는 주식 결과가 새어나가지 않도록 목록 자체를 비운다
   // (아래 lazy 시세 조회 watch 도 함께 멈춘다).
-  if (isBonds.value) return []
+  if (isBonds.value || isCoins.value) return []
   // 백엔드 검색이 종목코드/이름으로 이미 필터링하므로 그대로 사용 (국내·해외 공통)
   return results.value
 })
@@ -326,7 +335,7 @@ onMounted(() => {
 
     <div class="content">
       <!-- Tabs -->
-      <InvestmentTabs v-model="tabs" :showSubTabs="!isBonds" />
+      <InvestmentTabs v-model="tabs" :showSubTabs="isStockTab" />
 
       <!-- 채권: 검색 자체가 불가능하다 (KIS 에 채권 검색 API 가 없다) -->
       <UnsupportedTabNotice
@@ -335,6 +344,15 @@ onMounted(() => {
         message="보유 중인 채권은 자산 화면의 채권 카드에서 확인하고 매도할 수 있습니다."
         action-label="자산 화면으로 이동"
         @action="router.push('/assets')"
+      />
+
+      <!-- 코인: 검색은 되지만 데이터 출처가 달라 전용 화면에서 한다 -->
+      <UnsupportedTabNotice
+        v-else-if="isCoins"
+        title="코인은 전용 검색 화면에서 찾습니다"
+        message="이 화면의 검색은 주식 종목 기준입니다. 업비트 원화마켓 코인은 코인 검색 화면에서 한글명·심볼로 찾을 수 있습니다."
+        action-label="코인 검색으로 이동"
+        @action="router.push('/coins')"
       />
 
       <template v-else>

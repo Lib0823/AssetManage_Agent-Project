@@ -72,6 +72,11 @@ web-app/
 | `/assets/detail` | assets-detail | `detail/AssetDetailView` | 필요 | — |
 | `/company/:symbol` | company-detail | `detail/CompanyDetailView` | 필요 | — |
 | `/trading/:symbol` | trading | `detail/TradingView` | 필요 | — |
+| `/bonds/:code` | bond-detail | `detail/BondDetailView` | 필요 | — |
+| `/bonds/:code/sell` | bond-sell | `detail/BondSellView` | 필요 | — |
+| `/coins` | coin-search | `detail/CoinSearchView` | 필요 | — |
+| `/coins/:market` | coin-detail | `detail/CoinDetailView` | 필요 | — |
+| `/coins/:market/trade` | coin-trading | `detail/CoinTradingView` | 필요 | — |
 | `/transactions` | transactions | `detail/TransactionsView` | 필요 | ✅ |
 | `/news` | news | `detail/NewsView` | 필요 | — |
 | `/news/:id` | news-detail | `detail/NewsDetailView` | 필요 | — |
@@ -143,6 +148,8 @@ web-app/
 | `tradingApi` | `/trading/buy`, `/sell`, `/history`, `/recent`, `/holdings`, `/pending-orders`, `/orderable`, `/reserved-orders`(GET/POST/DELETE) | 국내 매매·거래내역·미체결·예약주문(실전 계좌 전용) |
 | `stockApi` | `/stocks/search`, `/stocks/top`, `/stocks/{code}/price`, `/stocks/{code}/orderbook` | 국내 종목 검색·인기·시세·호가 |
 | `overseasApi` | `/overseas/stocks/{symbol}/price`·`/orderbook`, `/overseas/balance`, `/history`, `/pending-orders`, `/orderable`, `/buy`, `/sell` | 해외(US) 시세·잔고·매매. `exchange` 파라미터 필요 |
+| `bondApi` | `/bonds/balance`, `/history`, `/sell`, `/bonds/{code}`·`/issue-info`·`/price`·`/orderbook` | 장내채권 보유·매도·시세. **`bondCode`는 12자리 영숫자**(`KR2033022D33`) — 주식의 6자리 숫자가 아니다. 매도 payload의 `buyDate`/`buySeq`/`separateTaxation`은 **잔고 응답을 그대로 되돌려 보내는 값**(사용자 입력 아님) |
+| `coinApi` | `/coins/markets`, `/tickers`, `/{market}/orderbook`·`/candles`, `/accounts`, `/buy`, `/sell`, `/history` | 업비트 원화 마켓. **`market`은 `KRW-BTC` 형식**이며 비원화 마켓은 서버 경로 패턴이 받지 않는다. **단건 ticker 메서드를 의도적으로 두지 않았다** — 보유 종목마다 호출하면 IP당 10 req/s 한도를 즉시 소진해 전체 사용자의 시세가 막힌다 |
 | `favoriteApi` | `/favorites`(GET/POST), `/favorites/{code}`(DELETE) | 관심종목 |
 | `companyApi` | `/company/{code}/basic-info`, `/financials`, `/disclosures` | 기업정보 |
 | `newsApi` | `/news`(`{symbol?, date?}`), `/news/{id}` | 뉴스 목록·상세. NewsView/NewsDetailView에서 사용 |

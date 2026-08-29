@@ -51,7 +51,40 @@ public enum ErrorCode {
     TRADE_HISTORY_NOT_FOUND(HttpStatus.NOT_FOUND, 5000, "Trade history not found"),
     INSUFFICIENT_BALANCE(HttpStatus.BAD_REQUEST, 5001, "Insufficient balance"),
     INVALID_TRADE_QUANTITY(HttpStatus.BAD_REQUEST, 5002, "Invalid trade quantity"),
-    INVALID_TRADE_PRICE(HttpStatus.BAD_REQUEST, 5003, "Invalid trade price");
+    INVALID_TRADE_PRICE(HttpStatus.BAD_REQUEST, 5003, "Invalid trade price"),
+
+    // Coin / Upbit Errors (6000~6999)
+    UPBIT_ACCOUNT_NOT_FOUND(HttpStatus.NOT_FOUND, 6000, "Upbit account not registered"),
+    UPBIT_API_ERROR(HttpStatus.SERVICE_UNAVAILABLE, 6001, "Upbit API error"),
+    /**
+     * 업비트 API 키에 등록된 허용 IP 와 이 서버의 공인 IP 가 다를 때.
+     *
+     * <p>일반 401 로 뭉개지 않고 별도 코드를 두는 이유: 사용자가 취할 행동이 완전히 다르다.
+     * 키가 틀렸으면 재발급이지만, IP 문제면 업비트에서 <b>허용 IP 를 다시 등록</b>해야 한다.
+     * 서버 IP 가 바뀌면 전 요청이 실패하므로 원인이 즉시 드러나야 한다.
+     */
+    UPBIT_IP_NOT_ALLOWED(HttpStatus.FORBIDDEN, 6002, "Server IP is not registered on the Upbit API key"),
+    /** 자체 토큰 버킷에 걸려 <b>업비트를 호출하지 않고</b> 거부한 경우 (4007 과 같은 성격). */
+    UPBIT_API_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, 6003,
+            "Upbit API call rate limit exceeded — try again shortly"),
+    /** 저장된 업비트 자격증명 복호화 실패. 평문 폴백 없이 여기서 끊는다 (4006 과 같은 성격). */
+    UPBIT_CREDENTIAL_DECRYPT_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, 6004,
+            "Stored Upbit credentials could not be decrypted — re-register the account"),
+    /**
+     * 주문 타입과 파라미터 조합이 업비트 규칙에 어긋날 때 (예: 시장가 매수인데 총액이 없음).
+     * 업비트로 나가기 전에 서비스 계층이 거부한 것이므로 400 이다.
+     */
+    INVALID_COIN_ORDER(HttpStatus.BAD_REQUEST, 6005, "Invalid coin order parameters"),
+    /**
+     * Secret Key 가 HS256 서명 최소 길이(32바이트)에 미달할 때.
+     *
+     * <p>별도 코드를 두는 이유: 이 상태를 걸러내지 않으면 jjwt 가 {@code WeakKeyException}
+     * ({@code RuntimeException}) 을 던져 <b>주문·자산 조회가 500</b> 으로 터진다. 실제 업비트 키는
+     * 40자라 오타·잘못된 붙여넣기에서만 생기는데, 그때 사용자가 봐야 할 것은 "서버 오류"가 아니라
+     * "키를 다시 확인하라"는 안내다.
+     */
+    UPBIT_SECRET_KEY_TOO_SHORT(HttpStatus.BAD_REQUEST, 6006,
+            "Upbit Secret Key is too short to sign requests — re-check the key");
 
     private final HttpStatus httpStatus;
     private final int code;

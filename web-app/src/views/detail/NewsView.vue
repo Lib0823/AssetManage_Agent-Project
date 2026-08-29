@@ -17,10 +17,12 @@ const newTabList = [
   // 채권 탭은 열려 있지만 뉴스는 없다 — ai-agent 뉴스 파이프라인이 주식 종목코드 기준이라
   // 채권 관련 기사를 수집·분석하지 않는다. 빈 목록 대신 이유를 안내한다.
   { key: 'bonds', label: '채권', disabled: false },
-  // 코인은 미지원 — AssetTabs/InvestmentTabs 기본값과 동일하게 비활성으로 노출한다.
-  { key: 'coins', label: '코인', disabled: true }
+  // 코인 탭도 열려 있지만 채권과 같은 이유로 뉴스가 없다(수집이 주식 종목코드 기준).
+  { key: 'coins', label: '코인', disabled: false }
 ]
 const isBonds = computed(() => tabs.value.main === 'bonds')
+const isCoins = computed(() => tabs.value.main === 'coins')
+const isStockTab = computed(() => !isBonds.value && !isCoins.value)
 const dateFilters = [
   { key: 'today', label: '오늘' },
   { key: 'yesterday', label: '어제' },
@@ -234,13 +236,22 @@ onMounted(() => {
 
     <div class="content">
       <!-- Tabs -->
-      <AssetTabs v-model="tabs" :tabs="newTabList" :showSubTabs="!isBonds" />
+      <AssetTabs v-model="tabs" :tabs="newTabList" :showSubTabs="isStockTab" />
 
       <!-- 채권: 뉴스 파이프라인이 주식 종목코드 기준이라 채권 기사가 없다 -->
       <UnsupportedTabNotice
         v-if="isBonds"
         title="채권 뉴스는 지원하지 않습니다"
         message="뉴스 수집·감성분석이 주식 종목 기준으로 동작해 채권 관련 기사는 제공되지 않습니다."
+      />
+
+      <!-- 코인: 같은 이유로 코인 기사가 없다 -->
+      <UnsupportedTabNotice
+        v-else-if="isCoins"
+        title="코인 뉴스는 지원하지 않습니다"
+        message="뉴스 수집·감성분석이 주식 종목 기준으로 동작해 코인 관련 기사는 제공되지 않습니다. 시세와 호가는 코인 검색 화면에서 볼 수 있습니다."
+        action-label="코인 검색으로 이동"
+        @action="router.push('/coins')"
       />
 
       <template v-else>

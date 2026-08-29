@@ -37,7 +37,8 @@ graph TD
     DB[("PostgreSQL + TimescaleDB :5432")]
     Redis[("Redis :6379")]
     Kafka{{"Kafka trade-order 토픽 + DLQ"}}
-    KIS["KIS Open API<br/>(실전투자, REST+WS)"]
+    KIS["KIS Open API<br/>(실전투자, 주식·채권, REST+WS)"]
+    UPBIT["Upbit Open API<br/>(원화 마켓 코인)"]
     DART["DART API<br/>(재무)"]
     GEM["Gemini API"]
     NEWS["뉴스 (RSS / 네이버)"]
@@ -49,6 +50,7 @@ graph TD
     API -->|JPA| DB
     API -->|"rate-limit bucket + cache"| Redis
     API -->|"주문·잔고·시세 + WS upstream"| KIS
+    API -->|"코인 시세·잔고·주문 (사용자별 JWT 서명)"| UPBIT
     API -->|"재무·공시"| DART
     Kafka -->|"consume trade-order + DLQ"| API
 
@@ -67,7 +69,8 @@ graph TD
 | Vue3 → Spring Boot (7070) | 대시보드, 자산, 거래내역, 설정, 인증, 시장 분석, 종목 상세 |
 | Spring Boot ⇄ PostgreSQL(+TimescaleDB) | 사용자·인증·설정·거래 이력 + AI 분석 결과 조회 |
 | Spring Boot ⇄ Redis | KIS API rate-limit 토큰버킷, 시세/재무 응답 캐시 (stale-if-error) |
-| Spring Boot → KIS API | 주문 실행, 잔고/시세 조회, 실시간 WebSocket 브리지 upstream |
+| Spring Boot → KIS API | 주문 실행, 잔고/시세 조회, 실시간 WebSocket 브리지 upstream, **채권 보유/매도** |
+| Spring Boot → Upbit API | 원화 마켓 시세(무인증, IP 버킷) + 코인 잔고·주문(사용자별 JWT 서명, access_key 버킷) |
 | Spring Boot → DART API | 기업 재무·공시 조회 |
 | ai-agent ⇄ PostgreSQL(+TimescaleDB) | 스코어링·재무·감성·예측·AI 판단·안전망 필터 저장 |
 | ai-agent → KIS / DART / News | 분석용 원천 데이터 수집 |
@@ -153,9 +156,9 @@ score = |foreign_net_buy|*0.3 + |institutional_net_buy|*0.3 + vol_avg_multiple*0
 | Backend | Spring Boot 4.1.0-SNAPSHOT, Java 21, Spring Data JPA, Spring Security + JWT(jjwt 0.12.3), Jasypt(AES-256), Liquibase, Gradle |
 | AI Pipeline | Python 3.11+, FastAPI, APScheduler, pandas, NumPy, scikit-learn, Prophet, transformers(KR-FinBERT), matplotlib |
 | AI Model | Gemini API (무료 티어) |
-| Database | PostgreSQL 16 + TimescaleDB extension (21 tables + 4 views, 4개 hypertable) |
+| Database | PostgreSQL 16 + TimescaleDB extension (23 tables + 4 views, 4개 hypertable) |
 | Message Queue | Apache Kafka 4.0 (KRaft 단일 노드) — `trade-order` 토픽 + DLQ |
 | Cache | Redis 7 — rate-limit 토큰버킷 + 응답 캐시 |
 | Search | Elasticsearch 8.x (확장 예정, 현재 미사용) |
 | Infra | Docker, Docker Compose |
-| 외부 API | KIS Developers (실전투자), DART (재무·공시), Gemini (AI 판단) |
+| 외부 API | KIS Developers (실전투자 — 주식·채권), Upbit Open API (원화 마켓 코인), DART (재무·공시), Gemini (AI 판단) |

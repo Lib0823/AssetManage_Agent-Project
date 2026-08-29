@@ -106,6 +106,23 @@ const router = createRouter({
       name: 'bond-sell',
       component: () => import('../views/detail/BondSellView.vue')
     },
+    // 코인 — 업비트 원화마켓 전용. :market 은 `KRW-BTC` 형식(통화-심볼)이며
+    // 6자리 종목코드가 아니다. 비원화 마켓은 서버 경로 패턴이 아예 받지 않는다.
+    {
+      path: '/coins',
+      name: 'coin-search',
+      component: () => import('../views/detail/CoinSearchView.vue')
+    },
+    {
+      path: '/coins/:market',
+      name: 'coin-detail',
+      component: () => import('../views/detail/CoinDetailView.vue')
+    },
+    {
+      path: '/coins/:market/trade',
+      name: 'coin-trading',
+      component: () => import('../views/detail/CoinTradingView.vue')
+    },
     {
       path: '/transactions',
       name: 'transactions',

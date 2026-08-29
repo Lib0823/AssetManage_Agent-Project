@@ -5,7 +5,7 @@ AI 주식 자동매매 시스템 데이터베이스 스키마 문서
 ## 개요
 
 - **DBMS**: PostgreSQL 16 + [TimescaleDB](https://www.timescale.com/) 확장 (`timescale/timescaledb:latest-pg16` 이미지). SQL/JOIN/JPA는 순정 Postgres와 완전히 동일하고, 시계열 테이블 4개만 내부적으로 hypertable(날짜 기준 자동 파티셔닝)로 관리된다 — 아래 [시계열 테이블(Hypertables)](#시계열-테이블-timescaledb-hypertables) 참고
-- **총 테이블 수**: 21개 (+ 뷰 4개)
+- **총 테이블 수**: 23개 (+ 뷰 4개) — v1.29에서 `user_upbit_accounts`·`coin_trade_history` 추가
 - **스키마**: 단일 public 스키마 (MVP 단순화)
 - **스키마 소스(편집 대상)**: **Liquibase** changelog (`api-server/src/main/resources/db/changelog/`)
 
@@ -36,7 +36,7 @@ database/
 
 > `schema.sql`을 직접 실행하거나 손으로 수정하지 마세요. 항상 changelog가 소스입니다.
 
-> `schema.sql`은 2026-08 QA 라운드에서 v1.27까지 재생성됐다(TimescaleDB hypertable 전환, `trade_history.idempotency_key`, `trade_execution_plan` 유저 스코프 유니크키, `refresh_tokens` 부분 유니크 인덱스 등 반영). 이후 changelog가 추가되면 다시 밀릴 수 있으니, 스키마 관련 작업 전에는 재생성 여부를 확인할 것 — schema.sql이 changelog보다 오래된 상태로 방치되면 이 파일을 근거로 정상 동작하는 코드의 컬럼/테이블을 잘못 지우는 사고로 이어질 수 있다(DB 없이 DDL을 손으로 고치는 것도 금지 — 스냅샷 위조가 된다).
+> `schema.sql`은 2026-08-29 기준 **v1.29까지** 재생성됐다(TimescaleDB hypertable 전환, `trade_history.idempotency_key`, `trade_execution_plan` 유저 스코프 유니크키, `refresh_tokens` 부분 유니크 인덱스, v1.28 `account_mode` 제거, v1.29 업비트 2개 테이블 반영). 이후 changelog가 추가되면 다시 밀릴 수 있으니, 스키마 관련 작업 전에는 재생성 여부를 확인할 것 — schema.sql이 changelog보다 오래된 상태로 방치되면 이 파일을 근거로 정상 동작하는 코드의 컬럼/테이블을 잘못 지우는 사고로 이어질 수 있다(DB 없이 DDL을 손으로 고치는 것도 금지 — 스냅샷 위조가 된다).
 
 상위 시스템 데이터 흐름은 [`../_docs/ARCHITECTURE.md`](../_docs/ARCHITECTURE.md) 참고.
 
@@ -44,16 +44,19 @@ database/
 
 ## 테이블 목록
 
-### 1. 사용자 & 인증 (6개)
+### 1. 사용자 & 인증 (7개)
 
 | 테이블명 | 설명 | 주요 컬럼 |
 |---------|------|-----------|
 | `users` | 사용자 기본 정보 | username, email, password(BCrypt), name, phone, birth_date |
 | `refresh_tokens` | JWT 리프레시 토큰 | user_id, token, expires_at, revoked_at |
 | `user_kis_accounts` | 사용자별 KIS API 키 (1:1) | user_id, account_number, app_key, app_secret (Jasypt 암호화), is_verified, **hts_id**(v1.11, 평문 — 실시간 체결통보 tr_key). ~~account_mode~~(v1.15에서 추가, v1.28에서 제거 — 모의투자 지원 전체 제거에 따라 실전투자로 단일화) |
+| `user_upbit_accounts` | 사용자별 업비트 API 키 (1:1, v1.29) | user_id(unique), access_key, secret_key (둘 다 Jasypt 암호화), is_verified |
 | `user_trade_config` | 자동매매 설정 (1:1) | user_id, order_amount, max_holdings, order_type, **is_active** |
 | `user_settings` | UI 설정 (1:1) | user_id, asset_order(JSONB), dark_mode, auto_login, notifications(JSONB) |
 | `webauthn_credentials` | WebAuthn 생체/패스키 자격증명 (v1.14) | credential_id(Base64URL, unique), user_id FK→users(id), public_key_cose, signature_count, transports, created_at |
+
+> `user_upbit_accounts`는 `user_kis_accounts`와 같은 1:1 패턴이지만 **계좌번호 컬럼이 없다** — 업비트는 OAuth 토큰 대신 요청마다 `access_key`/`secret_key` 로 JWT 를 새로 서명하므로 계좌번호에 해당하는 개념이 없다. **Secret Key 는 어떤 응답 DTO 에도 실리지 않는다**(등록 여부 boolean 만 노출). KIS 쪽 `decryptForDisplay` 패턴을 물려받지 않은 의도된 결정이며 `UpbitAccountSecurityTest` 가 고정한다.
 
 > `webauthn_credentials`는 생체/패스키 로그인용 자격증명을 저장한다. `credential_id`↔`user_id` **1:1 매핑**이며, WebAuthn user_handle 은 `user_id`에서 8바이트로 파생한다(별도 컬럼 없음, usernameless 로그인 시 역조회). 등록은 가입 이후 JWT 인증 상태에서(`/auth/webauthn/register/*`), 로그인은 public usernameless(`/auth/webauthn/login/*`)로 수행한다. 상세는 [`../api-server/_docs/AUTHENTICATION_FLOW.md`](../api-server/_docs/AUTHENTICATION_FLOW.md)의 WebAuthn 섹션 참고.
 
@@ -80,13 +83,20 @@ database/
 
 > `user_holdings`(사용자별 보유 종목 현황)는 v1.19에서 제거했다. api-server·ai-agent 어디서도 읽거나 쓰지 않는 순수 고아 테이블이었다 — 보유 종목은 KIS 실시간 조회(`TradingService.getHoldings` 등)로 대체됐다.
 
-### 4. 매매 실행 & 거래 (3개)
+### 4. 매매 실행 & 거래 (4개)
 
 | 테이블명 | 설명 | 관리 주체 |
 |---------|------|-----------|
 | `trade_execution_plan` | 안전망 필터 통과 후 매매 계획 및 실행 결과 | ai-agent |
 | `feature_threshold_config` | 안전망 필터 임계값 (BUY/SELL 규칙, 동적 조정) | ai-agent (기본값 seed) |
 | `trade_history` | 주문 체결 이력 (KIS 주문번호, 상태, 체결가) | Spring Boot |
+| `coin_trade_history` | 업비트 코인 주문 **접수** 이력 (v1.29) | Spring Boot |
+
+> **`coin_trade_history`가 `trade_history`를 재사용하지 않는 이유**는 형식 불일치 세 가지다: 주문 식별자가 UUID 문자열(KIS 는 숫자 ODNO), 수량이 소수 8자리(주식용 정수 컬럼에 담으면 잘림), 멱등키 제약이 Kafka 파이프라인 전용 형식이라 겹칠 수 없음. 금액·수량 컬럼은 전부 `NUMERIC(30,8)` — 사토시 단위 정밀도가 곧 자산 금액이라 주식용 정밀도로는 값이 조용히 잘린다.
+>
+> **`submitted_state`는 `order_state`가 아니다.** `POST /v1/orders` 응답의 `state` 는 접수 직후 값(대개 `wait`)이고 주문 조회 API 가 이 기능 범위 밖이라 **영원히 갱신되지 않는다.** "체결됨"으로 표시하면 사용자가 중복 주문을 낸다.
+>
+> **채권은 테이블이 없다.** 보유 현황·매도 모두 KIS API 실시간 조회로 처리하고 저장하지 않는다.
 
 ### 5. 검색 & 관심종목 (2개)
 
@@ -270,6 +280,7 @@ upsert도 영향 없다.
 
 - `users.password` → BCrypt
 - `user_kis_accounts.app_key` / `app_secret` → Jasypt (AES-256) 암호화 저장
+- `user_upbit_accounts.access_key` / `secret_key` → Jasypt (AES-256) 암호화 저장. **복호화 실패 시 평문 폴백 없이 6004 로 끊는다** — 폴백은 "암호화가 적용되지 않았다"는 상태를 정상 동작으로 위장해 평문 키가 업비트로 나가는 것을 감춘다
 - `refresh_tokens.token` → JWT 자체 서명 (평문 저장)
 - 애플리케이션 레벨에서 사용자별 데이터 격리
 

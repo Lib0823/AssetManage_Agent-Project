@@ -4,10 +4,18 @@ import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import InvestmentTabs from '@/components/common/InvestmentTabs.vue'
 import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
-import { tradingApi, overseasApi, bondApi } from '@/services/api'
+import { tradingApi, overseasApi, bondApi, coinApi } from '@/services/api'
 import { isKisOutageError } from '@/utils/kisStatus'
 import { logger } from '@/utils/logger'
 import { formatAmount } from '@/utils/bond'
+import {
+  SUBMITTED_STATE_NOTE,
+  coinErrorMessage,
+  formatKrw,
+  isUpbitAccountMissing,
+  submittedStateLabel,
+  symbolOf
+} from '@/utils/coin'
 
 const router = useRouter()
 
@@ -20,6 +28,9 @@ const overseasKisDown = ref(false)
 
 // 채권 거래내역 안내 (조회 실패/미연동). 채권 조회는 degrade 경로라 예외 대신 notice 가 온다.
 const bondNotice = ref('')
+
+// 코인 거래내역 안내 (계좌 미등록/조회 실패).
+const coinNotice = ref('')
 
 // 거래 내역 데이터 (API에서 가져옴)
 const history = ref([])
@@ -39,6 +50,34 @@ const isOverseas = computed(() => tabs.value.sub === 'overseas')
 // 정상적으로 자주 발생하고, 주문 시점에 DB 에 쓰면 "주문"을 "체결"로 보여주게 된다.
 const isBonds = computed(() => tabs.value.main === 'bonds')
 
+// 코인 탭. **분기가 없으면 주식 거래내역을 코인인 것처럼 보여준다**(조용한 오류).
+//
+// 코인 이력은 성격이 다르다 — DB `coin_trade_history` 에는 **주문 접수 시점의 상태**만 남고
+// 업비트 주문 조회 API 가 이 기능 범위 밖이라 **영원히 갱신되지 않는다.** 그래서 이 탭에서는
+// 체결 기준 집계(총 매수/매도)를 할 수 없고 미체결 섹션도 의미가 없다.
+const isCoins = computed(() => tabs.value.main === 'coins')
+
+const isStockTab = computed(() => !isBonds.value && !isCoins.value)
+
+/**
+ * 코인 주문의 원화 금액.
+ * 업비트 주문 타입에 따라 금액의 출처가 다르다 — 시장가 매도만 금액을 알 수 없다.
+ */
+const coinOrderAmount = (h) => {
+  const volume = Number(h.volume)
+  const price = Number(h.price)
+  switch (String(h.ordType ?? '').toLowerCase()) {
+    case 'limit':
+      return Number.isFinite(volume) && Number.isFinite(price) ? volume * price : null
+    // 시장가 매수는 price 자체가 주문 총액이다.
+    case 'price':
+      return Number.isFinite(price) ? price : null
+    // 시장가 매도는 수량만 지정하므로 접수 시점에 금액이 정해지지 않는다.
+    default:
+      return null
+  }
+}
+
 const parseKisDateTime = (s) => {
   if (!s || s.length < 8) return new Date(NaN)
   const y = +s.slice(0, 4), mo = +s.slice(4, 6) - 1, d = +s.slice(6, 8)
@@ -52,6 +91,40 @@ const loadHistory = async () => {
     errorMessage.value = ''
     overseasKisDown.value = false
     bondNotice.value = ''
+    coinNotice.value = ''
+
+    // 코인: DB(`coin_trade_history`)에 남은 **주문 접수 이력**이다. 체결 내역이 아니다.
+    if (isCoins.value) {
+      const res = await coinApi.getHistory()
+      const list = Array.isArray(res?.data) ? res.data : []
+      history.value = list.map((h, idx) => {
+        const at = new Date(h.orderedAt)
+        const amount = coinOrderAmount(h)
+        return {
+          id: h.orderUuid || `coin-${h.id ?? idx}`,
+          symbol: h.market,
+          name: h.coinName || symbolOf(h.market),
+          type: String(h.orderSide || '').toLowerCase() === 'ask' ? 'sell' : 'buy',
+          quantity: Number(h.volume) || 0,
+          price: Number(h.price) || 0,
+          amount,
+          orderedAt: at,
+          date: at.toLocaleDateString('ko-KR'),
+          time: at.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+          // 체결 상태를 알 수 없으므로 주식·채권의 COMPLETED/PENDING 어느 쪽으로도 분류하지
+          // 않는다. 둘 중 하나로 넣으면 요약 집계가 사실과 달라진다.
+          status: 'SUBMITTED',
+          statusText: submittedStateLabel(h.submittedState),
+          // 금액을 알 수 없는 시장가 매도는 단위까지 지운다 ("—원"이 되지 않게).
+          currency: amount === null ? '' : '원',
+          isCoin: true
+        }
+      })
+      // 미체결 여부를 알 수 없으므로 미체결 섹션 자체를 쓰지 않는다.
+      orders.value.pending = []
+      orders.value.reserved = []
+      return
+    }
 
     // 채권: KIS 채권 체결조회(CTSC8013R). 서버가 기간 미지정 시 최근 90일을 준다.
     if (isBonds.value) {
@@ -157,6 +230,16 @@ const loadHistory = async () => {
   } catch (error) {
     logger.debug('Failed to load trade history:', error)
 
+    // 코인: 계좌 미등록은 장애가 아니라 안내 대상이다. 빈 목록 + 안내로 degrade 한다.
+    if (isCoins.value) {
+      history.value = []
+      orders.value = { pending: [], reserved: [] }
+      coinNotice.value = isUpbitAccountMissing(error)
+        ? '업비트 계좌가 등록되지 않았습니다. 내 정보에서 API 키를 등록하면 주문 이력이 표시됩니다.'
+        : coinErrorMessage(error, '코인 주문 이력을 불러오지 못했습니다.')
+      return
+    }
+
     // 해외(KIS 연동) 탭에서 KIS 장애면 점검중 안내 표시 (국내 탭은 영향 없음)
     if (isOverseas.value && isKisOutageError(error)) {
       overseasKisDown.value = true
@@ -196,6 +279,10 @@ const goToTrading = (order) => {
   // (매도는 매수 로트 단위라 거래내역 행만으로는 주문을 만들 수 없다)
   if (order.isBond) {
     router.push(`/bonds/${order.symbol}`)
+    return
+  }
+  if (order.isCoin) {
+    router.push(`/coins/${order.symbol}`)
     return
   }
   router.push(`/trading/${order.symbol}`)
@@ -294,22 +381,41 @@ const filteredHistory = computed(() => {
 // 요약(총 매수/총 매도)을 선택 기간(filteredHistory) 기준으로 재계산한다.
 // 배당 수령액·현금 입출금 내역은 KIS 국내주식 OpenAPI에 전용 TR이 없어(개인 ledger 미제공,
 // 배당은 종목 기준 '배당일정' HHKDB669102C0만 존재) 요약에서 제외한다. 체결 기반 매수/매도만 집계.
+//
+// 코인은 체결 상태를 알 수 없으므로 COMPLETED 조건을 적용하지 않는다 — 적용하면 항상 0원이
+// 되고, 반대로 체결로 간주하면 접수만 된 주문을 체결로 집계하게 된다. 대신 "접수 기준"임을
+// 라벨에 명시한다. 금액을 알 수 없는 시장가 매도(null)는 합계에서 제외한다.
 const summary = computed(() => {
-  const buyTrades = filteredHistory.value.filter(t => t.type === 'buy' && t.status === 'COMPLETED')
-  const sellTrades = filteredHistory.value.filter(t => t.type === 'sell' && t.status === 'COMPLETED')
+  const matches = (t, type) =>
+    t.type === type && (isCoins.value ? Number.isFinite(t.amount) : t.status === 'COMPLETED')
+
+  const sum = (type) =>
+    filteredHistory.value
+      .filter((t) => matches(t, type))
+      .reduce((total, t) => total + (Number(t.amount) || 0), 0)
 
   return {
-    buy: { amount: buyTrades.reduce((sum, t) => sum + t.amount, 0) },
-    sell: { amount: sellTrades.reduce((sum, t) => sum + t.amount, 0) }
+    buy: { amount: sum('buy') },
+    sell: { amount: sum('sell') }
   }
 })
+
+// 코인은 체결 기준이 아니라 주문 접수 기준 집계다. 라벨로 구분한다.
+const summaryBuyLabel = computed(() => (isCoins.value ? '매수 주문 접수' : '총 매수'))
+const summarySellLabel = computed(() => (isCoins.value ? '매도 주문 접수' : '총 매도'))
 
 const formatNumber = (num) => {
   return new Intl.NumberFormat('ko-KR').format(num)
 }
 
-// 금액 표시. 채권 단가·금액은 소수를 가지므로 원화 정수 포맷터로 자르면 안 된다.
-const formatMoney = (num) => (isBonds.value ? formatAmount(num) : formatNumber(num))
+// 금액 표시.
+// - 채권: 단가·금액에 소수가 있어 원화 정수 포맷터로 자르면 안 된다.
+// - 코인: 원화 금액이라 정수로 표시하되, 시장가 매도처럼 금액을 알 수 없는 건은 '—'.
+const formatMoney = (num) => {
+  if (isBonds.value) return formatAmount(num)
+  if (isCoins.value) return formatKrw(num)
+  return formatNumber(num)
+}
 
 const getTypeLabel = (type) => {
   switch (type) {
@@ -326,8 +432,8 @@ const getTypeLabel = (type) => {
     <AppHeader title="거래 내역" showIcon icon="news" />
 
     <div class="content">
-      <!-- Tabs — 채권은 국내/해외 구분이 없다(장내채권 전용) -->
-      <InvestmentTabs v-model="tabs" :showSubTabs="!isBonds" />
+      <!-- Tabs — 채권(장내)·코인(업비트 원화마켓)은 국내/해외 구분이 없다 -->
+      <InvestmentTabs v-model="tabs" :showSubTabs="isStockTab" />
 
       <!-- Loading State -->
       <div v-if="loading" class="state-container">
@@ -358,9 +464,18 @@ const getTypeLabel = (type) => {
       <!-- Empty State -->
       <div v-else-if="history.length === 0" class="state-container empty-state">
         <div class="empty-icon">📊</div>
-        <p class="empty-message">{{ isBonds ? '채권 거래 내역이 없습니다' : '거래 내역이 없습니다' }}</p>
+        <p class="empty-message">
+          <template v-if="isBonds">채권 거래 내역이 없습니다</template>
+          <template v-else-if="isCoins">코인 주문 내역이 없습니다</template>
+          <template v-else>거래 내역이 없습니다</template>
+        </p>
         <p class="empty-submessage">
-          {{ bondNotice || (isBonds ? '보유 채권은 자산 화면에서 확인할 수 있습니다' : '첫 거래를 시작해보세요') }}
+          <template v-if="isCoins">
+            {{ coinNotice || '코인 검색 화면에서 종목을 찾아 주문할 수 있습니다' }}
+          </template>
+          <template v-else>
+            {{ bondNotice || (isBonds ? '보유 채권은 자산 화면에서 확인할 수 있습니다' : '첫 거래를 시작해보세요') }}
+          </template>
         </p>
       </div>
 
@@ -370,8 +485,18 @@ const getTypeLabel = (type) => {
       <!-- 채권 조회 degrade 안내 (목록은 있지만 일부만 온 경우) -->
       <p v-if="bondNotice" class="bond-notice">{{ bondNotice }}</p>
 
-      <!-- Pending/Reserved Orders Section -->
-      <section class="pending-section">
+      <!--
+        코인: 이 목록은 체결 내역이 아니라 **주문 접수 이력**이다.
+        체결로 오인하면 사용자가 같은 주문을 다시 낸다.
+      -->
+      <p v-if="isCoins" class="bond-notice">{{ SUBMITTED_STATE_NOTE }}</p>
+      <p v-if="coinNotice" class="bond-notice">{{ coinNotice }}</p>
+
+      <!--
+        미체결/예약 섹션은 코인에 쓰지 않는다 — 업비트 주문 조회가 이 기능 범위 밖이라
+        어떤 주문이 미체결인지 알 수 없고, 전부 미체결로 보여주면 사실과 다르다.
+      -->
+      <section v-if="!isCoins" class="pending-section">
         <h3 class="section-title">미체결 / 예약 주문</h3>
         <div class="order-list">
           <div
@@ -434,11 +559,11 @@ const getTypeLabel = (type) => {
         <div class="summary-container">
           <div class="summary-card">
             <div class="summary-item">
-              <span class="summary-type buy">총 매수</span>
+              <span class="summary-type buy">{{ summaryBuyLabel }}</span>
               <span class="summary-amount">{{ formatMoney(summary.buy.amount) }}</span>
             </div>
             <div class="summary-item">
-              <span class="summary-type sell">총 매도</span>
+              <span class="summary-type sell">{{ summarySellLabel }}</span>
               <span class="summary-amount">{{ formatMoney(summary.sell.amount) }}</span>
             </div>
           </div>

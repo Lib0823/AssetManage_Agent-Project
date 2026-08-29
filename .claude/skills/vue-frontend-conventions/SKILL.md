@@ -1,6 +1,6 @@
 ---
 name: vue-frontend-conventions
-description: web-app(Vue3 SPA) 코드를 작성/수정할 때 반드시 사용. services/api.js 경유 원칙, ApiResponse 소비 패턴, mockData.js 목업 전략, graceful-degrade UI(KIS 점검 배너 등), 라우팅/PWA 설정을 다룬다. "화면 추가", "뷰 만들어줘", "API 연동", "목업 데이터" 같은 요청에서 트리거된다.
+description: web-app(Vue3 SPA) 코드를 작성/수정할 때 반드시 사용. services/api.js 경유 원칙, ApiResponse 소비 패턴, 실데이터 우선(mock 금지) 전략, graceful-degrade UI(KIS 점검 배너 등), 라우팅/PWA 설정을 다룬다. "화면 추가", "뷰 만들어줘", "API 연동", "목업 데이터" 같은 요청에서 트리거된다.
 ---
 
 # web-app 컨벤션
@@ -12,9 +12,10 @@ web-app은 ai-agent를 직접 호출하지 않고 api-server만 경유한다(BFF
 - `services/api.js`가 axios 인스턴스에 요청/응답 인터셉터를 걸어 401 시 RefreshToken으로 자동 갱신한다. 컴포넌트에서 axios를 직접 import하면 이 갱신 로직을 우회하게 되어 토큰 만료 시 사용자가 갑자기 로그아웃된 것처럼 보인다.
 - 모든 응답은 `ApiResponse<T>`(`{success, message, data}`)로 온다. `data`만 꺼내 쓰고, `success=false`일 때는 `message`를 사용자에게 보여준다.
 
-## mockData.js 우선 전략
-- 백엔드 API가 아직 없거나 계약이 확정 전이면 `services/mockData.js`에 화면별 목업을 추가하고 그것으로 먼저 UI를 완성한다 — API가 나올 때까지 기다리지 않는다.
-- 실제 계약이 확정되면 목업 함수를 실제 API 호출로 교체하되, 함수 시그니처(반환 shape)는 목업과 동일하게 맞춰 컴포넌트 코드를 다시 쓰지 않도록 한다.
+## 실데이터 우선 (mock 금지)
+- **`services/mockData.js`는 삭제됐다. 되살리지 말 것.** 목업이 남아 있으면 화면이 "동작하는 것처럼" 보여 연동이 깨진 사실이 감춰진다 — 이 저장소는 실제로 그 문제를 겪고 mock 제거 작업을 거쳤다.
+- 백엔드 API가 아직 없으면 목업을 만들지 말고 **계약을 먼저 확정한다**(backend-engineer가 `_workspace/`에 API 계약을 남긴다). 그 계약을 향해 `services/api.js`에 실제 호출을 작성한다.
+- 데이터가 아직 안 오는 구간은 목업이 아니라 **빈 상태·로딩·안내 배너**로 표현한다(아래 graceful degrade 참고). 지원하지 않는 탭은 `UnsupportedTabNotice.vue` 패턴을 쓴다.
 
 ## Graceful degrade UI
 - KIS 점검/장애, quote 비활성 등 외부 연동 실패는 크래시가 아니라 안내 배너로 처리한다(`KisMaintenanceNotice.vue`, `kisStatus.js`의 `isKisOutageError()` 패턴). 새 화면에서 KIS/DART 데이터를 다룰 때도 이 패턴을 따른다 — `notice` 필드가 응답에 있으면 그것을 배너로 보여주고 나머지 UI는 정상 렌더링한다.
