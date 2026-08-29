@@ -3,6 +3,7 @@ package com.inbeom.apiserver.service;
 import com.inbeom.apiserver.client.UpbitApiClient;
 import com.inbeom.apiserver.domain.CoinTradeHistory;
 import com.inbeom.apiserver.dto.coin.CoinOrderRequest;
+import com.inbeom.apiserver.dto.coin.CoinOrderResponse;
 import com.inbeom.apiserver.exception.BusinessException;
 import com.inbeom.apiserver.repository.CoinTradeHistoryRepository;
 import com.inbeom.apiserver.service.UpbitAuthService.UpbitCredentials;
@@ -62,7 +63,8 @@ class CoinOrderMappingTest {
         given(coinQuoteService.requireKrwMarket(anyString())).willReturn(MARKET);
         given(upbitAuthService.getCredentials(anyLong()))
                 .willReturn(new UpbitCredentials("access", "secret"));
-        given(coinTradeHistoryRepository.findByIdentifier(anyString())).willReturn(Optional.empty());
+        given(coinTradeHistoryRepository.findByUserIdAndIdentifier(anyLong(), anyString()))
+                .willReturn(Optional.empty());
         given(coinTradeHistoryRepository.save(any(CoinTradeHistory.class)))
                 .willAnswer(inv -> inv.getArgument(0));
 
@@ -203,7 +205,7 @@ class CoinOrderMappingTest {
                     .userId(1L).market(MARKET).orderSide("bid").ordType("limit")
                     .submittedState("wait").orderUuid("existing-uuid").identifier("dup-key")
                     .build();
-            given(coinTradeHistoryRepository.findByIdentifier("dup-key"))
+            given(coinTradeHistoryRepository.findByUserIdAndIdentifier(1L, "dup-key"))
                     .willReturn(Optional.of(existing));
 
             CoinOrderRequest req = request(CoinOrderRequest.OrderType.LIMIT,
@@ -215,6 +217,41 @@ class CoinOrderMappingTest {
             // 네트워크 타임아웃 뒤 재시도가 중복 주문이 되는 것을 막는 것이 identifier 의 존재 이유다.
             verify(upbitApiClient, org.mockito.Mockito.never())
                     .postAuthenticated(anyString(), any(), anyString(), anyString(), eq(Map.class));
+        }
+
+        @Test
+        @DisplayName("남이 쓴 멱등키는 내 주문을 가로막지 못한다 (사용자 경계)")
+        void identifierOfAnotherUserDoesNotSuppressMyOrder() {
+            // idempotencyKey 는 클라이언트가 값을 정하는 문자열이다. 조회가 전역이면
+            // 아무나 "1" 같은 값을 보내 **타인의 주문 내역을 통째로 받아볼 수 있고**,
+            // 자기 주문은 "중복"으로 처리돼 업비트로 나가지 않으면서 화면에는 성공으로 보인다.
+            // 멱등은 같은 사용자의 재시도를 막는 개념이지 사용자 사이에 적용될 것이 아니다.
+            CoinTradeHistory otherUsersOrder = CoinTradeHistory.builder()
+                    .userId(1L).market(MARKET).orderSide("bid").ordType("limit")
+                    .submittedState("wait").orderUuid("victim-uuid").identifier("shared-key")
+                    .build();
+            // 사용자 1 의 주문만 존재한다. 사용자 2 로 조회하면 비어 있어야 한다.
+            given(coinTradeHistoryRepository.findByUserIdAndIdentifier(1L, "shared-key"))
+                    .willReturn(Optional.of(otherUsersOrder));
+            given(coinTradeHistoryRepository.findByUserIdAndIdentifier(2L, "shared-key"))
+                    .willReturn(Optional.empty());
+
+            CoinOrderRequest req = request(CoinOrderRequest.OrderType.LIMIT,
+                    new BigDecimal("0.001"), new BigDecimal("50000000"));
+            req.setIdempotencyKey("shared-key");
+
+            CoinOrderResponse response =
+                    coinTradingService.placeOrder(2L, CoinTradingService.buySide(), req);
+
+            // 사용자 2 의 주문은 실제로 업비트로 나가야 한다.
+            verify(upbitApiClient)
+                    .postAuthenticated(anyString(), any(), anyString(), anyString(), eq(Map.class));
+            assertThat(response.isDuplicate())
+                    .as("남의 주문을 내 중복으로 오인하면 안 된다")
+                    .isFalse();
+            assertThat(response.getOrderUuid())
+                    .as("타인의 주문번호가 응답에 실리면 안 된다")
+                    .isNotEqualTo("victim-uuid");
         }
     }
 }

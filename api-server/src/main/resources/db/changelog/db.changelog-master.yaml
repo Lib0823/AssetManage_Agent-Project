@@ -153,6 +153,11 @@ databaseChangeLog:
       file: classpath:db/changelog/mvp/v1.29-upbit-account-and-coin-history.yaml
       context: mvp
 
+  # Phase 29: 코인 멱등키를 사용자 단위로 (전역 UNIQUE 가 사용자 경계를 넘던 문제)
+  - include:
+      file: classpath:db/changelog/mvp/v1.30-coin-identifier-user-scoped.yaml
+      context: mvp
+
   # ========================================
   # Product Context Changelogs (Future)
   # ========================================

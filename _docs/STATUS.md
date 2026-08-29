@@ -142,7 +142,7 @@
 | 잔고 (`GET /coins/accounts`) | ✅ | `AssetDetailView` 코인 탭 | ✅ |
 | 매수/매도 (`POST /coins/buy`·`/sell`) | ✅ | `CoinTradingView` | ✅ |
 | 거래내역 (`GET /coins/history`) | ✅ | `TransactionsView` 코인 탭 | ✅ |
-| API 키 등록 (`GET/PUT /users/upbit-account`) | ✅ | `SettingsView` | ✅ |
+| API 키 등록 (`GET/PUT /users/upbit-account`) | ✅ | `ProfileView` (KIS 계좌와 같은 화면) | ✅ |
 
 > **시세는 무인증, 매매는 사용자별 키**입니다. 시세 4개 경로만 PUBLIC으로 열려 있고(`KRW-[A-Z0-9]{1,20}` 패턴 — 비원화 마켓은 403), 나머지는 JWT 인증이 필요합니다. rate limit 버킷도 분리돼 있습니다: 시세는 **IP 단위**(업비트 한도가 IP에 걸리므로 전 사용자가 서버 공인 IP 하나를 공유), 주문은 **access_key 단위**.
 >

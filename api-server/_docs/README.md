@@ -13,7 +13,7 @@ AI 주식 자동매매 시스템의 백엔드 모듈이다. Spring Boot(Java 21)
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 패키지 구조, 레이어 흐름, 도메인/JPA 매핑, 외부 연동(KIS·DART), 보안 구성. **개발 전 필독** |
 | [STATUS.md](./STATUS.md) | 엔드포인트·기능별 구현 진행 상황(완료/진행중/미착수) 표 |
 | [USAGE.md](./USAGE.md) | 설치·환경변수·실행·빌드·테스트·트러블슈팅 (사용 방법) |
-| [API_DESIGN.md](./API_DESIGN.md) | 12개 컨트롤러 52개 REST 엔드포인트 전체 명세 (해외주식 `/overseas/*` 포함) |
+| [API_DESIGN.md](./API_DESIGN.md) | REST 엔드포인트 명세 (해외주식 `/overseas/*`, 채권 `/bonds/*`, 코인 `/coins/*` 포함). **컨트롤러 16개 중 13개 수록** — WebAuthn·StockNews·Internal 3개는 미수록이며 문서 말미에 그 사실을 밝혀 뒀다 |
 | [AUTHENTICATION_FLOW.md](./AUTHENTICATION_FLOW.md) | JWT 발급·검증·리프레시·로그아웃, KIS 계정 연동 인증 흐름 |
 | [KIS_API_GUIDE.md](./KIS_API_GUIDE.md) | KIS Open API 연동(이중 자격증명 경로, TR_ID 매핑, 토큰 캐싱), 채권 API, DART 연동 |
 | [UPBIT_API_GUIDE.md](./UPBIT_API_GUIDE.md) | 업비트 Open API 연동(요청마다 JWT 서명, `query_hash` 규칙, 주문 타입 비대칭, rate limit 버킷 분리) |
@@ -30,11 +30,11 @@ AI 주식 자동매매 시스템의 백엔드 모듈이다. Spring Boot(Java 21)
 | 언어/런타임 | Java 21 (LTS) |
 | 프레임워크 | Spring Boot 4.1.0-SNAPSHOT, Spring Data JPA, Spring Security, Spring Validation |
 | 인증 | JWT (jjwt 0.12.3, HMAC-SHA), BCrypt 비밀번호 |
-| 암호화 | Jasypt `PBEWITHHMACSHA512ANDAES_256` (KIS appKey/appSecret) |
+| 암호화 | Jasypt `PBEWITHHMACSHA512ANDAES_256` (KIS appKey/appSecret, 업비트 accessKey/secretKey) |
 | DB | PostgreSQL, Liquibase 마이그레이션 |
 | 빌드 | Gradle |
 | 서버 포트 | `7070`, context-path `/api` (full URL: `http://localhost:7070/api/...`) |
-| 외부 연동 | KIS Open API(실전투자 매매 + 시세/재무), DART(공시·재무) |
+| 외부 연동 | KIS Open API(실전투자 — 주식·채권 매매 + 시세/재무), Upbit Open API(원화 마켓 코인), DART(공시·재무) |
 
 ---
 
@@ -66,5 +66,6 @@ cd api-server
 ## 보안 주의
 
 - `.env`, KIS appKey/appSecret 평문, `JWT_SECRET`, `JASYPT_PASSWORD`는 절대 커밋하지 않는다(`.gitignore` 등록 필수).
-- `users.password`는 BCrypt 단방향 해시, `user_kis_accounts.app_key/app_secret`는 Jasypt 양방향 암호화로 저장한다.
+- `users.password`는 BCrypt 단방향 해시, `user_kis_accounts.app_key/app_secret`와 `user_upbit_accounts.access_key/secret_key`는 Jasypt 양방향 암호화로 저장한다.
+- **업비트 Secret Key는 어떤 응답에도 실리지 않는다**(등록 여부 boolean만 노출). KIS 쪽 `decryptForDisplay`와 다른 정책이며 `UpbitAccountSecurityTest`가 고정한다 — 되돌리지 말 것.
 - 로깅 레벨을 `org.springframework.web=DEBUG`로 올리면 RestTemplate 요청 본문에 KIS 자격증명이 평문으로 남을 수 있다(`application.yml` 주석 참고). 디버깅 시에만 일시적으로 사용한다.

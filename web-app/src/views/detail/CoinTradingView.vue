@@ -57,6 +57,8 @@ const form = ref({
 })
 
 const marketInfo = ref(null)
+/** 유의·주의 정보를 못 받았을 때의 안내. 비어 있으면 정상적으로 받은 것이다. */
+const marketInfoNotice = ref('')
 const ticker = ref(null)
 
 // 업비트 계좌 상태. accountMissing 이면 주문 폼 대신 등록 안내를 보여준다.
@@ -76,7 +78,8 @@ const orderResult = ref(null)
  *
  * **재시도에서 같은 값을 다시 보내는 것이 이 값의 존재 이유다.** 주문이 업비트에 접수됐는데
  * 응답만 유실되는 경우(read timeout)가 실제로 있고, 그때 사용자는 실패한 줄 알고 다시 누른다.
- * 키가 같으면 서버가 `findByIdentifier` 로 걸러 두 번째 실주문을 막는다.
+ * 키가 같으면 서버가 `findByUserIdAndIdentifier` 로 걸러 두 번째 실주문을 막는다
+ * (조회는 **사용자 단위**다 — 남이 같은 문자열을 써도 내 주문에 영향이 없다).
  *
  * 그래서 **성공했을 때와 주문 내용이 바뀌었을 때만** 새로 만든다. 실패는 키를 버리는 사유가
  * 아니다 — 실패야말로 같은 키로 다시 보내야 하는 상황이다.
@@ -110,12 +113,20 @@ const fieldGuide = computed(() => {
 const loadMarketInfo = async () => {
   try {
     const res = await coinApi.getMarkets()
-    const list = res?.data?.markets
+    const data = res?.data ?? null
+    const list = data?.markets
     marketInfo.value = Array.isArray(list)
       ? list.find((m) => m.market === market.value) ?? null
       : null
+    // 서버는 업비트 장애 시 예외가 아니라 200 + { markets: [], notice } 로 degrade 한다.
+    // 그걸 흘려보내면 유의/주의 배지가 **경고 없이 사라진 채 매수 버튼만 살아 있다** —
+    // 실제 자금이 오가는 화면에서 상장폐지 위험 고지가 조용히 없어지는 것이라 반드시 표시한다.
+    marketInfoNotice.value = marketInfo.value
+      ? ''
+      : data?.notice || '유의·주의 종목 정보를 불러오지 못했습니다. 주문 전 업비트에서 직접 확인해 주세요.'
   } catch (error) {
     logger.debug('코인 마켓 정보 조회 실패:', error)
+    marketInfoNotice.value = '유의·주의 종목 정보를 불러오지 못했습니다. 주문 전 업비트에서 직접 확인해 주세요.'
   }
 }
 
@@ -300,7 +311,10 @@ const submitOrder = async () => {
     // 시장가 매수의 총액은 수량이 아니라 price 필드로 간다(업비트 규격).
     if (needsAmount.value) payload.price = amountRaw.value
     // 이 주문 시도의 멱등키. 재시도 때도 같은 값이 실려 서버가 중복 주문을 막는다.
-    if (orderAttemptKey.value) payload.idempotencyKey = orderAttemptKey.value
+    // 조건부로 붙이면 키가 없을 때 **아무 표시 없이** 멱등 방어만 빠진 요청이 나가므로,
+    // 도달 경로가 없더라도 여기서 반드시 채운다.
+    if (!orderAttemptKey.value) orderAttemptKey.value = newOrderAttemptKey()
+    payload.idempotencyKey = orderAttemptKey.value
 
     const res = isBuy.value ? await coinApi.buy(payload) : await coinApi.sell(payload)
     orderResult.value = res?.data ?? null
@@ -331,6 +345,9 @@ const coinName = computed(() => marketInfo.value?.koreanName || symbol.value)
       <!-- 유의/주의 종목: 자금이 실제로 움직이는 화면이므로 폼보다 위에 둔다 -->
       <div v-if="marketInfo?.warning" class="risk-box warning">
         <strong>유의 종목</strong>입니다. 가격 변동과 상장폐지 위험이 큽니다.
+      </div>
+      <div v-if="marketInfoNotice" class="risk-box unknown">
+        {{ marketInfoNotice }}
       </div>
       <div v-if="(marketInfo?.cautions || []).length > 0" class="risk-box caution">
         <strong>주의</strong>
@@ -674,6 +691,12 @@ const coinName = computed(() => marketInfo.value?.koreanName || symbol.value)
 .risk-box.caution {
   background: rgba(245, 158, 11, 0.12);
   color: #F59E0B;
+}
+
+/* 유의·주의 정보를 못 받은 상태. "위험 없음"이 아니라 "확인 불가"임을 색으로도 구분한다. */
+.risk-box.unknown {
+  background: rgba(100, 116, 139, 0.12);
+  color: #64748B;
 }
 
 .risk-tag {

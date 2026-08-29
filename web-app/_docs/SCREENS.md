@@ -2,9 +2,9 @@
 
 각 화면(view)의 목적, 주요 컴포넌트, 호출 API, 데이터 흐름(실데이터/Mock), 네비게이션을 정리한다. 모든 내용은 `web-app/src/views/` 코드 기준. 라우트 매핑은 [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-라우팅-구조).
 
-데이터 출처 표기: **실데이터** = api-server/AI 결과 호출, **Mock** = `services/mockData.js`/하드코딩, **혼합** = 실데이터 + Mock 폴백/부분.
+데이터 출처 표기: **실데이터** = api-server/AI 결과 호출, **혼합** = 실데이터 + 부분 하드코딩.
 
-> `services/mockData.js`에 남은 export는 `mockMarketIndices` 하나뿐이며, 소비처도 HomeView(지수 폴백) 한 곳이다. 나머지 화면은 모두 실 API에 연결돼 있다.
+> **`services/mockData.js`는 삭제됐다.** 목업이 남아 있으면 화면이 "동작하는 것처럼" 보여 연동이 깨진 사실이 감춰지기 때문이다. 데이터를 못 받는 구간은 목업 대신 **빈 상태·로딩·점검 안내 배너**로 표현한다.
 
 ---
 
@@ -35,7 +35,7 @@
 - **네비게이션**: `→ /register/finance`.
 
 ### RegisterFinanceView (`/register/finance`) — 가입 2/2단계
-- **목적**: KIS(한국투자증권) 계좌(appKey/appSecret) 입력·검증 후 가입 완료. 주식 투자(KIS)는 필수, 코인은 UI상 비활성.
+- **목적**: KIS(한국투자증권) 계좌(appKey/appSecret) 입력·검증 후 가입 완료. 주식·채권 거래에는 KIS 계좌가 필수. 코인은 **가입 단계가 아니라 `ProfileView`(내 정보)**에서 업비트 키를 따로 등록한다(`PUT /users/upbit-account`).
 - **API**: `authApi.validateKisAccount({ appKey, appSecret })` → `authApi.register(전체데이터)` → `authApi.login(...)`(가입 후 자동 로그인) — **실데이터**.
 - **상태(Pinia)**: `hasStep1Data` 가드(1단계 데이터 없으면 `/register`로), `registrationData.step1` 병합, `setAuthData`, `clearRegistrationData`.
 - **특이사항**: KIS 분당 1회 제한 오류(`EGW00133`) 시 60초 재시도 카운트다운. APP key 발급 포털(`apiportal.koreainvestment.com`)을 새 탭으로 연다. 오류코드 3001/3002 시 `/register`로 복귀.
@@ -59,7 +59,7 @@
 ### HomeView (`/home`) — 대시보드 ✅ 실데이터 연동
 - **목적**: 시장 개요 대시보드. 주요 지수, 환율, 주요 뉴스, AI 매수 추천, 최근 거래 알림.
 - **API** (onMounted, `Promise.allSettled` 병렬): `marketApi.getIndices`, `marketApi.getExchangeRates`, `marketApi.getTopNews`, `marketApi.getAiRecommendations`, `tradingApi.getRecentTrades` — **혼합**.
-- **데이터 흐름**: 지수·환율·뉴스·AI추천·알림은 실데이터. 단 해외/코인 지수 등은 KIS 미가용 시 `mockMarketIndices` 폴백. 지수 요청에 20초 타임아웃 명시. 알림은 DB 거래내역(`trade_history`) 기반.
+- **데이터 흐름**: 지수·환율·뉴스·AI추천·알림은 실데이터. KIS 미가용 시 **목업으로 덮지 않고** 점검 안내 배너를 띄운다(`mockData.js`는 삭제됨 — 목업이 남으면 연동이 깨진 사실이 감춰진다). 지수 요청에 20초 타임아웃 명시. 알림은 DB 거래내역(`trade_history`) 기반.
 - **컴포넌트**: `AppHeader`, `van-popup`(알림 모달), `van-icon`, 환율 미니 스파크라인(inline SVG).
 - **네비게이션**: 뉴스 `→ /news/:id`(또는 외부 링크), AI추천 종목 `→ /company/:symbol?showAiAnalysis=true`.
 
@@ -67,7 +67,7 @@
 - **목적**: 총자산·자산유형별(현금/주식/채권/코인) 비중·자산 추이·자산 카드.
 - **API**: `assetApi.getBalance()`, `assetApi.getHoldings()`, `assetApi.getHistory(30)`(30일 추이), `overseasApi.getBalance()`, `marketApi.getExchangeRates()` — **실데이터**.
 - **컴포넌트**: `AppHeader`, `KisMaintenanceNotice`, Chart.js `Doughnut`(비중)·`Line`(추이).
-- **특이사항**: 자산 카드 표시 순서는 `uiSettings.assetOrder`(설정 화면의 드래그 정렬)를 따른다. KIS 점검/장애는 `isKisOutageError`로 판별해 배너로 graceful degrade. 채권·코인 비활성.
+- **특이사항**: 자산 카드 표시 순서는 `uiSettings.assetOrder`(설정 화면의 드래그 정렬)를 따른다. KIS 점검/장애는 `isKisOutageError`로 판별해 배너로 graceful degrade. **채권·코인 카드 모두 실연동**(채권=`bondApi.getBalance` 매수 로트 합계, 코인=`coinApi.getAccounts` 수량 × `getTickers` 배치 시세).
 - **네비게이션**: `→ /assets/detail?main=<type>` (주식이면 `sub=overseas`).
 
 ### BotView (`/bot`) — AI 봇 제어 ✅ 실데이터 연동
@@ -130,6 +130,35 @@
 - **API**: `newsApi.getDetail(id)`(본문), `newsApi.getList({ symbol })`(관련 뉴스) — **실데이터**. `route.params.id`를 실제로 사용한다.
 - **컴포넌트**: `AppHeader`.
 - **네비게이션**: 관련 뉴스 `→ /news/:id`.
+
+### BondDetailView (`/bonds/:code`) — 채권 상세 ✅ 실데이터
+- **목적**: 보유 채권의 시세·호가·발행정보 확인 후 매도로 이동.
+- **API**: `bondApi.getBondInfo/getIssueInfo/getPrice/getOrderbook(bondCode)` — **실데이터**(시세 계열은 PUBLIC).
+- **특이사항**: `bondCode`는 **12자리 영숫자**(`KR2033022D33`)로 주식의 6자리 숫자와 다르다. **검색 진입점이 없다** — KIS에 채권 검색 API가 없어 `AssetsView` 보유 목록이 유일한 진입 경로다.
+- **네비게이션**: `→ /bonds/:code/sell`(매도 로트를 쿼리로 전달).
+
+### BondSellView (`/bonds/:code/sell`) — 채권 매도 ✅ 실데이터
+- **목적**: 보유 채권을 **매수 로트 단위**로 매도.
+- **API**: `bondApi.sell(payload)` — **실데이터**.
+- **특이사항**: payload의 `buyDate`/`buySeq`/`separateTaxation`은 **사용자 입력이 아니라 잔고 응답을 그대로 되돌려 보내는 값**이다(빠지면 400). `utils/bond.js`의 `buildBondLotQuery`/`readBondLotQuery`가 이 값을 라우트 쿼리로 왕복시킨다.
+
+### CoinSearchView (`/coins`) — 코인 검색 ✅ 실데이터
+- **목적**: 업비트 원화 마켓(288개 안팎) 검색.
+- **API**: `coinApi.getMarkets()` — **실데이터**(PUBLIC). 목록이 자주 바뀌지 않아 **받아서 클라이언트에서 필터링**한다.
+- **특이사항**: `notice` 필드를 받아 degrade 안내를 띄운다. 유의/주의 플래그를 배지로 노출.
+- **네비게이션**: `→ /coins/:market`.
+
+### CoinDetailView (`/coins/:market`) — 코인 상세 ✅ 실데이터
+- **목적**: 현재가·호가·캔들 확인 후 매매로 이동.
+- **API**: `coinApi.getTickers([market])`(**배치 전용 — 단건 엔드포인트 없음**), `getOrderbook`, `getCandles` — **실데이터**(PUBLIC).
+- **특이사항**: 마켓 목록 degrade 시 유의·주의 배지가 조용히 사라지지 않도록 `marketInfoNotice`로 "확인 불가"를 명시한다(2026-08-29 QA 반영).
+- **네비게이션**: `→ /coins/:market/trade?side=buy|sell`.
+
+### CoinTradingView (`/coins/:market/trade`) — 코인 매매 ✅ 실데이터
+- **목적**: 업비트 원화 마켓 매수/매도.
+- **API**: `coinApi.getMarkets/getTickers/getAccounts`, `coinApi.buy/sell(payload)` — **실데이터**.
+- **특이사항**: **주문 타입에 따라 입력 필드 자체가 바뀐다** — 지정가는 수량+단가, **시장가 매수는 총액(원)만**, **시장가 매도는 수량만**(업비트 규격). 수량·금액은 사용자가 친 **문자열 그대로** 전송한다(`Number` 왕복 시 소수 8자리가 지수표기로 변질). 멱등키(`idempotencyKey`)는 확인 시점에 만들어 **실패 후 재시도에 같은 값을 재전송**한다. `submittedState`는 접수 상태이며 체결 상태가 아니다.
+- **네비게이션**: 접수 후 결과 표시.
 
 > 송금/계좌이체 화면(구 `TransferView` · `/transfer`)은 주식 MVP 범위 밖으로 제거되었다(라우트·진입 버튼 포함).
 

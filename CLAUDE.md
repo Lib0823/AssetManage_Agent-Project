@@ -56,7 +56,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI-powered stock auto-trading system that analyzes KOSPI top 100 stocks daily, filters to top 30 using ML scoring, performs 3-way analysis (quantitative features, sentiment analysis, time-series forecasting), and uses Gemini AI to execute buy/sell decisions via KIS mock trading API.
+AI-powered stock auto-trading system that analyzes KOSPI top 100 stocks daily, filters to top 30 using ML scoring, performs 3-way analysis (quantitative features, sentiment analysis, time-series forecasting), and uses Gemini AI to execute buy/sell decisions via the KIS **real-trading** API. Beyond domestic stocks, the app also covers overseas (US) stocks, domestic bonds (holdings + sell), and Upbit KRW-market coins — these are user-driven flows, not part of the AI pipeline.
 
 **Monorepo Structure:**
 - `web-app/` — Vue3 SPA frontend (PWA-enabled)
@@ -97,7 +97,7 @@ cd ai-agent
 ### Full System (Docker Compose)
 ```bash
 cp .env.example .env             # 외부 API 키 (비워도 기동됨)
-docker compose up -d --build     # 4개 서비스 전체 기동 (최초 빌드 수~십 분)
+docker compose up -d --build     # 6개 서비스 전체 기동 (최초 빌드 수~십 분)
 docker compose up -d postgres    # DB만 (로컬 개발 시)
 docker compose down              # 중지
 docker compose logs -f
@@ -108,6 +108,8 @@ docker compose logs -f
 - `api-server` → Spring Boot (port 7070, context-path `/api`)
 - `ai-agent` → FastAPI (port 8000, torch/prophet/KR-FinBERT 포함 → 이미지 수 GB)
 - `postgres` → PostgreSQL (port 5432)
+- `kafka` → Kafka 4.0 KRaft 단일 노드 (port 9092, `trade.order.*` 토픽 + DLQ)
+- `redis` → Redis 7 (port 6379, KIS·업비트 rate-limit 토큰버킷 + 응답 캐시)
 - `elasticsearch` → (port 9200) 코드 미사용이라 compose에서 주석 처리
 
 > Dockerfile: `api-server/Dockerfile`(멀티스테이지 JDK21→JRE21), `ai-agent/Dockerfile`(python3.11 + fonts-nanum), `web-app/Dockerfile`(node 빌드→nginx). 시크릿은 루트 `.env`를 `env_file`로 주입. 상세: [`_docs/USAGE.md`](_docs/USAGE.md)
@@ -158,7 +160,9 @@ ai-agent → Kafka → Spring Boot : Stage 6에서 `trade.order.requested` 토�
 상세 화면·라우팅은 [`web-app/_docs/README.md`](web-app/_docs/README.md) 참고.
 
 **Key Routes:**
-- `/` → Splash · `/home` → 대시보드 · `/assets` → 자산 · `/bot` → AI 봇 · `/search` → 검색 · `/news` → 뉴스 · `/profile`, `/settings` → 사용자 관리
+- `/` → Splash · `/home` → 대시보드 · `/assets` → 자산 · `/bot` → AI 봇 · `/search` → 검색 · `/news` → 뉴스 · `/favorites` → 관심종목 · `/transactions` → 거래내역 · `/market-analysis` → 시장 분석 · `/profile`, `/settings` → 사용자 관리
+- 상세/매매: `/company/:symbol`, `/trading/:symbol` (주식) · `/bonds/:code`, `/bonds/:code/sell` (채권) · `/coins`, `/coins/:market`, `/coins/:market/trade` (코인)
+> 전체 라우트 표는 [`web-app/_docs/ARCHITECTURE.md`](web-app/_docs/ARCHITECTURE.md) 참고.
 
 ### Backend Architecture (Spring Boot)
 - **Java**: 21 (LTS, toolchain)
@@ -201,7 +205,10 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 
 상세 6단계 플로우는 [`ai-agent/_docs/PIPELINE_DESIGN.md`](ai-agent/_docs/PIPELINE_DESIGN.md), 모듈 지침은 [`ai-agent/CLAUDE.md`](ai-agent/CLAUDE.md) 참고.
 
-**Chart Files (Static Serving):**
+**Chart Files (Static Serving) — 미구현, 설계안으로만 남아 있음:**
+
+아래 4종은 **생성되지 않는다.** matplotlib 차트 생성 단계 자체가 구현되지 않았고 `/static/charts/`도 없다. web-app이 DB 원시 데이터를 받아 클라이언트에서 직접 렌더하므로 서버 PNG를 `<img>`로 불러오는 코드도 없다. 이 목록은 "추후 서버 렌더링으로 전환할 경우의 산출물 이름" 이상의 의미가 없으니, **파일이 있으리라 가정하지 말 것.**
+
 - `heatmap_today.png` → 11 features × 30 stocks heatmap
 - `quant_features_today.png` → Foreign/institutional net buy + volume bars
 - `sentiment_today.png` → Sentiment scores by stock
@@ -209,7 +216,7 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 
 ## Database Schema
 
-**실제 테이블: 23개 + 뷰 4개** (Liquibase가 30개 changelog로 생성, v1.0~v1.29). **스키마 단일 출처는 Liquibase changelog**(`api-server/src/main/resources/db/changelog/`)이며, [`database/schema.sql`](database/schema.sql)은 라이브 DB에서 뽑은 참고용 스냅샷입니다(자동 생성 — `database/generate-schema.sh`, 직접 편집 금지). 전체 목록·관계는 [`database/README.md`](database/README.md).
+**실제 테이블: 23개 + 뷰 4개** (Liquibase가 31개 changelog로 생성, v1.0~v1.30). **스키마 단일 출처는 Liquibase changelog**(`api-server/src/main/resources/db/changelog/`)이며, [`database/schema.sql`](database/schema.sql)은 라이브 DB에서 뽑은 참고용 스냅샷입니다(자동 생성 — `database/generate-schema.sh`, 직접 편집 금지). 전체 목록·관계는 [`database/README.md`](database/README.md).
 
 | 그룹 | 테이블 |
 |------|--------|
@@ -233,7 +240,9 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 | AI Pipeline | Python 3.11+, FastAPI, APScheduler, pandas, NumPy, scikit-learn, Prophet, transformers (KR-FinBERT), matplotlib |
 | AI Model | Gemini API (free tier) |
 | Database | PostgreSQL 16 + TimescaleDB extension (23 tables + 4 views; 4 tables are hypertables — see `database/README.md`) |
-| Search | Elasticsearch 8.x (확장 예정) |
+| Message Queue | Apache Kafka 4.0 (KRaft 단일 노드) — `trade.order.*` 토픽 + DLQ |
+| Cache | Redis 7 — KIS·업비트 rate-limit 토큰버킷 + 응답 캐시 (stale-if-error) |
+| Search | Elasticsearch 8.x (확장 예정, 현재 미사용) |
 | Infra | Docker, Docker Compose |
 | External APIs | KIS Developers (**실전투자** — 주식·채권), Upbit Open API (원화 마켓 코인), DART (financial data) |
 

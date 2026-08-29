@@ -43,6 +43,8 @@ const router = useRouter()
 const market = computed(() => String(route.params.market || ''))
 
 const marketInfo = ref(null)
+/** 유의·주의 정보를 못 받았을 때의 안내. 비어 있으면 정상적으로 받은 것이다. */
+const marketInfoNotice = ref('')
 const ticker = ref(null)
 const orderbook = ref(null)
 const candles = ref([])
@@ -70,12 +72,19 @@ const loadAll = async () => {
   ])
 
   if (marketsRes.status === 'fulfilled') {
-    const list = marketsRes.value?.data?.markets
+    const data = marketsRes.value?.data ?? null
+    const list = data?.markets
     marketInfo.value = Array.isArray(list)
       ? list.find((m) => m.market === market.value) ?? null
       : null
+    // 서버는 업비트 장애 시 예외가 아니라 200 + { markets: [], notice } 로 degrade 한다.
+    // 흘려보내면 유의/주의 배지가 경고 없이 사라져 "위험 없음"처럼 보인다.
+    marketInfoNotice.value = marketInfo.value
+      ? ''
+      : data?.notice || '유의·주의 종목 정보를 불러오지 못했습니다.'
   } else {
     logger.debug('코인 마켓 정보 조회 실패:', marketsRes.reason)
+    marketInfoNotice.value = '유의·주의 종목 정보를 불러오지 못했습니다.'
   }
 
   if (tickerRes.status === 'fulfilled') {
@@ -180,6 +189,9 @@ const goToTrade = (side) => {
       <!-- 유의/주의 종목: 매매 진입 직전 화면이므로 최상단에 둔다 -->
       <div v-if="marketInfo?.warning" class="risk-box warning">
         <strong>유의 종목</strong>으로 지정된 코인입니다. 가격 변동과 상장폐지 위험이 큽니다.
+      </div>
+      <div v-if="marketInfoNotice" class="risk-box unknown">
+        {{ marketInfoNotice }}
       </div>
       <div v-if="(marketInfo?.cautions || []).length > 0" class="risk-box caution">
         <strong>주의 안내</strong>
@@ -331,6 +343,12 @@ const goToTrade = (side) => {
 .risk-box.warning {
   background: rgba(239, 68, 68, 0.12);
   color: #EF4444;
+}
+
+/* 유의·주의 정보를 못 받은 상태. "위험 없음"이 아니라 "확인 불가"임을 색으로도 구분한다. */
+.risk-box.unknown {
+  background: rgba(100, 116, 139, 0.12);
+  color: #64748B;
 }
 
 .risk-box.caution {

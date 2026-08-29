@@ -12,7 +12,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict cfJhqfRdLDBRMeKp6LvmwBKEBwNmsx35JPV7dMT5XDyRMtxgwBngsWUdNSrIM7h
+\restrict kyj5kHl462xhjr0OixC0OptxxT9GERUuNqaFIyhgyXBTGKmeCeedKL4Mhgd4CfN
 
 -- Dumped from database version 16.14
 -- Dumped by pg_dump version 16.14
@@ -2542,19 +2542,19 @@ ALTER TABLE ONLY public.asset_daily_snapshot
 
 
 --
--- Name: coin_trade_history uk_coin_trade_history_identifier; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.coin_trade_history
-    ADD CONSTRAINT uk_coin_trade_history_identifier UNIQUE (identifier);
-
-
---
 -- Name: coin_trade_history uk_coin_trade_history_order_uuid; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.coin_trade_history
     ADD CONSTRAINT uk_coin_trade_history_order_uuid UNIQUE (order_uuid);
+
+
+--
+-- Name: coin_trade_history uk_coin_trade_history_user_identifier; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.coin_trade_history
+    ADD CONSTRAINT uk_coin_trade_history_user_identifier UNIQUE (user_id, identifier);
 
 
 --
@@ -3331,5 +3331,5 @@ ALTER TABLE ONLY public.webauthn_credentials
 -- PostgreSQL database dump complete
 --
 
-\unrestrict cfJhqfRdLDBRMeKp6LvmwBKEBwNmsx35JPV7dMT5XDyRMtxgwBngsWUdNSrIM7h
+\unrestrict kyj5kHl462xhjr0OixC0OptxxT9GERUuNqaFIyhgyXBTGKmeCeedKL4Mhgd4CfN
 

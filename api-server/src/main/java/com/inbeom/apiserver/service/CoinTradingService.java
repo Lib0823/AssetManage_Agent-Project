@@ -109,9 +109,12 @@ public class CoinTradingService {
         String market = coinQuoteService.requireKrwMarket(request.getMarket());
         String identifier = resolveIdentifier(request.getIdempotencyKey());
 
-        // 멱등: 같은 키의 주문이 이미 접수됐으면 업비트를 다시 부르지 않는다.
+        // 멱등: 같은 사용자가 같은 키로 다시 보내면 업비트를 다시 부르지 않는다.
         // (타임아웃 뒤 재시도가 중복 주문이 되는 것을 막는 것이 identifier 컬럼의 존재 이유다.)
-        var existing = coinTradeHistoryRepository.findByIdentifier(identifier);
+        //
+        // userId 로 좁히는 것이 필수다 — 키는 클라이언트가 값을 정하므로, 전역 조회하면 남이 쓴 키를
+        // 흉내내어 타인의 주문 내역을 받아볼 수 있고 자기 주문은 조용히 실행되지 않는다.
+        var existing = coinTradeHistoryRepository.findByUserIdAndIdentifier(userId, identifier);
         if (existing.isPresent()) {
             log.info("Duplicate coin order suppressed by idempotency key: userId={} identifier={}",
                     userId, identifier);
