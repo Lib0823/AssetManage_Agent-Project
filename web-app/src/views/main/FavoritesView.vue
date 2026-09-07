@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import AppHeader from '@/components/common/AppHeader.vue'
 import InvestmentTabs from '@/components/common/InvestmentTabs.vue'
 import KisMaintenanceNotice from '@/components/common/KisMaintenanceNotice.vue'
+import UnsupportedTabNotice from '@/components/common/UnsupportedTabNotice.vue'
 import { favoriteApi, overseasApi, marketApi } from '@/services/api'
 import { logger } from '@/utils/logger'
 
@@ -25,11 +26,23 @@ const isDomestic = computed(() => tabs.value.sub === 'domestic')
 // 국내/해외 구분: 국내 종목코드는 6자리 숫자, 해외는 영문 심볼.
 const isDomesticCode = (code) => /^\d{6}$/.test(String(code || ''))
 
-// 현재 탭에 해당하는 관심종목만 노출
+// 채권 탭. 관심종목은 `user_favorites`(주식 종목코드 기준) 테이블이고 채권 등록 경로가 없다.
+// 분기가 없으면 이 화면은 에러 없이 주식 관심종목을 채권인 것처럼 보여준다.
+const isBonds = computed(() => tabs.value.main === 'bonds')
+
+// 코인 탭. 관심종목 테이블(`user_favorites`)이 주식 종목코드 기준이라 `KRW-BTC` 같은
+// 마켓 코드를 담을 자리가 없다. 채권과 같은 이유로 분기가 없으면 주식 관심종목이 샌다.
+const isCoins = computed(() => tabs.value.main === 'coins')
+
+const isStockTab = computed(() => !isBonds.value && !isCoins.value)
+
+// 현재 탭에 해당하는 관심종목만 노출 (채권·코인 탭에서는 주식이 새어나가지 않게 비운다)
 const favorites = computed(() =>
-  allFavorites.value.filter((f) =>
-    isDomestic.value ? isDomesticCode(f.stockCode) : !isDomesticCode(f.stockCode)
-  )
+  isStockTab.value
+    ? allFavorites.value.filter((f) =>
+      isDomestic.value ? isDomesticCode(f.stockCode) : !isDomesticCode(f.stockCode)
+    )
+    : []
 )
 
 // KIS 시세 미연동/점검(국내 embedded notice). 해외는 lazy 라 여기서 판단하지 않는다.
@@ -186,10 +199,28 @@ onMounted(() => {
 
     <div class="content">
       <!-- Tabs -->
-      <InvestmentTabs v-model="tabs" />
+      <InvestmentTabs v-model="tabs" :showSubTabs="isStockTab" />
+
+      <!-- 채권: 관심종목 등록 경로가 없다 (검색 화면이 없어 담을 수도 없다) -->
+      <UnsupportedTabNotice
+        v-if="isBonds"
+        title="채권 관심종목은 지원하지 않습니다"
+        message="보유 중인 채권은 자산 화면의 채권 카드에서 확인할 수 있습니다."
+        action-label="자산 화면으로 이동"
+        @action="router.push('/assets')"
+      />
+
+      <!-- 코인: 관심종목 테이블이 주식 종목코드 기준이라 마켓 코드를 담을 수 없다 -->
+      <UnsupportedTabNotice
+        v-else-if="isCoins"
+        title="코인 관심종목은 지원하지 않습니다"
+        message="관심종목이 주식 종목코드 기준으로 저장되어 코인 마켓 코드를 담을 수 없습니다. 코인은 검색 화면에서 바로 찾아볼 수 있습니다."
+        action-label="코인 검색으로 이동"
+        @action="router.push('/coins')"
+      />
 
       <!-- Items List -->
-      <div class="items-container">
+      <div v-else class="items-container">
         <!-- KIS 점검중: 상단 통일 안내 (국내 전용) -->
         <KisMaintenanceNotice
           v-if="isDomestic && !isLoading && !errorMessage && kisDown"

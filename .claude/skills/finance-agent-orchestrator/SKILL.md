@@ -46,5 +46,5 @@ description: FinanceManage_Agent 모노레포(web-app/api-server/ai-agent/databa
 "다시 해줘", "그 부분만 수정", "이전 결과 기반으로 개선"류 요청은 Phase 0의 부분 재실행 경로를 탄다 — 전체를 처음부터 다시 하지 않고 관련 에이전트만 재호출한다.
 
 ## 테스트 시나리오
-- **정상 흐름**: "AssetsView에 해외 자산 통화별 필터를 추가해줘" → 단일 모듈(frontend) 판단 → frontend-engineer 서브 에이전트 호출 → mockData 우선 구현 → lint 통과 → 완료 보고.
+- **정상 흐름**: "AssetsView에 해외 자산 통화별 필터를 추가해줘" → 단일 모듈(frontend) 판단 → frontend-engineer 서브 에이전트 호출 → 기존 `assetApi` 응답으로 실데이터 구현(mock 금지) → lint 통과 → 완료 보고.
 - **에러 흐름**: "매수 안전망 필터에 거래대금 조건을 추가해줘" → ai-agent(로직) + api-server(feature_threshold_config 시드 갱신) 2개 모듈 → 팀 모드 구성 → backend-engineer가 새 컬럼/시드값을 먼저 확정해 SendMessage로 공유 → ai-pipeline-engineer가 그 값으로 필터 로직 구현 중 pytest 실패 → 1회 재시도 후에도 실패 → 실패 원인(임계값 타입 불일치)과 함께 팀 전체에 보고, integration-qa가 DB 시드값과 코드 기본값이 아직 어긋나 있음을 추가로 확인해 함께 보고.

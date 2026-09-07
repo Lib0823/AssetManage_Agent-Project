@@ -93,6 +93,36 @@ const router = createRouter({
       name: 'trading',
       component: () => import('../views/detail/TradingView.vue')
     },
+    // 채권 — 진입은 자산 화면의 보유 채권 카드에서만 이루어진다(검색 화면이 없다).
+    // :code 는 12자리 영숫자 표준종목코드(KR2033022D33)이며, 매수일·매수순번 등 매수 로트
+    // 정보는 쿼리로 함께 운반된다(매도에 필수).
+    {
+      path: '/bonds/:code',
+      name: 'bond-detail',
+      component: () => import('../views/detail/BondDetailView.vue')
+    },
+    {
+      path: '/bonds/:code/sell',
+      name: 'bond-sell',
+      component: () => import('../views/detail/BondSellView.vue')
+    },
+    // 코인 — 업비트 원화마켓 전용. :market 은 `KRW-BTC` 형식(통화-심볼)이며
+    // 6자리 종목코드가 아니다. 비원화 마켓은 서버 경로 패턴이 아예 받지 않는다.
+    {
+      path: '/coins',
+      name: 'coin-search',
+      component: () => import('../views/detail/CoinSearchView.vue')
+    },
+    {
+      path: '/coins/:market',
+      name: 'coin-detail',
+      component: () => import('../views/detail/CoinDetailView.vue')
+    },
+    {
+      path: '/coins/:market/trade',
+      name: 'coin-trading',
+      component: () => import('../views/detail/CoinTradingView.vue')
+    },
     {
       path: '/transactions',
       name: 'transactions',

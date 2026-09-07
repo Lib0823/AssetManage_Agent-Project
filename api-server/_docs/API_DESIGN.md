@@ -1,6 +1,8 @@
 # API 설계서
 
-> Spring Boot API Server가 제공하는 REST API의 전체 명세입니다. 코드에 실제로 존재하는 12개 컨트롤러, 52개 엔드포인트만 기술합니다. (OverseasController 포함)
+> Spring Boot API Server가 제공하는 REST API 명세입니다. 코드에 실제로 존재하는 것만 기술합니다.
+>
+> 현재 컨트롤러는 **16개(매핑 88개)**이며 이 문서는 그중 **13개**를 다룹니다. 나머지 3개(WebAuthn·StockNews·Internal)는 [미수록 컨트롤러](#미수록-컨트롤러) 절에 참조 문서를 적어 뒀습니다 — **이 문서만으로 전체를 안다고 가정하지 마세요.**
 
 ## 목차
 1. [공통 규칙](#1-공통-규칙)
@@ -18,7 +20,9 @@
    - [OverseasController (/overseas)](#58-overseascontroller-overseas)
    - [MarketAnalysisController (/market)](#59-marketanalysiscontroller-market)
    - [MarketDataController (/market)](#510-marketdatacontroller-market)
-   - [HealthController (/health)](#511-healthcontroller-health)
+   - [BondController (/bonds)](#511-bondcontroller-bonds)
+   - [CoinController (/coins)](#512-coincontroller-coins)
+   - [HealthController (/health)](#513-healthcontroller-health)
 6. [관련 문서](#6-관련-문서)
 
 ---
@@ -116,9 +120,21 @@ ErrorCode 대역 구분:
 | 구분 | 경로 |
 |------|------|
 | PUBLIC (permitAll) | `/health`, `/health/**`, `/auth/**`, `/actuator/**`, `/market/**`, `/company/**`, `/stocks/**`, `/overseas/stocks/**`, `/news/**`, `/ws/**`, `/internal/**` |
+| PUBLIC — 채권 시세 (**GET만**) | `/bonds/{bondCode:[A-Za-z0-9]{12}}`, `.../issue-info`, `.../price`, `.../orderbook` |
+| PUBLIC — 코인 시세 (**GET만**) | `/coins/markets`, `/coins/tickers`, `/coins/{market:KRW-[A-Z0-9]{1,20}}/orderbook`, `.../candles` |
 | AUTH 필요 | `/auth/webauthn/register/**`, `/users/**`, `/assets/**`, `/trading/**`, `/favorites/**`, `/overseas/**`(`/overseas/stocks/**` 제외) 등 그 외 전부 |
 
 `/auth/**`는 광범위한 permitAll이지만 `/auth/webauthn/register/**`가 **그보다 먼저** `.authenticated()`로 매칭되므로 패스키 등록은 로그인 상태에서만 가능합니다(`/auth/webauthn/login/**`는 permitAll).
+
+> ### ⚠️ 채권·코인은 `/**` 로 열지 않았다
+>
+> `/bonds/**`·`/coins/**` 를 통째로 permitAll 하면 `/bonds/balance`(보유 채권)와
+> `/coins/accounts`·`/coins/buy`·`/coins/sell`·`/coins/history` 가 **함께 열린다.** 그래서 공개
+> 경로를 개별 패턴으로 지정하고, 종목/마켓 코드 자리에 정규식 제약(`[A-Za-z0-9]{12}`,
+> `KRW-[A-Z0-9]{1,20}`)을 걸었다 — 제약이 없으면 와일드카드가 고정 경로까지 매칭할 수 있다.
+> 패턴 상수는 `SecurityConfig.PUBLIC_BOND_QUOTE_PATTERNS`/`PUBLIC_COIN_QUOTE_PATTERNS` 이며,
+> `SecurityConfigBondPathsTest` 가 `/bonds/balance` 가 공개되지 않음을 고정한다.
+> **이 패턴을 느슨하게 고치면 자산·주문 경로가 인증 없이 열린다.**
 
 > ### ⚠️ `/internal/**`과 `/ws/**`는 "인증 없음"이 아니다
 >
@@ -288,7 +304,62 @@ AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요
 
 > `/market` base 경로는 `MarketAnalysisController`와 `MarketDataController`가 분담합니다. 둘 다 PUBLIC입니다.
 
-### 5.11 HealthController (/health)
+### 5.11 BondController (/bonds)
+
+국내 장내채권. **시세 계열 4개는 PUBLIC, 잔고·매도·거래내역은 AUTH**(토큰의 `userId`).
+
+`bondCode`는 **12자리 영숫자**(`KR2033022D33`)로 주식의 6자리 숫자와 다르다. 경로 패턴이 `[A-Za-z0-9]{12}`로 제한돼 있다.
+
+> **검색·매수 엔드포인트가 없다.** KIS 채권 API 18개 중 종목명·키워드로 찾는 API가 하나도 없어서다(2026-08 전수 확인). 검색이 없으면 상세 화면 진입 경로가 없어 매수도 불가능하므로, **진입점을 잔고로 삼는 "보유 조회 + 매도"**로 범위를 잡았다. 상세: [KIS_API_GUIDE.md](KIS_API_GUIDE.md) §4
+
+| Method | Path | 인증 | 요청 | 응답 data(T) | 설명 |
+|--------|------|------|------|--------------|------|
+| GET | `/bonds/balance` | AUTH | - | `BondBalanceResponse{holdings[], totalBuyAmount, currency, faceValueDivisor, notice?}` | 보유 채권. **종목이 아니라 '매수 로트' 목록**이며 각 행에 매도에 필요한 `buyDate`/`buySeq`/`separateTaxation`이 들어 있다. KIS `CTSC8407R` |
+| GET | `/bonds/history` | AUTH | query `startDate`,`endDate`(yyyyMMdd, opt) | `BondTradeHistoryResponse{list[], currency, notice?}` | 생략 시 최근 90일. KIS `CTSC8013R` |
+| POST | `/bonds/sell` | AUTH | `BondSellRequest{bondCode, bondName, quantity, unitPrice, buyDate, buySeq, separateTaxation}` | `Map{...}` | **매수 로트 단위 매도.** `buyDate`/`buySeq`/`separateTaxation`은 잔고 응답을 그대로 되돌려 보내는 값이며(사용자 입력 아님) 빠지면 400. KIS `TTTC0958U` |
+| GET | `/bonds/{bondCode}` | PUBLIC | - | `BondInfoResponse` | 종목 기본조회. KIS `CTPF1114R` |
+| GET | `/bonds/{bondCode}/issue-info` | PUBLIC | - | `BondIssueInfoResponse` | 발행정보. KIS `CTPF1101R` |
+| GET | `/bonds/{bondCode}/price` | PUBLIC | - | `BondPriceResponse` | 현재가. KIS `FHKBJ773400C0` |
+| GET | `/bonds/{bondCode}/orderbook` | PUBLIC | - | `BondOrderbookResponse` | 호가. KIS `FHKBJ773401C0` |
+
+> 자산 금액은 **매수금액 기준**이다 — KIS 잔고가 평가금액을 주지 않는다. 수량 단위가 미확정이라 예상 금액은 참고용이며, 환산 계수는 `kis.bond.face-value-divisor`(기본 100) 설정값으로 분리돼 있다.
+
+### 5.12 CoinController (/coins)
+
+업비트 원화 마켓 코인. **시세 4개는 PUBLIC, 자산·주문·이력은 AUTH.**
+
+`market`은 `KRW-BTC` 형식이며 경로 패턴이 **`KRW-[A-Z0-9]{1,20}`**로 제한된다 — `BTC-ETH` 같은 비원화 마켓은 403이다. 상세는 [UPBIT_API_GUIDE.md](UPBIT_API_GUIDE.md).
+
+| Method | Path | 인증 | 요청 | 응답 data(T) | 설명 |
+|--------|------|------|------|--------------|------|
+| GET | `/coins/markets` | PUBLIC | - | `CoinMarketListResponse{markets[], notice?}` | 원화마켓 전체(288개 안팎). `warning`/`cautions` 유의종목 플래그 포함 |
+| GET | `/coins/tickers` | PUBLIC | query `markets`(콤마 구분) | `List<CoinTickerResponse>` | **배치 전용. 단건 엔드포인트는 의도적으로 없다** — 종목마다 호출하면 IP당 10 req/s 한도를 즉시 소진해 전체 사용자의 시세가 막힌다 |
+| GET | `/coins/{market}/orderbook` | PUBLIC | - | `CoinOrderbookResponse` | 호가 |
+| GET | `/coins/{market}/candles` | PUBLIC | query `unit`(days/weeks/months 또는 분봉 1·3·5·10·15·30·60·240), `count` | `CoinCandleListResponse{market, unit, candles[], notice?}` | 그 외 `unit`은 400 |
+| GET | `/coins/accounts` | AUTH | - | `List<CoinAccountResponse>` | 보유 자산. **평가금액 필드가 없다** — `/coins/tickers` 배치 1회로 `balance × tradePrice` 환산 |
+| POST | `/coins/buy` | AUTH | `CoinOrderRequest` | `CoinOrderResponse` | side=bid |
+| POST | `/coins/sell` | AUTH | `CoinOrderRequest` | `CoinOrderResponse` | side=ask |
+| GET | `/coins/history` | AUTH | - | `List<CoinTradeHistoryResponse>` | `coin_trade_history` 조회 |
+
+**`CoinOrderRequest`** — `{market, orderType: "LIMIT"|"MARKET", quantity?, price?, idempotencyKey?}`
+
+**⚠️ 시장가는 매수/매도의 입력 필드가 다르다**(업비트 규격). 잘못 보내면 400(`6005 INVALID_COIN_ORDER`):
+
+| 주문 | 업비트 `ord_type` | `quantity` | `price` |
+|------|------------------|-----------|---------|
+| 지정가(매수·매도) | `limit` | 수량 | 단가 |
+| **시장가 매수** | `price` | 미사용 | **총액(원)** |
+| **시장가 매도** | `market` | **수량** | 미사용 |
+
+**`CoinOrderResponse`** — `{orderUuid, market, side, ordType, submittedState, volume, price, executedVolume, remainingVolume, paidFee, identifier, orderedAt, duplicate}`
+
+> **`submittedState`는 "접수 상태"이지 체결 상태가 아니며 갱신되지 않는다.** 주문 조회 API가 이 기능 범위 밖이라 영원히 그대로다 — "체결됨"으로 표시하면 사용자가 중복 주문을 낸다.
+>
+> `idempotencyKey`(≤64자)는 업비트 `identifier`로 전송된다. 생략하면 서버가 UUID를 만드는데, **매번 새 값이라 재시도를 막지 못한다** — 실제 방어는 클라이언트가 재시도 때 같은 키를 다시 보낼 때만 작동한다. 중복이 억제되면 `duplicate: true`.
+
+**업비트 키 등록**은 UserController에 있다: `GET`/`PUT /users/upbit-account` → `UpbitAccountResponse{id, registered, accessKeyMasked, secretKeyRegistered, isVerified, verificationNotice, createdAt, updatedAt}`. **Secret Key는 어떤 응답에도 실리지 않는다**(등록 여부 boolean만).
+
+### 5.13 HealthController (/health)
 
 전체 PUBLIC.
 
@@ -297,6 +368,16 @@ AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요
 | GET | `/health` | `Map{status, timestamp, version}` | 헬스 체크 |
 | GET | `/health/db` | `Map` | PostgreSQL 연결 테스트 |
 
+### 미수록 컨트롤러
+
+아래 3개는 이 문서에 아직 명세가 없다. 이 문서를 "전체 명세"로 신뢰하기 전에 알고 있어야 한다:
+
+| 컨트롤러 | 경로 | 참고 |
+|---------|------|------|
+| `WebAuthnController` | `/auth/webauthn/**` | [AUTHENTICATION_FLOW.md](AUTHENTICATION_FLOW.md) WebAuthn 섹션 |
+| `StockNewsController` | `/news`, `/news/{id}` | `stock_news` 테이블 읽기 전용 중계 |
+| `InternalController` | `/internal/**` | ai-agent ↔ api-server 내부 호출 |
+
 ---
 
 ## 6. 관련 문서
@@ -304,5 +385,6 @@ AUTH가 필요한 엔드포인트는 `Authorization: Bearer {JWT}` 헤더를 요
 - [../README.md](../README.md) — 프로젝트 개요 및 실행 방법
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 시스템 아키텍처
 - [AUTHENTICATION_FLOW.md](AUTHENTICATION_FLOW.md) — JWT 인증/토큰 흐름
-- [KIS_API_GUIDE.md](KIS_API_GUIDE.md) — KIS Open API 연동 가이드
+- [KIS_API_GUIDE.md](KIS_API_GUIDE.md) — KIS Open API 연동 가이드 (주식·채권)
+- [UPBIT_API_GUIDE.md](UPBIT_API_GUIDE.md) — 업비트 Open API 연동 가이드 (코인)
 - [STATUS.md](STATUS.md) — 구현 현황

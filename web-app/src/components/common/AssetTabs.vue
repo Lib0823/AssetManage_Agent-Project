@@ -12,8 +12,12 @@ const props = defineProps({
     default: () => [
       { key: 'cash', label: '현금', disabled: false },
       { key: 'stocks', label: '주식', disabled: false },
-      { key: 'bonds', label: '채권', disabled: true },
-      { key: 'coins', label: '코인', disabled: true }
+      // 채권은 보유 조회 + 매도만 지원한다. 이 탭을 쓰는 화면(자산 상세/뉴스 등)은
+      // 채권 분기를 반드시 갖고 있어야 한다 — 없으면 주식 데이터를 채권인 것처럼 보여준다.
+      { key: 'bonds', label: '채권', disabled: false },
+      // 코인은 업비트 원화마켓 실거래다. 이 탭을 쓰는 화면도 채권과 같은 이유로
+      // 코인 분기를 반드시 갖고 있어야 한다.
+      { key: 'coins', label: '코인', disabled: false }
     ]
   },
   showSubTabs: {

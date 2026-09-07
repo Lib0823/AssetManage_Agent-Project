@@ -123,6 +123,18 @@ kis:
   quote-app-key: ${KIS_QUOTE_APP_KEY:}
   quote-app-secret: ${KIS_QUOTE_APP_SECRET:}
 
+  # 장내채권 주문.
+  bond:
+    # 채권 주문 수량 단위(ORD_QTY2)가 액면금액인지 좌수인지 KIS 문서·예제에 명시가 없다.
+    # 예상금액 = 수량 × 단가 ÷ face-value-divisor 이며, 이 값이 틀리면 사용자가 주문 확인
+    # 화면에서 100배 틀린 금액을 보고 실전 주문을 낸다. 그래서 코드 상수가 아니라 설정으로 두어
+    # 재배포 없이 정정할 수 있게 한다. 서버가 잔고 응답에 이 값을 실어 보내므로 프론트도 같은
+    # 값을 쓴다(두 곳이 서로 다른 상수를 쓰는 사고 방지).
+    #
+    # 확정 방법(자금 이동 없음): 실계좌로 inquire-psbl-order(TTTC8910R)를 알려진 단가로 1회
+    # 호출해 buy_psbl_amt ÷ buy_psbl_qty 비율을 보면 즉시 판별된다.
+    face-value-divisor: ${KIS_BOND_FACE_VALUE_DIVISOR:100}
+
   # 외부 API(KIS) 의존성 격리 — Redis 기반 rate limit + 응답 캐시.
   # 둘 다 Redis 가 없거나 오류일 때 fail-open 으로 degrade 한다(Redis 장애가 KIS 조회를 막지 않음).
   resilience:
@@ -216,6 +228,30 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# ---------------------------------------------------------------------------
+# 업비트(Upbit) Open API — 코인 거래
+#
+# 자격증명은 여기에 없다. KIS 의 공유 시세 키와 달리 업비트 시세는 인증이 아예 필요 없고,
+# 매매 키는 전부 user_upbit_accounts 에 사용자별로 Jasypt 암호화 저장된다.
+#
+# rate limit 버킷은 KisRateLimiter(Redis Lua 토큰 버킷)를 그대로 재사용한다. 따라서
+# kis.resilience.rate-limit.enabled=false 로 끄면 업비트 쪽 제한도 함께 꺼진다(fail-open).
+# ---------------------------------------------------------------------------
+upbit:
+  base-url: ${UPBIT_BASE_URL:https://api.upbit.com}
+
+  # 시세: 업비트 공식 한도 10 req/s, 적용 단위는 **IP**.
+  # IP 단위라 전체 사용자가 서버 공인 IP 하나의 한도를 공유한다 — 이 연동에서 가장 먼저 막히는 곳이다.
+  # 한도에 딱 맞추지 않고 8/s 로 두는 이유: 429 가 누적되면 업비트가 418(일시 차단)로 올린다.
+  quote:
+    capacity: ${UPBIT_QUOTE_RATE_CAPACITY:10}
+    refill-per-second: ${UPBIT_QUOTE_RATE_REFILL:8}
+
+  # 주문: 업비트 공식 한도 12 req/s, 적용 단위는 Pocket(계정) — 사용자끼리 간섭하지 않는다.
+  order:
+    capacity: ${UPBIT_ORDER_RATE_CAPACITY:12}
+    refill-per-second: ${UPBIT_ORDER_RATE_REFILL:10}
 
 # Actuator Configuration (Health Check)
 management:

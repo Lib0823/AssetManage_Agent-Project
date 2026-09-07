@@ -96,23 +96,43 @@ public class KisRateLimiter {
      * @return 호출을 진행해도 되면 true, 한도 초과로 거부해야 하면 false
      */
     public boolean tryAcquire(String appKey) {
-        String bucketKey = KEY_PREFIX + bucketIdOf(appKey);
+        return tryAcquire(KEY_PREFIX + bucketIdOf(appKey),
+                config.getCapacity(), config.getRefillPerSecond());
+    }
+
+    /**
+     * 임의 버킷에서 토큰 1개를 소비한다 — KIS 외 외부 API 가 같은 Lua 토큰 버킷을 재사용하기 위한 입구다.
+     *
+     * <p>업비트 연동이 이 오버로드를 쓴다. 업비트의 한도 구조가 KIS 와 다른 게 아니라
+     * <b>정확히 같은 모양</b>이기 때문이다 — 공유 시세 버킷(업비트는 IP 단위, KIS 는 공유 앱키)과
+     * 사용자별 매매 버킷(업비트는 Pocket, KIS 는 사용자 앱키)이 독립이어야 하고, Redis 장애 시
+     * fail-open 해야 한다. 클래스를 하나 더 만들면 같은 Lua 스크립트와 같은 fail-open 판단이
+     * 두 벌로 갈라져, 한쪽만 고쳐지는 사고가 생긴다.
+     *
+     * <p>버킷 키를 통째로 받는 이유: KIS 는 "앱키 하나 = 버킷 하나"지만 업비트 시세는
+     * 그룹(ticker/candle/…)별로 따로 세므로 키 조립 규칙이 호출부마다 다르다.
+     *
+     * @param bucketKey       완성된 Redis 키. 자격증명 원문을 담지 말 것 — {@link #hashCredential} 참고
+     * @param capacity        버킷 최대 용량(= 순간 버스트 허용량)
+     * @param refillPerSecond 초당 충전 토큰 수(= 지속 호출률 상한)
+     */
+    public boolean tryAcquire(String bucketKey, int capacity, double refillPerSecond) {
         try {
             Long allowed = redis.execute(
                     TOKEN_BUCKET,
                     List.of(bucketKey),
-                    String.valueOf(config.getCapacity()),
-                    String.valueOf(config.getRefillPerSecond()),
+                    String.valueOf(capacity),
+                    String.valueOf(refillPerSecond),
                     String.valueOf(System.currentTimeMillis()));
             if (allowed != null && allowed == 0L) {
-                log.warn("KIS rate limit exceeded for bucket={} (capacity={}, refill={}/s)",
-                        bucketKey, config.getCapacity(), config.getRefillPerSecond());
+                log.warn("Rate limit exceeded for bucket={} (capacity={}, refill={}/s)",
+                        bucketKey, capacity, refillPerSecond);
                 return false;
             }
             return true;
         } catch (Exception e) {
-            // fail-open: Redis 장애가 KIS 접근 자체를 끊어서는 안 된다.
-            log.warn("KIS rate limiter unavailable, allowing call through: {}", e.getMessage());
+            // fail-open: Redis 장애가 외부 API 접근 자체를 끊어서는 안 된다.
+            log.warn("Rate limiter unavailable, allowing call through: {}", e.getMessage());
             return true;
         }
     }
@@ -122,12 +142,22 @@ public class KisRateLimiter {
      * (충돌 저항이 목적이 아니라 식별이 목적이므로 16자리로 충분하다.)
      */
     private String bucketIdOf(String appKey) {
-        if (appKey == null || appKey.isBlank()) {
+        return hashCredential(appKey);
+    }
+
+    /**
+     * 자격증명 → Redis 키에 넣어도 되는 식별자. SHA-256 앞 16자리.
+     *
+     * <p>{@code public static} 인 이유는 업비트 주문 버킷도 access_key 를 같은 방식으로 가려야 하기
+     * 때문이다. 해싱 규칙이 두 벌이 되면 같은 키가 서로 다른 버킷으로 갈라진다.
+     */
+    public static String hashCredential(String credential) {
+        if (credential == null || credential.isBlank()) {
             return "unknown";
         }
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(appKey.getBytes(StandardCharsets.UTF_8));
+                    .digest(credential.getBytes(StandardCharsets.UTF_8));
             StringBuilder hex = new StringBuilder(16);
             for (int i = 0; i < 8; i++) {
                 hex.append(String.format("%02x", digest[i]));

@@ -13,12 +13,13 @@ AI 주식 자동매매 시스템의 백엔드 모듈이다. Spring Boot(Java 21)
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 패키지 구조, 레이어 흐름, 도메인/JPA 매핑, 외부 연동(KIS·DART), 보안 구성. **개발 전 필독** |
 | [STATUS.md](./STATUS.md) | 엔드포인트·기능별 구현 진행 상황(완료/진행중/미착수) 표 |
 | [USAGE.md](./USAGE.md) | 설치·환경변수·실행·빌드·테스트·트러블슈팅 (사용 방법) |
-| [API_DESIGN.md](./API_DESIGN.md) | 12개 컨트롤러 52개 REST 엔드포인트 전체 명세 (해외주식 `/overseas/*` 포함) |
+| [API_DESIGN.md](./API_DESIGN.md) | REST 엔드포인트 명세 (해외주식 `/overseas/*`, 채권 `/bonds/*`, 코인 `/coins/*` 포함). **컨트롤러 16개 중 13개 수록** — WebAuthn·StockNews·Internal 3개는 미수록이며 문서 말미에 그 사실을 밝혀 뒀다 |
 | [AUTHENTICATION_FLOW.md](./AUTHENTICATION_FLOW.md) | JWT 발급·검증·리프레시·로그아웃, KIS 계정 연동 인증 흐름 |
-| [KIS_API_GUIDE.md](./KIS_API_GUIDE.md) | KIS Open API 연동(이중 자격증명 경로, TR_ID 매핑, 토큰 캐싱), DART 연동 |
+| [KIS_API_GUIDE.md](./KIS_API_GUIDE.md) | KIS Open API 연동(이중 자격증명 경로, TR_ID 매핑, 토큰 캐싱), 채권 API, DART 연동 |
+| [UPBIT_API_GUIDE.md](./UPBIT_API_GUIDE.md) | 업비트 Open API 연동(요청마다 JWT 서명, `query_hash` 규칙, 주문 타입 비대칭, rate limit 버킷 분리) |
 | [archive/](./archive/) | 일회성 수정 이력 보관(현재 `TRADE_HISTORY_FIX_SUMMARY.md`) |
 
-읽는 순서 권장: `ARCHITECTURE` → `API_DESIGN` → `AUTHENTICATION_FLOW` / `KIS_API_GUIDE` → 필요 시 `STATUS`.
+읽는 순서 권장: `ARCHITECTURE` → `API_DESIGN` → `AUTHENTICATION_FLOW` / `KIS_API_GUIDE` / `UPBIT_API_GUIDE` → 필요 시 `STATUS`.
 
 ---
 
@@ -29,11 +30,11 @@ AI 주식 자동매매 시스템의 백엔드 모듈이다. Spring Boot(Java 21)
 | 언어/런타임 | Java 21 (LTS) |
 | 프레임워크 | Spring Boot 4.1.0-SNAPSHOT, Spring Data JPA, Spring Security, Spring Validation |
 | 인증 | JWT (jjwt 0.12.3, HMAC-SHA), BCrypt 비밀번호 |
-| 암호화 | Jasypt `PBEWITHHMACSHA512ANDAES_256` (KIS appKey/appSecret) |
+| 암호화 | Jasypt `PBEWITHHMACSHA512ANDAES_256` (KIS appKey/appSecret, 업비트 accessKey/secretKey) |
 | DB | PostgreSQL, Liquibase 마이그레이션 |
 | 빌드 | Gradle |
 | 서버 포트 | `7070`, context-path `/api` (full URL: `http://localhost:7070/api/...`) |
-| 외부 연동 | KIS Open API(실전투자 매매 + 시세/재무), DART(공시·재무) |
+| 외부 연동 | KIS Open API(실전투자 — 주식·채권 매매 + 시세/재무), Upbit Open API(원화 마켓 코인), DART(공시·재무) |
 
 ---
 
@@ -58,11 +59,13 @@ cd api-server
 2. **환경 변수**: `.env.example`를 복사해 `.env` 작성. 최소 `JWT_SECRET`, `JASYPT_PASSWORD`가 필요하다. 시세/재무·DART 연동을 쓰려면 `KIS_QUOTE_APP_KEY`/`KIS_QUOTE_APP_SECRET`, `DART_API_KEY`를 채운다(비우면 해당 필드는 null로 graceful degrade). `.env`는 `DotenvEnvironmentPostProcessor`가 부팅 시 로드하며, OS 환경 변수가 우선한다.
 3. **실행**: `./gradlew bootRun` 후 `GET http://localhost:7070/api/health`로 헬스 체크.
 4. **사용자/KIS 계정**: 매매 흐름(`/assets`, `/trading`)은 로그인 시 KIS 계정 연동이 필수다. KIS appKey/appSecret는 `user_kis_accounts`에 Jasypt로 암호화 저장된다. 상세는 [KIS_API_GUIDE.md](./KIS_API_GUIDE.md) 참고.
+5. **업비트 계정(코인)**: `/coins` 중 **시세 4경로는 무인증으로 바로 동작**하고, 자산·주문만 `PUT /users/upbit-account`로 등록한 사용자별 키가 필요하다. 키는 `user_upbit_accounts`에 Jasypt로 암호화 저장되며, **업비트 API 키에 서버 공인 IP를 허용 IP로 등록**해야 인증 호출이 통과한다. 상세는 [UPBIT_API_GUIDE.md](./UPBIT_API_GUIDE.md) 참고.
 
 ---
 
 ## 보안 주의
 
 - `.env`, KIS appKey/appSecret 평문, `JWT_SECRET`, `JASYPT_PASSWORD`는 절대 커밋하지 않는다(`.gitignore` 등록 필수).
-- `users.password`는 BCrypt 단방향 해시, `user_kis_accounts.app_key/app_secret`는 Jasypt 양방향 암호화로 저장한다.
+- `users.password`는 BCrypt 단방향 해시, `user_kis_accounts.app_key/app_secret`와 `user_upbit_accounts.access_key/secret_key`는 Jasypt 양방향 암호화로 저장한다.
+- **업비트 Secret Key는 어떤 응답에도 실리지 않는다**(등록 여부 boolean만 노출). KIS 쪽 `decryptForDisplay`와 다른 정책이며 `UpbitAccountSecurityTest`가 고정한다 — 되돌리지 말 것.
 - 로깅 레벨을 `org.springframework.web=DEBUG`로 올리면 RestTemplate 요청 본문에 KIS 자격증명이 평문으로 남을 수 있다(`application.yml` 주석 참고). 디버깅 시에만 일시적으로 사용한다.

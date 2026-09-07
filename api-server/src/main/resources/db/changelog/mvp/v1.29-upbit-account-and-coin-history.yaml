@@ -1,0 +1,203 @@
+databaseChangeLog:
+  # 업비트(Upbit) 코인 거래 — 사용자별 API 키 저장소.
+  #
+  # user_kis_accounts 와 같은 1:1 패턴이지만 자격증명의 성격이 다르다: KIS 는 app_key/app_secret 으로
+  # OAuth 토큰을 받아 24h 캐시하는 반면, 업비트는 요청마다 access_key/secret_key 로 JWT 를 새로 만든다.
+  # 그래서 계좌번호에 해당하는 컬럼이 없고 키 두 개만 있다.
+  #
+  # access_key/secret_key 는 Jasypt(PBEWITHHMACSHA512ANDAES_256) 암호문을 담는다. 원문은 40자지만
+  # 암호문은 그보다 훨씬 길어지므로 VARCHAR(255) 로 둔다(user_kis_accounts.app_key 와 동일).
+  - changeSet:
+      id: 1.29.1-create-user-upbit-accounts
+      author: claude
+      context: mvp
+      comment: "Create user_upbit_accounts for per-user Upbit API credentials (Jasypt-encrypted)"
+      changes:
+        - createTable:
+            tableName: user_upbit_accounts
+            remarks: '사용자별 업비트 Open API 키 (Jasypt 암호화 저장)'
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uk_user_upbit_accounts_user
+              - column:
+                  name: access_key
+                  type: VARCHAR(255)
+                  remarks: '업비트 Access Key (Jasypt 암호문)'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: secret_key
+                  type: VARCHAR(255)
+                  remarks: '업비트 Secret Key (Jasypt 암호문). 어떤 경로로도 복호화해 응답에 싣지 않는다'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: is_verified
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+                  remarks: '저장 시 GET /v1/accounts 1회 호출로 키가 실제 동작했는지 여부'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+        - addForeignKeyConstraint:
+            constraintName: fk_user_upbit_accounts_user
+            baseTableName: user_upbit_accounts
+            baseColumnNames: user_id
+            referencedTableName: users
+            referencedColumnNames: id
+            onDelete: CASCADE
+      rollback:
+        - dropTable:
+            tableName: user_upbit_accounts
+
+  # 코인 주문 이력.
+  #
+  # trade_history 를 재사용하지 않는 이유는 세 가지 형식 불일치다:
+  #   1. 주문 식별자가 UUID 문자열이다 (KIS 는 숫자 ODNO).
+  #   2. 수량이 소수 8자리다 (주식용 정수 수량 컬럼에 담으면 잘린다).
+  #   3. 멱등키 제약(trade_history.idempotency_key)이 Kafka 파이프라인 전용 형식이라 겹칠 수 없다.
+  #
+  # NUMERIC(30,8): 업비트는 사토시 단위(소수 8자리)까지 쓴다. 정밀도가 곧 자산 금액이므로
+  # NUMERIC(15,2) 같은 주식용 정밀도로는 값이 조용히 잘린다.
+  - changeSet:
+      id: 1.29.2-create-coin-trade-history
+      author: claude
+      context: mvp
+      comment: "Create coin_trade_history for Upbit order records (UUID id, 8-decimal volumes)"
+      changes:
+        - createTable:
+            tableName: coin_trade_history
+            remarks: '업비트 코인 주문 접수 이력'
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: market
+                  type: VARCHAR(20)
+                  remarks: '마켓 코드 (예: KRW-BTC). 6자리 종목코드가 아니다'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: coin_name
+                  type: VARCHAR(50)
+                  remarks: '한글 코인명 (표시용, 없을 수 있음)'
+              - column:
+                  name: order_side
+                  type: VARCHAR(10)
+                  remarks: '업비트 side 원문: bid(매수) / ask(매도)'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: ord_type
+                  type: VARCHAR(10)
+                  remarks: '업비트 ord_type 원문: limit / price(시장가 매수) / market(시장가 매도)'
+                  constraints:
+                    nullable: false
+              # order_state 가 아니라 submitted_state 다. POST /v1/orders 응답의 state 는 접수 직후
+              # 값이라 대개 wait 이며 체결 결과가 아니다. 주문 조회 API 가 이 기능의 범위 밖이라
+              # 이 값은 영원히 갱신되지 않는다 — 이름을 정직하게 두어 "체결 안 됨" 오인을 막는다.
+              - column:
+                  name: submitted_state
+                  type: VARCHAR(20)
+                  remarks: '주문 "접수" 상태 (체결 상태 아님). 갱신되지 않는 스냅샷'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: volume
+                  type: "NUMERIC(30,8)"
+                  remarks: '주문 수량. 시장가 매수는 수량을 지정하지 않으므로 NULL'
+              - column:
+                  name: price
+                  type: "NUMERIC(30,8)"
+                  remarks: '지정가 단가 또는 시장가 매수 총액. 시장가 매도는 NULL'
+              - column:
+                  name: executed_volume
+                  type: "NUMERIC(30,8)"
+              - column:
+                  name: paid_fee
+                  type: "NUMERIC(30,8)"
+              - column:
+                  name: order_uuid
+                  type: VARCHAR(64)
+                  remarks: '업비트가 부여한 주문 UUID'
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uk_coin_trade_history_order_uuid
+              # 클라이언트 지정 식별자(업비트 identifier, 최대 64자). 네트워크 타임아웃 후 재시도가
+              # 같은 키로 오면 UNIQUE 위반 이전에 조회로 걸러 중복 주문을 막는다. 이 프로젝트는
+              # KIS 에서 같은 문제를 겪고 v1.25 로 멱등키를 도입한 이력이 있다.
+              - column:
+                  name: identifier
+                  type: VARCHAR(64)
+                  remarks: '멱등키. 업비트 identifier 로 전송된다'
+                  constraints:
+                    unique: true
+                    uniqueConstraintName: uk_coin_trade_history_identifier
+              # TIMESTAMPTZ 인 이유: 업비트 주문 응답의 created_at 은 "2026-08-29T15:42:23+09:00"
+              # 처럼 오프셋이 붙는다. 오프셋 없는 TIMESTAMP 로 받으면 9시간 오차가 조용히 생긴다.
+              # (created_at 등 서버 자체 시각은 기존 테이블과 맞춰 TIMESTAMP 로 둔다.)
+              - column:
+                  name: ordered_at
+                  type: "TIMESTAMP WITH TIME ZONE"
+                  remarks: '업비트가 보고한 주문 접수 시각 (오프셋 포함)'
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+        - addForeignKeyConstraint:
+            constraintName: fk_coin_trade_history_user
+            baseTableName: coin_trade_history
+            baseColumnNames: user_id
+            referencedTableName: users
+            referencedColumnNames: id
+            onDelete: CASCADE
+        - createIndex:
+            indexName: idx_coin_trade_history_user_ordered
+            tableName: coin_trade_history
+            columns:
+              - column:
+                  name: user_id
+              - column:
+                  name: ordered_at
+                  descending: true
+      rollback:
+        - dropTable:
+            tableName: coin_trade_history

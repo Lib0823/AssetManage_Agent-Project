@@ -1,5 +1,5 @@
-<svg viewBox="0 0 1600 790" xmlns="http://www.w3.org/2000/svg" role="img"
-     aria-label="FinanceManage Agent 시스템 아키텍처: 사용자가 web-app(Vue3)에 접속하고, web-app은 api-server(Spring Boot)를 통해 인증·거래·시세를 처리한다. api-server와 ai-agent(FastAPI)는 PostgreSQL+TimescaleDB를 공유하고, ai-agent가 Kafka에 매매 주문을 발행하면 api-server가 소비해 KIS API로 주문을 실행한다. Redis는 api-server의 KIS 호출 속도 제한과 캐시를 담당한다. ai-agent는 KIS·DART·뉴스에서 데이터를 수집하고 Gemini API로 매매를 판단한다."
+<svg viewBox="0 0 1600 830" xmlns="http://www.w3.org/2000/svg" role="img"
+     aria-label="FinanceManage Agent 시스템 아키텍처: 사용자가 web-app(Vue3)에 접속하고, web-app은 api-server(Spring Boot)를 통해 인증·거래·시세를 처리한다. api-server는 KIS Open API로 주식·채권 주문과 잔고를 처리하고, 업비트 Open API로 원화 마켓 코인 시세·잔고·주문을 처리하며, DART에서 재무·공시를 가져온다. api-server와 ai-agent(FastAPI)는 PostgreSQL+TimescaleDB를 공유하고, ai-agent가 Kafka에 매매 주문을 발행하면 api-server가 소비해 KIS API로 주문을 실행한다. Redis는 api-server의 외부 API 호출 속도 제한과 캐시를 담당한다. ai-agent는 KIS·DART·뉴스에서 데이터를 수집하고 Gemini API로 매매를 판단한다."
      font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',Helvetica,Arial,sans-serif">
 
   <defs>
@@ -102,6 +102,14 @@
       <rect x="17.1" y="13.5" width="3.4" height="7" rx="0.8" fill="#334155"/>
     </symbol>
 
+    <!-- 업비트: 네이비 코인 위의 상승 추세선 -->
+    <symbol id="icon-upbit" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10.6" fill="#0B3E91"/>
+      <path d="M6.6,15.8 L10.2,11.2 L13.1,13.7 L17.2,8.2" fill="none" stroke="#4FC3F7"
+            stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="17.2" cy="8.2" r="1.7" fill="#4FC3F7"/>
+    </symbol>
+
     <symbol id="icon-dart" viewBox="0 0 24 24">
       <path d="M6,2 H15 L19,6 V22 H6 Z" fill="none" stroke="#334155" stroke-width="1.7"/>
       <path d="M15,2 V6 H19" fill="none" stroke="#334155" stroke-width="1.7"/>
@@ -123,11 +131,11 @@
   </defs>
 
   <!-- background -->
-  <rect x="0" y="0" width="1600" height="790" fill="url(#bgGrad)"/>
+  <rect x="0" y="0" width="1600" height="830" fill="url(#bgGrad)"/>
 
   <!-- title -->
   <text x="800" y="28" text-anchor="middle" font-size="21" font-weight="700" letter-spacing="0.3" fill="#0f172a">FinanceManage Agent — System Architecture</text>
-  <text x="800" y="46" text-anchor="middle" font-size="12" fill="#6b7280">Docker Compose 배포 기준 · KOSPI 100 자동매매 에이전트</text>
+  <text x="800" y="46" text-anchor="middle" font-size="12" fill="#6b7280">Docker Compose 배포 기준 · KOSPI 100 자동매매 에이전트 · 주식 · 채권 · 코인</text>
 
   <!-- ===== User ===== -->
   <rect x="460" y="60" width="240" height="74" rx="12" fill="#f8fafc" stroke="#334155" stroke-width="1.5" filter="url(#softShadow)"/>
@@ -136,182 +144,198 @@
   <text x="580" y="108" text-anchor="middle" font-size="13" font-weight="700" fill="#0f172a">사용자</text>
   <text x="580" y="124" text-anchor="middle" font-size="11" fill="#4b5563">(Browser · PWA)</text>
 
-  <line x1="580" y1="134" x2="580" y2="218" stroke="#1f2937" stroke-width="1.5" marker-end="url(#arrow-black)"/>
-  <text x="595" y="176" font-size="10.5" fill="#1f2937">HTTPS</text>
+  <line x1="580" y1="134" x2="580" y2="248" stroke="#1f2937" stroke-width="1.5" marker-end="url(#arrow-black)"/>
+  <text x="595" y="146" font-size="10.5" fill="#1f2937">HTTPS</text>
 
   <!-- ===== Docker Compose host box ===== -->
-  <rect x="40" y="150" width="1080" height="533" rx="18" fill="#f2f5fa" stroke="#a7b3c4" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <rect x="40" y="150" width="1080" height="580" rx="18" fill="#f2f5fa" stroke="#a7b3c4" stroke-width="1.5" stroke-dasharray="7 5"/>
   <use href="#icon-docker" x="66" y="170" width="18" height="13.5"/>
   <text x="90" y="181" font-size="12.5" font-weight="700" fill="#475569">Docker Compose Host — financemanage-network</text>
 
-  <!-- ===== external route trunks (top channels, rounded elbows, above web-app) ===== -->
-  <path d="M300,355 L300,179 Q300,165 314,165 L1136,165 Q1150,165 1150,179 L1150,206 Q1150,220 1164,220 L1178,220"
+  <!-- ===== api-server 외부 호출 간선 3개 (상단 채널) ===== -->
+  <!-- KIS -->
+  <path d="M280,385 L280,181 Q280,168 293,168 L1137,168 Q1150,168 1150,181 L1150,207 Q1150,220 1163,220 L1178,220"
         fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrow-blue)"/>
-  <path d="M350,355 L350,209 Q350,195 364,195 L1114,195 Q1128,195 1128,209 L1128,346 Q1128,360 1142,360 L1178,360"
+  <!-- Upbit -->
+  <path d="M330,385 L330,205 Q330,192 343,192 L1123,192 Q1136,192 1136,205 L1136,338 Q1136,351 1149,351 L1178,351"
+        fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrow-blue)"/>
+  <!-- DART -->
+  <path d="M380,385 L380,229 Q380,216 393,216 L1109,216 Q1122,216 1122,229 L1122,455 Q1122,468 1135,468 L1178,468"
         fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrow-blue)"/>
 
-  <text x="638" y="163" font-size="9.5" fill="#1d4ed8">주문·잔고·시세 + WS upstream</text>
-  <text x="638" y="209" font-size="9.5" fill="#1d4ed8">재무·공시</text>
+  <text x="646" y="164" font-size="9.5" fill="#1d4ed8">주식·채권 주문·잔고·시세 + WS upstream</text>
+  <text x="646" y="188" font-size="9.5" fill="#1d4ed8">코인 시세·잔고·주문</text>
+  <text x="646" y="212" font-size="9.5" fill="#1d4ed8">재무·공시</text>
 
   <!-- ===== web-app ===== -->
-  <rect x="430" y="220" width="300" height="100" rx="12" fill="#e6fbf7" stroke="#0d9488" stroke-width="1.5" filter="url(#softShadow)"/>
-  <rect x="567" y="230" width="26" height="26" rx="7" fill="#ffffff" stroke="#0d9488" stroke-width="1.2"/>
-  <use href="#icon-vue" x="572" y="236" width="16" height="14.7"/>
-  <text x="580" y="276" text-anchor="middle" font-size="13" font-weight="700" fill="#0f766e">web-app</text>
-  <text x="580" y="292" text-anchor="middle" font-size="11" fill="#0f766e">Vue3 + Nginx · :3000</text>
-  <text x="580" y="306" text-anchor="middle" font-size="10" fill="#3b7d76">nginx가 /api를 api-server로 프록시</text>
+  <rect x="430" y="250" width="300" height="100" rx="12" fill="#e6fbf7" stroke="#0d9488" stroke-width="1.5" filter="url(#softShadow)"/>
+  <rect x="567" y="260" width="26" height="26" rx="7" fill="#ffffff" stroke="#0d9488" stroke-width="1.2"/>
+  <use href="#icon-vue" x="572" y="266" width="16" height="14.7"/>
+  <text x="580" y="306" text-anchor="middle" font-size="13" font-weight="700" fill="#0f766e">web-app</text>
+  <text x="580" y="322" text-anchor="middle" font-size="11" fill="#0f766e">Vue3 + Nginx · :3000</text>
+  <text x="580" y="336" text-anchor="middle" font-size="10" fill="#3b7d76">nginx가 /api를 api-server로 프록시</text>
 
   <!-- web-app -> api-server -->
-  <path d="M510,320 L410,355" stroke="#0d9488" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-teal)"/>
-  <text x="361" y="341" font-size="10.5" fill="#0f766e">REST /api + WS (JWT)</text>
+  <path d="M510,350 L410,385" stroke="#0d9488" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-teal)"/>
+  <text x="361" y="371" font-size="10.5" fill="#0f766e">REST /api + WS (JWT)</text>
 
   <!-- ===== api-server ===== -->
-  <rect x="100" y="355" width="430" height="119" rx="12" fill="#eaf1fd" stroke="#2563eb" stroke-width="1.5" filter="url(#softShadow)"/>
-  <rect x="302" y="365" width="28" height="28" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1.2"/>
-  <use href="#icon-spring" x="307" y="370" width="18" height="18"/>
-  <text x="315" y="413" text-anchor="middle" font-size="13" font-weight="700" fill="#1d4ed8">api-server</text>
-  <text x="315" y="430" text-anchor="middle" font-size="11" fill="#1d4ed8">Spring Boot 4.1 · Java 21 · :7070</text>
-  <text x="315" y="445" text-anchor="middle" font-size="10" fill="#3355a8">JWT 인증 · KIS WS 브리지(/ws/realtime) · 주문 실행</text>
-  <text x="315" y="459" text-anchor="middle" font-size="10" fill="#3355a8">Liquibase 스키마 · Jasypt(KIS 키 암호화)</text>
+  <rect x="100" y="385" width="430" height="119" rx="12" fill="#eaf1fd" stroke="#2563eb" stroke-width="1.5" filter="url(#softShadow)"/>
+  <rect x="302" y="395" width="28" height="28" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1.2"/>
+  <use href="#icon-spring" x="307" y="400" width="18" height="18"/>
+  <text x="315" y="443" text-anchor="middle" font-size="13" font-weight="700" fill="#1d4ed8">api-server</text>
+  <text x="315" y="460" text-anchor="middle" font-size="11" fill="#1d4ed8">Spring Boot 4.1 · Java 21 · :7070</text>
+  <text x="315" y="475" text-anchor="middle" font-size="10" fill="#3355a8">JWT 인증 · KIS WS 브리지(/ws/realtime) · 주문 실행</text>
+  <text x="315" y="489" text-anchor="middle" font-size="10" fill="#3355a8">Liquibase 스키마 · Jasypt(KIS·업비트 키 암호화)</text>
 
   <!-- ===== ai-agent ===== -->
-  <rect x="590" y="355" width="430" height="119" rx="12" fill="#f2effc" stroke="#7c3aed" stroke-width="1.5" filter="url(#softShadow)"/>
-  <rect x="791" y="365" width="28" height="28" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.2"/>
-  <use href="#icon-fastapi" x="797" y="370" width="16" height="18"/>
-  <text x="805" y="413" text-anchor="middle" font-size="13" font-weight="700" fill="#6d28d9">ai-agent</text>
-  <text x="805" y="430" text-anchor="middle" font-size="11" fill="#6d28d9">FastAPI · Python 3.11 · :8000</text>
-  <text x="805" y="445" text-anchor="middle" font-size="10" fill="#5b3aa0">APScheduler 평일 08:50 KST · Stage 0~6 파이프라인</text>
-  <text x="805" y="459" text-anchor="middle" font-size="10" fill="#5b3aa0">필터링 → 3-Way 분석 → Gemini 판단 → 안전망 → 매매</text>
+  <rect x="590" y="385" width="430" height="119" rx="12" fill="#f2effc" stroke="#7c3aed" stroke-width="1.5" filter="url(#softShadow)"/>
+  <rect x="791" y="395" width="28" height="28" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.2"/>
+  <use href="#icon-fastapi" x="797" y="400" width="16" height="18"/>
+  <text x="805" y="440" text-anchor="middle" font-size="13" font-weight="700" fill="#6d28d9">ai-agent</text>
+  <text x="805" y="456" text-anchor="middle" font-size="11" fill="#6d28d9">FastAPI · Python 3.11 · :8000</text>
+  <text x="805" y="470" text-anchor="middle" font-size="10" fill="#5b3aa0">APScheduler 평일 08:50 KST · Stage 0~6 파이프라인</text>
+  <text x="805" y="483" text-anchor="middle" font-size="10" fill="#5b3aa0">필터링 → 3-Way 분석 → Gemini 판단 → 안전망 → 매매</text>
+  <text x="805" y="496" text-anchor="middle" font-size="9" fill="#8b7bc0" font-style="italic">※ 국내 주식 전용 — 채권·코인은 파이프라인 범위 밖</text>
 
-  <!-- ===== internal connectors (app row -> infra row), gap 474-544 ===== -->
+  <!-- ===== internal connectors (app row -> infra row), gap 504-574 ===== -->
   <!-- api-server -> redis -->
-  <path d="M200,474 L200,542" stroke="#2563eb" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-blue)"/>
-  <text x="207" y="497" font-size="9.5" fill="#1d4ed8">rate-limit bucket+cache</text>
+  <path d="M200,504 L200,572" stroke="#2563eb" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-blue)"/>
+  <text x="207" y="527" font-size="9.5" fill="#1d4ed8">rate-limit bucket+cache</text>
 
   <!-- api-server -> postgres -->
-  <path d="M400,474 L455,544" stroke="#2563eb" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-blue)"/>
-  <text x="348" y="497" font-size="9.5" fill="#1d4ed8">JPA·Liquibase</text>
+  <path d="M400,504 L455,574" stroke="#2563eb" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-blue)"/>
+  <text x="348" y="527" font-size="9.5" fill="#1d4ed8">JPA·Liquibase</text>
 
-  <!-- kafka -> api-server (consume+DLQ), dedicated lane y=492 -->
-  <path d="M700,544 L700,500 Q700,492 692,492 L473,492 Q465,492 465,500 L465,474"
+  <!-- kafka -> api-server (consume+DLQ), dedicated lane y=522 -->
+  <path d="M700,574 L700,530 Q700,522 692,522 L473,522 Q465,522 465,530 L465,504"
         stroke="#475569" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-slate)"/>
-  <text x="478" y="488" font-size="9.5" fill="#334155">consume trade-order + DLQ</text>
+  <text x="478" y="518" font-size="9.5" fill="#334155">consume trade-order + DLQ</text>
 
-  <!-- ai-agent -> postgres (psycopg2), dedicated lane y=518 -->
-  <path d="M650,474 L650,510 Q650,518 642,518 L593,518 Q585,518 585,526 L585,544"
+  <!-- ai-agent -> postgres (psycopg2), dedicated lane y=548 -->
+  <path d="M650,504 L650,540 Q650,548 642,548 L593,548 Q585,548 585,556 L585,574"
         stroke="#7c3aed" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-purple)"/>
-  <text x="523" y="533" font-size="9.5" fill="#6d28d9">psycopg2·분석결과 적재</text>
+  <text x="523" y="563" font-size="9.5" fill="#6d28d9">psycopg2·분석결과 적재</text>
 
   <!-- ai-agent -> kafka (publish) -->
-  <path d="M780,474 L780,542" stroke="#7c3aed" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-purple)"/>
-  <text x="790" y="497" font-size="9.5" fill="#6d28d9">publish trade-order (Stage6)</text>
+  <path d="M780,504 L780,572" stroke="#7c3aed" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-purple)"/>
+  <text x="790" y="527" font-size="9.5" fill="#6d28d9">publish trade-order (Stage6)</text>
 
   <!-- ===== infra row ===== -->
   <!-- redis -->
-  <rect x="80" y="544" width="220" height="124" rx="12" fill="#fdecec" stroke="#dc2626" stroke-width="1.5" filter="url(#softShadow)"/>
-  <rect x="176" y="554" width="28" height="28" rx="8" fill="#ffffff" stroke="#dc2626" stroke-width="1.2"/>
-  <use href="#icon-redis" x="181" y="560" width="18" height="16"/>
-  <text x="190" y="602" text-anchor="middle" font-size="12.5" font-weight="700" fill="#b91c1c">Redis 7</text>
-  <text x="190" y="619" text-anchor="middle" font-size="10" fill="#9c3a3a">KIS rate-limit 토큰버킷</text>
-  <text x="190" y="633" text-anchor="middle" font-size="10" fill="#9c3a3a">시세/재무 캐시 (stale-if-error)</text>
-  <text x="190" y="650" text-anchor="middle" font-size="9.5" fill="#b45757" font-style="italic">※ KIS OAuth 토큰 발급은 게이트 우회</text>
+  <rect x="80" y="574" width="220" height="124" rx="12" fill="#fdecec" stroke="#dc2626" stroke-width="1.5" filter="url(#softShadow)"/>
+  <rect x="176" y="584" width="28" height="28" rx="8" fill="#ffffff" stroke="#dc2626" stroke-width="1.2"/>
+  <use href="#icon-redis" x="181" y="590" width="18" height="16"/>
+  <text x="190" y="632" text-anchor="middle" font-size="12.5" font-weight="700" fill="#b91c1c">Redis 7</text>
+  <text x="190" y="649" text-anchor="middle" font-size="10" fill="#9c3a3a">KIS·업비트 rate-limit 토큰버킷</text>
+  <text x="190" y="663" text-anchor="middle" font-size="10" fill="#9c3a3a">시세/재무 캐시 (stale-if-error)</text>
+  <text x="190" y="680" text-anchor="middle" font-size="9.5" fill="#b45757" font-style="italic">※ KIS OAuth 토큰 발급은 게이트 우회</text>
 
   <!-- postgres -->
-  <rect x="320" y="544" width="300" height="124" rx="12" fill="#eaedfb" stroke="#4338ca" stroke-width="1.5" filter="url(#softShadow)"/>
-  <rect x="456" y="554" width="28" height="28" rx="8" fill="#ffffff" stroke="#4338ca" stroke-width="1.2"/>
-  <use href="#icon-postgres" x="461" y="559" width="18" height="18"/>
-  <text x="470" y="602" text-anchor="middle" font-size="12.5" font-weight="700" fill="#3730a3">PostgreSQL 16</text>
-  <text x="470" y="619" text-anchor="middle" font-size="10" fill="#4c4a9c">+ TimescaleDB extension</text>
-  <text x="470" y="633" text-anchor="middle" font-size="10" fill="#4c4a9c">4개 hypertable (시계열 테이블)</text>
-  <text x="470" y="650" text-anchor="middle" font-size="9.5" fill="#4c4a9c" font-style="italic">21 tables + 4 views · Liquibase 관리</text>
+  <rect x="320" y="574" width="300" height="124" rx="12" fill="#eaedfb" stroke="#4338ca" stroke-width="1.5" filter="url(#softShadow)"/>
+  <rect x="456" y="584" width="28" height="28" rx="8" fill="#ffffff" stroke="#4338ca" stroke-width="1.2"/>
+  <use href="#icon-postgres" x="461" y="589" width="18" height="18"/>
+  <text x="470" y="632" text-anchor="middle" font-size="12.5" font-weight="700" fill="#3730a3">PostgreSQL 16</text>
+  <text x="470" y="649" text-anchor="middle" font-size="10" fill="#4c4a9c">+ TimescaleDB extension</text>
+  <text x="470" y="663" text-anchor="middle" font-size="10" fill="#4c4a9c">4개 hypertable (시계열 테이블)</text>
+  <text x="470" y="680" text-anchor="middle" font-size="9.5" fill="#4c4a9c" font-style="italic">23 tables + 4 views · Liquibase 관리</text>
 
   <!-- kafka -->
-  <rect x="640" y="544" width="240" height="124" rx="12" fill="#fdf3dc" stroke="#b45309" stroke-width="1.5" filter="url(#softShadow)"/>
-  <rect x="746" y="554" width="28" height="28" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.2"/>
-  <use href="#icon-kafka" x="751" y="559" width="18" height="18"/>
-  <text x="760" y="602" text-anchor="middle" font-size="12.5" font-weight="700" fill="#92400e">Kafka 4.0 (KRaft)</text>
-  <text x="760" y="619" text-anchor="middle" font-size="10" fill="#8a5a1e">trade-order 토픽 + DLQ</text>
-  <text x="760" y="633" text-anchor="middle" font-size="10" fill="#8a5a1e">단일 노드 · 30일 보관</text>
-  <text x="760" y="650" text-anchor="middle" font-size="9.5" fill="#8a5a1e" font-style="italic">멱등키 기반 재처리</text>
+  <rect x="640" y="574" width="240" height="124" rx="12" fill="#fdf3dc" stroke="#b45309" stroke-width="1.5" filter="url(#softShadow)"/>
+  <rect x="746" y="584" width="28" height="28" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.2"/>
+  <use href="#icon-kafka" x="751" y="589" width="18" height="18"/>
+  <text x="760" y="632" text-anchor="middle" font-size="12.5" font-weight="700" fill="#92400e">Kafka 4.0 (KRaft)</text>
+  <text x="760" y="649" text-anchor="middle" font-size="10" fill="#8a5a1e">trade-order 토픽 + DLQ</text>
+  <text x="760" y="663" text-anchor="middle" font-size="10" fill="#8a5a1e">단일 노드 · 30일 보관</text>
+  <text x="760" y="680" text-anchor="middle" font-size="9.5" fill="#8a5a1e" font-style="italic">멱등키 기반 재처리</text>
 
   <!-- elasticsearch (unused) -->
-  <rect x="900" y="544" width="150" height="124" rx="12" fill="#f5f6f8" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4 3"/>
-  <rect x="961" y="554" width="28" height="28" rx="8" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
-  <use href="#icon-elastic" x="966" y="559" width="18" height="18"/>
-  <text x="975" y="602" text-anchor="middle" font-size="11.5" font-weight="700" fill="#6b7280">Elasticsearch</text>
-  <text x="975" y="619" text-anchor="middle" font-size="9.5" fill="#8b93a1">8.x</text>
-  <text x="975" y="633" text-anchor="middle" font-size="9.5" fill="#8b93a1">(확장 예정 ·</text>
-  <text x="975" y="648" text-anchor="middle" font-size="9.5" fill="#8b93a1">현재 미사용)</text>
+  <rect x="900" y="574" width="150" height="124" rx="12" fill="#f5f6f8" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <rect x="961" y="584" width="28" height="28" rx="8" fill="#ffffff" stroke="#9ca3af" stroke-width="1.2"/>
+  <use href="#icon-elastic" x="966" y="589" width="18" height="18"/>
+  <text x="975" y="632" text-anchor="middle" font-size="11.5" font-weight="700" fill="#6b7280">Elasticsearch</text>
+  <text x="975" y="649" text-anchor="middle" font-size="9.5" fill="#8b93a1">8.x</text>
+  <text x="975" y="663" text-anchor="middle" font-size="9.5" fill="#8b93a1">(확장 예정 ·</text>
+  <text x="975" y="678" text-anchor="middle" font-size="9.5" fill="#8b93a1">현재 미사용)</text>
 
   <!-- ===== external services column ===== -->
   <use href="#icon-cloud" x="1180" y="126" width="18" height="13.5"/>
   <text x="1204" y="140" font-size="12.5" font-weight="700" fill="#334155">외부 서비스 (Internet)</text>
 
   <!-- KIS -->
-  <rect x="1180" y="160" width="360" height="130" rx="12" fill="#f1f2f4" stroke="#334155" stroke-width="1.5" filter="url(#softShadow)"/>
+  <rect x="1180" y="160" width="360" height="120" rx="12" fill="#f1f2f4" stroke="#334155" stroke-width="1.5" filter="url(#softShadow)"/>
   <rect x="1346" y="170" width="28" height="28" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.2"/>
   <use href="#icon-kis" x="1351" y="175" width="18" height="18"/>
-  <text x="1360" y="218" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">KIS Open API (모의투자)</text>
-  <text x="1360" y="235" text-anchor="middle" font-size="10" fill="#4b5563">REST: 주문·잔고·시세 / OAuth 토큰</text>
-  <text x="1360" y="250" text-anchor="middle" font-size="10" fill="#4b5563">WebSocket: 실시간 호가·체결가 upstream</text>
-  <text x="1360" y="267" text-anchor="middle" font-size="9.5" fill="#6b7280" font-style="italic">api-server가 브라우저에 브리지(BFF)</text>
+  <text x="1360" y="218" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">KIS Open API (실전투자)</text>
+  <text x="1360" y="235" text-anchor="middle" font-size="10" fill="#4b5563">REST: 주식·채권 주문·잔고·시세 / OAuth 토큰</text>
+  <text x="1360" y="249" text-anchor="middle" font-size="10" fill="#4b5563">WebSocket: 실시간 호가·체결가 upstream</text>
+  <text x="1360" y="266" text-anchor="middle" font-size="9.5" fill="#6b7280" font-style="italic">※ 채권은 보유 조회·매도만 (검색 API 부재)</text>
+
+  <!-- Upbit -->
+  <rect x="1180" y="296" width="360" height="110" rx="12" fill="#f1f2f4" stroke="#334155" stroke-width="1.5" filter="url(#softShadow)"/>
+  <rect x="1346" y="306" width="28" height="28" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.2"/>
+  <use href="#icon-upbit" x="1351" y="311" width="18" height="18"/>
+  <text x="1360" y="354" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">Upbit Open API</text>
+  <text x="1360" y="371" text-anchor="middle" font-size="10" fill="#4b5563">원화 마켓 시세(무인증) · 잔고 · 주문</text>
+  <text x="1360" y="385" text-anchor="middle" font-size="10" fill="#4b5563">요청마다 JWT 서명 (사용자별 키)</text>
+  <text x="1360" y="399" text-anchor="middle" font-size="9.5" fill="#6b7280" font-style="italic">※ 시세=IP 한도 / 주문=계정 한도</text>
 
   <!-- DART -->
-  <rect x="1180" y="310" width="360" height="100" rx="12" fill="#f1f2f4" stroke="#334155" stroke-width="1.5" filter="url(#softShadow)"/>
-  <rect x="1346" y="320" width="28" height="28" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.2"/>
-  <use href="#icon-dart" x="1351" y="325" width="18" height="18"/>
-  <text x="1360" y="368" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">DART API</text>
-  <text x="1360" y="386" text-anchor="middle" font-size="10" fill="#4b5563">기업 재무제표 · 공시 데이터</text>
+  <rect x="1180" y="422" width="360" height="92" rx="12" fill="#f1f2f4" stroke="#334155" stroke-width="1.5" filter="url(#softShadow)"/>
+  <rect x="1346" y="432" width="28" height="28" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.2"/>
+  <use href="#icon-dart" x="1351" y="437" width="18" height="18"/>
+  <text x="1360" y="480" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">DART API</text>
+  <text x="1360" y="498" text-anchor="middle" font-size="10" fill="#4b5563">기업 재무제표 · 공시 데이터</text>
 
   <!-- Gemini -->
-  <rect x="1180" y="430" width="360" height="100" rx="12" fill="#f1f2f4" stroke="#334155" stroke-width="1.5" filter="url(#softShadow)"/>
-  <rect x="1346" y="440" width="28" height="28" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.2"/>
-  <use href="#icon-gemini" x="1351" y="445" width="18" height="18"/>
-  <text x="1360" y="488" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">Gemini API</text>
-  <text x="1360" y="506" text-anchor="middle" font-size="10" fill="#4b5563">무료 티어 · 1 call/day · 11피처 매수/매도 판단</text>
+  <rect x="1180" y="530" width="360" height="92" rx="12" fill="#f1f2f4" stroke="#334155" stroke-width="1.5" filter="url(#softShadow)"/>
+  <rect x="1346" y="540" width="28" height="28" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.2"/>
+  <use href="#icon-gemini" x="1351" y="545" width="18" height="18"/>
+  <text x="1360" y="588" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">Gemini API</text>
+  <text x="1360" y="606" text-anchor="middle" font-size="10" fill="#4b5563">무료 티어 · 하루 1(전역)+N(활성 유저) call</text>
 
   <!-- News -->
-  <rect x="1180" y="550" width="360" height="100" rx="12" fill="#f1f2f4" stroke="#334155" stroke-width="1.5" filter="url(#softShadow)"/>
-  <rect x="1346" y="560" width="28" height="28" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.2"/>
-  <use href="#icon-rss" x="1351" y="565" width="18" height="18"/>
-  <text x="1360" y="608" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">뉴스 (RSS · 네이버)</text>
-  <text x="1360" y="626" text-anchor="middle" font-size="10" fill="#4b5563">KR-FinBERT 감성분석 입력 (시장/종목 2트랙)</text>
+  <rect x="1180" y="638" width="360" height="92" rx="12" fill="#f1f2f4" stroke="#334155" stroke-width="1.5" filter="url(#softShadow)"/>
+  <rect x="1346" y="648" width="28" height="28" rx="8" fill="#ffffff" stroke="#334155" stroke-width="1.2"/>
+  <use href="#icon-rss" x="1351" y="653" width="18" height="18"/>
+  <text x="1360" y="696" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2937">뉴스 (RSS · 네이버)</text>
+  <text x="1360" y="714" text-anchor="middle" font-size="10" fill="#4b5563">KR-FinBERT 감성분석 입력 (시장/종목 2트랙)</text>
 
   <!-- ai-agent -> KIS -->
-  <path d="M1020,395 L1178,222" stroke="#7c3aed" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-purple)"/>
-  <text x="1035" y="322" font-size="9.5" fill="#6d28d9">시세·수급 수집</text>
+  <path d="M1020,420 L1178,256" stroke="#7c3aed" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-purple)"/>
+  <text x="1030" y="352" font-size="9.5" fill="#6d28d9">시세·수급 수집</text>
 
   <!-- ai-agent -> DART -->
-  <path d="M1020,420 L1178,360" stroke="#7c3aed" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-purple)"/>
-  <text x="1048" y="383" font-size="9.5" fill="#6d28d9">분기 재무</text>
+  <path d="M1020,450 L1178,462" stroke="#7c3aed" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-purple)"/>
+  <text x="1052" y="446" font-size="9.5" fill="#6d28d9">분기 재무</text>
 
   <!-- ai-agent -> Gemini -->
-  <path d="M1020,440 L1178,480" stroke="#7c3aed" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-purple)"/>
-  <text x="1048" y="453" font-size="9.5" fill="#6d28d9">11피처 판단</text>
+  <path d="M1020,472 L1178,570" stroke="#7c3aed" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-purple)"/>
+  <text x="1040" y="518" font-size="9.5" fill="#6d28d9">11피처 판단</text>
 
   <!-- ai-agent -> News -->
-  <path d="M1020,458 L1178,595" stroke="#7c3aed" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-purple)"/>
-  <text x="1053" y="519" font-size="9.5" fill="#6d28d9">감성분석 입력</text>
+  <path d="M1020,492 L1178,678" stroke="#7c3aed" stroke-width="1.6" fill="none" stroke-linecap="round" marker-end="url(#arrow-purple)"/>
+  <text x="1032" y="600" font-size="9.5" fill="#6d28d9">감성분석 입력</text>
 
   <!-- ===== legend ===== -->
   <g font-size="11" fill="#374151">
-    <rect x="60" y="709" width="12" height="12" rx="3" fill="#1f2937"/>
-    <text x="80" y="719">사용자 → web-app</text>
+    <rect x="60" y="756" width="12" height="12" rx="3" fill="#1f2937"/>
+    <text x="80" y="766">사용자 → web-app</text>
 
-    <rect x="262" y="709" width="12" height="12" rx="3" fill="#0d9488"/>
-    <text x="282" y="719">web-app 호출</text>
+    <rect x="262" y="756" width="12" height="12" rx="3" fill="#0d9488"/>
+    <text x="282" y="766">web-app 호출</text>
 
-    <rect x="444" y="709" width="12" height="12" rx="3" fill="#2563eb"/>
-    <text x="464" y="719">api-server 호출</text>
+    <rect x="444" y="756" width="12" height="12" rx="3" fill="#2563eb"/>
+    <text x="464" y="766">api-server 호출</text>
 
-    <rect x="646" y="709" width="12" height="12" rx="3" fill="#7c3aed"/>
-    <text x="666" y="719">ai-agent 호출</text>
+    <rect x="646" y="756" width="12" height="12" rx="3" fill="#7c3aed"/>
+    <text x="666" y="766">ai-agent 호출</text>
 
-    <rect x="848" y="709" width="12" height="12" rx="3" fill="#475569"/>
-    <text x="868" y="719">Kafka 소비 (내부)</text>
+    <rect x="848" y="756" width="12" height="12" rx="3" fill="#475569"/>
+    <text x="868" y="766">Kafka 소비 (내부)</text>
   </g>
 
-  <text x="60" y="754" font-size="10.5" fill="#6b7280">
-    CI: GitHub Actions가 web-app 빌드/린트만 담당 (api-server·ai-agent는 미구성) · 실투자 미지원, KIS 모의투자 전제
+  <text x="60" y="800" font-size="10.5" fill="#6b7280">
+    CI/CD: GitHub Actions는 web-app만 담당 — 이미지 build&amp;push 후 SSH 배포 (lint 스텝 없음 · api-server·ai-agent는 미구성) · KIS는 실전투자 전용 (모의투자 미지원) · 업비트 인증 경로는 실키 검증 대기
   </text>
 </svg>

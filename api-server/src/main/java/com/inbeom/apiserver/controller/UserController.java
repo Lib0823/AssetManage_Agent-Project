@@ -150,6 +150,52 @@ public class UserController {
     }
 
     /**
+     * GET /api/users/upbit-account
+     *
+     * <p>업비트 계좌 등록 상태. <b>Secret Key 는 어떤 형태로도 내려가지 않는다</b> — 응답 DTO 에
+     * 필드 자체가 없고, Access Key 도 앞 4자만 남긴 마스킹으로만 나간다.
+     * 미등록이어도 404 가 아니라 {@code registered=false} 다(설정 화면이 그 상태를 그려야 한다).
+     */
+    @GetMapping("/upbit-account")
+    public ResponseEntity<ApiResponse<UpbitAccountResponse>> getUpbitAccount(
+            @RequestHeader("Authorization") String authHeader
+    ) {
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
+        Long userId = jwtTokenProvider.getUserIdFromToken(token);
+
+        UpbitAccountResponse upbitAccount = userService.getUpbitAccount(userId);
+
+        return ResponseEntity.ok(
+                ApiResponse.success("Upbit account retrieved successfully", upbitAccount)
+        );
+    }
+
+    /**
+     * PUT /api/users/upbit-account
+     *
+     * <p>등록·수정 겸용(upsert). <b>빈 값은 기존 키 유지</b>다 — 조회가 실제 키를 돌려주지 않으므로
+     * 프론트가 되채울 수 없고, 빈 값을 삭제로 해석하면 한쪽만 고치려던 사용자가 다른 키를 잃는다.
+     *
+     * <p>키 유효성 검증은 이 저장이 겸한다. 별도의 {@code POST /auth/validate-upbit-account} 를
+     * 두지 않는 이유는 {@code /auth/**} 가 permitAll 이라 그 자리에 두면 미인증 공개 검사기가
+     * 되기 때문이다.
+     */
+    @PutMapping("/upbit-account")
+    public ResponseEntity<ApiResponse<UpbitAccountResponse>> updateUpbitAccount(
+            @RequestHeader("Authorization") String authHeader,
+            @Valid @RequestBody UpdateUpbitAccountRequest request
+    ) {
+        String token = jwtTokenProvider.resolveBearerToken(authHeader);
+        Long userId = jwtTokenProvider.getUserIdFromToken(token);
+
+        UpbitAccountResponse upbitAccount = userService.updateUpbitAccount(userId, request);
+
+        return ResponseEntity.ok(
+                ApiResponse.success("Upbit account updated successfully", upbitAccount)
+        );
+    }
+
+    /**
      * GET /api/users/trade-config
      * Get user trade configuration
      */

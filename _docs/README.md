@@ -40,9 +40,9 @@
 | 모듈 | 역할 | 진입점 | 코어4 외 고유 문서 |
 |------|------|--------|-------------------|
 | `web-app/` | Vue 3 프론트엔드 (PWA) | [`web-app/_docs/README.md`](../web-app/_docs/README.md) | `SCREENS.md` |
-| `api-server/` | Spring Boot 백엔드 / 매매 실행 | [`api-server/_docs/README.md`](../api-server/_docs/README.md) | `API_DESIGN.md`, `AUTHENTICATION_FLOW.md`, `KIS_API_GUIDE.md` |
+| `api-server/` | Spring Boot 백엔드 / 매매 실행 | [`api-server/_docs/README.md`](../api-server/_docs/README.md) | `API_DESIGN.md`, `AUTHENTICATION_FLOW.md`, `KIS_API_GUIDE.md`, `UPBIT_API_GUIDE.md` |
 | `ai-agent/` | FastAPI ML 파이프라인 / AI 판단 | [`ai-agent/_docs/README.md`](../ai-agent/_docs/README.md) | `PIPELINE_DESIGN.md`, `API_REFERENCE.md` |
-| `database/` | PostgreSQL 스키마 / ERD | [`database/README.md`](../database/README.md) | `schema.sql` (17 tables + 4 views) |
+| `database/` | PostgreSQL 스키마 / ERD | [`database/README.md`](../database/README.md) | `schema.sql` (23 tables + 4 views) |
 
 ---
 
@@ -54,7 +54,9 @@
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | 시스템 전체 데이터 흐름, 서비스 통신, 일일 파이프라인 다이어그램 |
 | [`STATUS.md`](STATUS.md) | 전체 개발 현황 (모듈 간 연동 매트릭스 + 기능별 진행) |
 | [`USAGE.md`](USAGE.md) | 설치 · 실행 방법 |
-| `architecture.png` · `analysis_flow.png` · `data_struct.png` · `story_board.png` | 설계 다이어그램 이미지 |
+| `ARCHITECTURE.svg` → `ARCHITECTURE.png` | 시스템 아키텍처 다이어그램. **소스는 `.svg`이고 `.png`는 `generate-architecture-png.sh`의 산출물**이다 — PNG를 손으로 고치면 다음 재생성에서 조용히 덮어써진다 |
+| `ANALYSIS_FLOW.png` · `DATA_STRUCT.png` · `STORY_BOARD.png` | 초기 설계 스케치(2026-02~06). 손으로 그린 이미지라 소스가 없고 **현행 구현과 어긋날 수 있다** — 최신 구조는 `ARCHITECTURE.svg`를 볼 것 |
+| [`Troubleshooting/`](Troubleshooting/) | 기술 도입·전환 과정의 문제와 해결 기록 — [1. TimescaleDB 마이그레이션](Troubleshooting/1.timescaledb-migration.md) · [2. Kafka 메시지큐 도입](Troubleshooting/2.messagequeue-kafka-adoption.md) · [3. Redis rate-limit·캐시 도입](Troubleshooting/3.redis-ratelimit-cache-adoption.md) |
 | `dev_note.txt` | 개발 메모 (개인 백로그) |
 
 ---

@@ -27,6 +27,27 @@ const kisAccount = ref({
   appSecret: ''
 })
 
+/**
+ * 업비트 계좌 등록 상태 (서버 조회값).
+ *
+ * **실제 키는 여기 담기지 않는다.** 서버 응답(`UpbitAccountResponse`)에는 Secret Key 필드
+ * 자체가 없고 Access Key 도 앞 4자만 남은 마스킹으로 온다. 그래서 아래 입력 폼과는 별개의
+ * 상태로 둔다 — 입력칸에 되채우면 마스킹 문자열(`ab12****`)이 그대로 저장돼 버린다.
+ */
+const upbitAccount = ref({
+  registered: false,
+  accessKeyMasked: '',
+  secretKeyRegistered: false,
+  isVerified: null,
+  verificationNotice: ''
+})
+
+// 입력 폼. **빈 값은 "지우기"가 아니라 "기존 키 유지"** 다(서버 규칙).
+const upbitForm = ref({
+  accessKey: '',
+  secretKey: ''
+})
+
 const showBirthCalendar = ref(false)
 const loading = ref(false)
 const isValidating = ref(false)
@@ -77,6 +98,30 @@ const loadKisAccount = async () => {
     if (error.response?.status !== 404) {
       toast.error('KIS 계좌 정보를 불러올 수 없습니다')
     }
+  }
+}
+
+/**
+ * 업비트 계좌 등록 상태 조회.
+ *
+ * 미등록이어도 404 가 아니라 `registered=false` 가 온다(설정 화면이 그 상태를 그려야 하므로).
+ * 조회 실패는 화면을 막지 않는다 — KIS 계좌만 쓰는 사용자에게는 없어도 되는 정보다.
+ */
+const loadUpbitAccount = async () => {
+  try {
+    const response = await userApi.getUpbitAccount()
+    const data = response?.data
+    if (data) {
+      upbitAccount.value = {
+        registered: !!data.registered,
+        accessKeyMasked: data.accessKeyMasked || '',
+        secretKeyRegistered: !!data.secretKeyRegistered,
+        isVerified: data.isVerified ?? null,
+        verificationNotice: data.verificationNotice || ''
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load Upbit account:', error)
   }
 }
 
@@ -166,6 +211,17 @@ const handleSave = async () => {
       }
     }
 
+    // 업비트 최초 등록은 두 키가 모두 있어야 한다.
+    // (수정 시에는 채운 쪽만 바뀌므로 한쪽만 입력해도 된다.)
+    if (!upbitAccount.value.registered) {
+      const hasAny = upbitForm.value.accessKey.trim() || upbitForm.value.secretKey.trim()
+      const hasBoth = upbitForm.value.accessKey.trim() && upbitForm.value.secretKey.trim()
+      if (hasAny && !hasBoth) {
+        toast.warning('업비트 Access Key와 Secret Key를 모두 입력해주세요')
+        return
+      }
+    }
+
     loading.value = true
 
     // Save user profile
@@ -186,6 +242,20 @@ const handleSave = async () => {
 
       // 계좌가 등록됐으므로 실시간 소켓을 즉시 켠다(등록 전에는 연결을 시도하지 않는다).
       realtimeStore.setEnabled(true)
+    }
+
+    // 업비트 계좌: 입력된 값이 하나라도 있을 때만 보낸다.
+    // 서버가 빈 값을 "기존 키 유지"로 처리하므로, 둘 다 비었으면 보낼 이유가 없다.
+    const upbitAccessKey = upbitForm.value.accessKey.trim()
+    const upbitSecretKey = upbitForm.value.secretKey.trim()
+    if (upbitAccessKey || upbitSecretKey) {
+      await userApi.updateUpbitAccount({
+        accessKey: upbitAccessKey,
+        secretKey: upbitSecretKey
+      })
+      // 입력칸을 비운다 — 저장된 키는 서버가 돌려주지 않으므로 남겨두면 화면과 서버가 어긋난다.
+      upbitForm.value = { accessKey: '', secretKey: '' }
+      await loadUpbitAccount()
     }
 
     toast.success('정보가 저장되었습니다')
@@ -236,6 +306,7 @@ onMounted(async () => {
 
   await loadProfile()
   await loadKisAccount()
+  await loadUpbitAccount()
 })
 </script>
 
@@ -381,6 +452,79 @@ onMounted(async () => {
         <p v-if="!validationResult && (kisAccount.accountNumber || kisAccount.appKey || kisAccount.appSecret)" class="validation-info-message">
           저장 전에 KIS 계정 인증을 완료해주세요
         </p>
+      </section>
+
+      <!--
+        업비트 계좌 카드 (코인 거래용).
+        KIS 와 별개의 자격증명이며 한쪽이 없어도 다른 쪽은 정상 동작한다.
+      -->
+      <section class="info-card">
+        <h3 class="card-title">업비트 계좌 정보 (코인)</h3>
+
+        <div class="upbit-status">
+          <span class="upbit-status-label">등록 상태</span>
+          <span :class="['upbit-badge', upbitAccount.registered ? 'registered' : 'none']">
+            {{ upbitAccount.registered ? '등록됨' : '미등록' }}
+          </span>
+        </div>
+
+        <div v-if="upbitAccount.registered" class="upbit-status">
+          <span class="upbit-status-label">Access Key</span>
+          <span class="upbit-status-value">{{ upbitAccount.accessKeyMasked || '—' }}</span>
+        </div>
+
+        <div v-if="upbitAccount.registered" class="upbit-status">
+          <span class="upbit-status-label">키 검증</span>
+          <span :class="['upbit-badge', upbitAccount.isVerified ? 'registered' : 'warn']">
+            {{ upbitAccount.isVerified ? '검증 성공' : '검증 실패' }}
+          </span>
+        </div>
+
+        <p v-if="upbitAccount.verificationNotice" class="upbit-notice">
+          {{ upbitAccount.verificationNotice }}
+        </p>
+
+        <div class="info-row">
+          <span class="info-label">Access Key</span>
+          <input
+            type="text"
+            class="info-input"
+            v-model="upbitForm.accessKey"
+            :placeholder="upbitAccount.registered ? '변경할 때만 입력' : 'Access Key 입력'"
+            :disabled="loading"
+            autocomplete="off"
+          />
+        </div>
+
+        <!-- Secret Key 는 저장 후 서버가 어떤 형태로도 돌려주지 않는다(마스킹조차 없다). -->
+        <div class="info-row">
+          <span class="info-label">Secret Key</span>
+          <input
+            type="password"
+            class="info-input"
+            v-model="upbitForm.secretKey"
+            :placeholder="upbitAccount.secretKeyRegistered ? '변경할 때만 입력' : 'Secret Key 입력'"
+            :disabled="loading"
+            autocomplete="new-password"
+          />
+        </div>
+
+        <div class="upbit-guide">
+          <p class="upbit-guide-title">API 키 발급 안내</p>
+          <ul class="upbit-guide-list">
+            <li>업비트 <strong>PC 웹</strong>에서만 발급할 수 있습니다(모바일 앱 불가).</li>
+            <li>발급 시 <strong>본인인증과 2채널 인증</strong>이 필요합니다.</li>
+            <li>
+              <strong>이 서버의 공인 IP를 허용 목록에 등록</strong>해야 합니다. 등록하지 않으면
+              자산·주문 요청이 전부 실패합니다.
+            </li>
+            <li>권한은 <strong>자산조회 + 주문</strong>만 주고 <strong>입출금 권한은 주지 마세요.</strong></li>
+          </ul>
+          <p class="upbit-guide-note">
+            저장된 키는 보안상 화면에 다시 표시되지 않습니다. 입력칸을 <strong>비워 두면 기존 키가
+            그대로 유지</strong>되며, 값을 넣은 항목만 교체됩니다.
+          </p>
+        </div>
       </section>
 
       <!-- Save Button -->
@@ -775,5 +919,91 @@ onMounted(async () => {
   color: #F97316;
   margin-top: var(--spacing-xs);
   text-align: center;
+}
+
+/* Upbit Account Card */
+.upbit-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) 0;
+}
+
+.upbit-status-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.upbit-status-value {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  word-break: break-all;
+}
+
+.upbit-badge {
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.upbit-badge.registered {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
+}
+
+.upbit-badge.none {
+  background: var(--canvas-hairline-soft);
+  color: var(--color-text-tertiary);
+}
+
+.upbit-badge.warn {
+  background: rgba(239, 68, 68, 0.15);
+  color: #EF4444;
+}
+
+.upbit-notice {
+  margin: var(--spacing-xs) 0 var(--spacing-sm);
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: rgba(239, 68, 68, 0.1);
+  font-size: var(--font-size-xs);
+  color: #EF4444;
+  line-height: 1.5;
+}
+
+.upbit-guide {
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  background: var(--canvas-hairline-faint);
+}
+
+.upbit-guide-title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  margin-bottom: 6px;
+}
+
+.upbit-guide-list {
+  margin: 0;
+  padding-left: 16px;
+  list-style: disc;
+}
+
+.upbit-guide-list li {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.6;
+}
+
+.upbit-guide-note {
+  margin-top: 8px;
+  font-size: var(--font-size-xs);
+  color: #F59E0B;
+  line-height: 1.5;
 }
 </style>

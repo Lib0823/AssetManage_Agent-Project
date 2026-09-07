@@ -19,12 +19,11 @@ web-app/
     ├── App.vue             # 루트: <RouterView> + 조건부 <BottomNav> + onMounted 자동 로그인 복원
     ├── router/index.js     # 라우트 정의 + beforeEach 가드
     ├── services/
-    │   ├── api.js          # axios 인스턴스 + 인터셉터 + 도메인별 API 객체(12개)
-    │   ├── mockData.js     # 화면용 Mock 데이터 (export 1개: mockMarketIndices)
+    │   ├── api.js          # axios 인스턴스 + 인터셉터 + 도메인별 API 객체(14개)
     │   ├── realtime.js     # 실시간 WebSocket 클라이언트 싱글톤 (/ws/realtime)
     │   └── webauthn.js     # WebAuthn(생체 로그인/패스키) 클라이언트 헬퍼
     ├── stores/
-    │   ├── auth.js         # Pinia: 회원가입 멀티스텝 데이터 + 인증 토큰/유저 + 계좌모드
+    │   ├── auth.js         # Pinia: 회원가입 멀티스텝 데이터 + 인증 토큰/유저
     │   └── realtime.js     # Pinia: 실시간 호가/체결가/체결통보 상태 + 구독 래퍼
     ├── utils/
     │   ├── tokenStorage.js # 인증 토큰 저장소 (자동로그인 설정에 따라 local/session 분기)
@@ -38,11 +37,12 @@ web-app/
     │   └── logo.svg
     ├── components/
     │   └── common/         # AppHeader, BottomNav, StockCard, AssetTabs,
-    │                       # InvestmentTabs, KisMaintenanceNotice
+    │                       # InvestmentTabs, KisMaintenanceNotice, UnsupportedTabNotice
     └── views/
         ├── auth/           # Splash, Welcome, Login, Register, RegisterFinance, Terms, ResetPassword
         ├── main/           # Home, Assets, Bot, Search, Favorites
-        ├── detail/         # AssetDetail, CompanyDetail, Trading, Transactions, News, NewsDetail
+        ├── detail/         # AssetDetail, CompanyDetail, Trading, Transactions, News, NewsDetail,
+        │                   # BondDetail, BondSell, CoinSearch, CoinDetail, CoinTrading
         ├── analysis/       # MarketAnalysis
         └── settings/       # Profile, Settings
 ```
@@ -72,6 +72,11 @@ web-app/
 | `/assets/detail` | assets-detail | `detail/AssetDetailView` | 필요 | — |
 | `/company/:symbol` | company-detail | `detail/CompanyDetailView` | 필요 | — |
 | `/trading/:symbol` | trading | `detail/TradingView` | 필요 | — |
+| `/bonds/:code` | bond-detail | `detail/BondDetailView` | 필요 | — |
+| `/bonds/:code/sell` | bond-sell | `detail/BondSellView` | 필요 | — |
+| `/coins` | coin-search | `detail/CoinSearchView` | 필요 | — |
+| `/coins/:market` | coin-detail | `detail/CoinDetailView` | 필요 | — |
+| `/coins/:market/trade` | coin-trading | `detail/CoinTradingView` | 필요 | — |
 | `/transactions` | transactions | `detail/TransactionsView` | 필요 | ✅ |
 | `/news` | news | `detail/NewsView` | 필요 | — |
 | `/news/:id` | news-detail | `detail/NewsDetailView` | 필요 | — |
@@ -132,17 +137,19 @@ web-app/
 
 ### 도메인별 API 객체
 
-현재 **12개** 객체가 export 돼 있으며, 모두 실제 화면에서 사용된다.
+현재 **14개** 객체가 export 돼 있으며, 모두 실제 화면에서 사용된다.
 
 | 객체 | 엔드포인트(메서드) | 비고 |
 |------|-------------------|------|
 | `authApi` | `/auth/login`, `/auth/register`, `/auth/reset-password`, `/auth/check-username`, `/auth/check-email`, `/auth/logout`, `/auth/validate-kis-account` | 인증·회원가입·KIS 계좌 검증. refresh는 인터셉터가 raw axios로 직접 호출(재귀 방지) |
 | `webauthnApi` | `/auth/webauthn/register/start`·`/finish`, `/auth/webauthn/login/start`·`/finish` | 생체 로그인/패스키. `register/*`는 JWT 필요, `login/*`은 공개(usernameless) |
-| `userApi` | `/users/me`(GET/PUT/DELETE), `/users/settings`(GET/PUT), `/users/kis-account`(GET/PUT), `/users/trade-config`(GET/PUT) | 프로필·설정·KIS 계좌·자동매매 설정 |
+| `userApi` | `/users/me`(GET/PUT/DELETE), `/users/settings`(GET/PUT), `/users/kis-account`(GET/PUT), `/users/upbit-account`(GET/PUT), `/users/trade-config`(GET/PUT) | 프로필·설정·KIS 계좌·업비트 계좌·자동매매 설정 |
 | `assetApi` | `/assets/holdings`, `/assets/balance`, `/assets/snapshot`(POST), `/assets/history` | 보유종목·잔고·총자산 일별 스냅샷/추이 |
 | `tradingApi` | `/trading/buy`, `/sell`, `/history`, `/recent`, `/holdings`, `/pending-orders`, `/orderable`, `/reserved-orders`(GET/POST/DELETE) | 국내 매매·거래내역·미체결·예약주문(실전 계좌 전용) |
 | `stockApi` | `/stocks/search`, `/stocks/top`, `/stocks/{code}/price`, `/stocks/{code}/orderbook` | 국내 종목 검색·인기·시세·호가 |
 | `overseasApi` | `/overseas/stocks/{symbol}/price`·`/orderbook`, `/overseas/balance`, `/history`, `/pending-orders`, `/orderable`, `/buy`, `/sell` | 해외(US) 시세·잔고·매매. `exchange` 파라미터 필요 |
+| `bondApi` | `/bonds/balance`, `/history`, `/sell`, `/bonds/{code}`·`/issue-info`·`/price`·`/orderbook` | 장내채권 보유·매도·시세. **`bondCode`는 12자리 영숫자**(`KR2033022D33`) — 주식의 6자리 숫자가 아니다. 매도 payload의 `buyDate`/`buySeq`/`separateTaxation`은 **잔고 응답을 그대로 되돌려 보내는 값**(사용자 입력 아님) |
+| `coinApi` | `/coins/markets`, `/tickers`, `/{market}/orderbook`·`/candles`, `/accounts`, `/buy`, `/sell`, `/history` | 업비트 원화 마켓. **`market`은 `KRW-BTC` 형식**이며 비원화 마켓은 서버 경로 패턴이 받지 않는다. **단건 ticker 메서드를 의도적으로 두지 않았다** — 보유 종목마다 호출하면 IP당 10 req/s 한도를 즉시 소진해 전체 사용자의 시세가 막힌다 |
 | `favoriteApi` | `/favorites`(GET/POST), `/favorites/{code}`(DELETE) | 관심종목 |
 | `companyApi` | `/company/{code}/basic-info`, `/financials`, `/disclosures` | 기업정보 |
 | `newsApi` | `/news`(`{symbol?, date?}`), `/news/{id}` | 뉴스 목록·상세. NewsView/NewsDetailView에서 사용 |
@@ -175,7 +182,7 @@ REST와 별개로 `/ws/realtime`에 붙는 실시간 계층이 있다.
   - SPA fallback: `try_files $uri $uri/ /index.html`.
   - gzip, 정적 파일 1년 캐시, manifest/sw는 no-cache.
   - 보안 헤더: `X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`.
-  - `/api` 프록시 블록은 **주석 처리**되어 있음(미사용). 즉 nginx는 API를 프록시하지 않으며, 프런트엔드는 `VITE_API_BASE_URL`로 직접 호출한다.
+  - `/api` 프록시 블록은 **활성**이다 — `location /api/ { proxy_pass http://api-server:7070/api/; }`(`nginx.conf`). compose 배포에서는 프런트엔드가 `VITE_API_BASE_URL=/api`로 빌드돼 같은 오리진으로 호출하고 nginx가 api-server로 넘긴다. (2026-08 QA에서 "주석 처리(미사용)"라는 서술이 사실과 반대임을 확인해 정정.)
 
 ## 6. 백엔드·AI 연동 흐름
 
@@ -203,7 +210,8 @@ Vue3 (native WebSocket)
   - `AppHeader` — 뒤로가기·타이틀·아이콘·우측 슬롯. 대부분의 상세/설정 화면 상단에 사용.
   - `BottomNav` — 하단 7탭 (위 §2.3).
   - `StockCard` — 보유종목 카드(현재가/매입금/평가손익/수량/손익률 + 뉴스·매매·기업정보 버튼, emit).
-  - `AssetTabs` / `InvestmentTabs` — 주식/채권/코인(채권·코인 disabled) + 국내/해외 서브탭. 거의 동일하나 `AssetTabs`는 탭 목록을 prop으로 외부 주입 가능.
+  - `AssetTabs` / `InvestmentTabs` — 주식/채권/코인(**셋 다 활성** — 채권·코인 기능 구현 완료) + 국내/해외 서브탭. 거의 동일하나 `AssetTabs`는 탭 목록을 prop으로 외부 주입 가능.
+  - `UnsupportedTabNotice` — 아직 지원하지 않는 탭에 띄우는 안내(NewsView·SearchView·FavoritesView에서 사용). 목업으로 있는 척하지 않고 정직하게 미지원임을 알리는 패턴.
   - `KisMaintenanceNotice` — KIS 점검/장애 시 화면을 깨뜨리지 않고 띄우는 안내 배너. `utils/kisStatus.js`의 판별 함수와 짝을 이룬다(이 프로젝트의 일관된 graceful-degrade UX 패턴).
 - **스타일**: `assets/base.css`에 디자인 토큰을 CSS 변수로 정의(`--color-*`, `--spacing-*`, `--radius-*`, `--font-*`, `--max-width-mobile`, `--bottom-nav-height` 등). `main.css`가 전역 스타일·반응형(1024px 이상에서 모바일 폭으로 중앙 정렬)·v-calendar 커스텀을 담당. Tailwind 4.1도 의존성에 포함.
 - **Chart.js**: `main.js`에서 전역 register. 사용 화면은 `AssetsView`(Doughnut, Line), `FavoritesView`(Line). 그 외 차트성 표현(시장분석 히트맵, Prophet 예측, 미니 스파크라인)은 Chart.js 없이 CSS/SVG로 직접 구현.

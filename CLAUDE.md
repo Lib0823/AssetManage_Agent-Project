@@ -56,7 +56,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI-powered stock auto-trading system that analyzes KOSPI top 100 stocks daily, filters to top 30 using ML scoring, performs 3-way analysis (quantitative features, sentiment analysis, time-series forecasting), and uses Gemini AI to execute buy/sell decisions via KIS mock trading API.
+AI-powered stock auto-trading system that analyzes KOSPI top 100 stocks daily, filters to top 30 using ML scoring, performs 3-way analysis (quantitative features, sentiment analysis, time-series forecasting), and uses Gemini AI to execute buy/sell decisions via the KIS **real-trading** API. Beyond domestic stocks, the app also covers overseas (US) stocks, domestic bonds (holdings + sell), and Upbit KRW-market coins — these are user-driven flows, not part of the AI pipeline.
 
 **Monorepo Structure:**
 - `web-app/` — Vue3 SPA frontend (PWA-enabled)
@@ -97,7 +97,7 @@ cd ai-agent
 ### Full System (Docker Compose)
 ```bash
 cp .env.example .env             # 외부 API 키 (비워도 기동됨)
-docker compose up -d --build     # 4개 서비스 전체 기동 (최초 빌드 수~십 분)
+docker compose up -d --build     # 6개 서비스 전체 기동 (최초 빌드 수~십 분)
 docker compose up -d postgres    # DB만 (로컬 개발 시)
 docker compose down              # 중지
 docker compose logs -f
@@ -108,6 +108,8 @@ docker compose logs -f
 - `api-server` → Spring Boot (port 7070, context-path `/api`)
 - `ai-agent` → FastAPI (port 8000, torch/prophet/KR-FinBERT 포함 → 이미지 수 GB)
 - `postgres` → PostgreSQL (port 5432)
+- `kafka` → Kafka 4.0 KRaft 단일 노드 (port 9092, `trade.order.*` 토픽 + DLQ)
+- `redis` → Redis 7 (port 6379, KIS·업비트 rate-limit 토큰버킷 + 응답 캐시)
 - `elasticsearch` → (port 9200) 코드 미사용이라 compose에서 주석 처리
 
 > Dockerfile: `api-server/Dockerfile`(멀티스테이지 JDK21→JRE21), `ai-agent/Dockerfile`(python3.11 + fonts-nanum), `web-app/Dockerfile`(node 빌드→nginx). 시크릿은 루트 `.env`를 `env_file`로 주입. 상세: [`_docs/USAGE.md`](_docs/USAGE.md)
@@ -119,7 +121,8 @@ docker compose logs -f
 ### Service Communication Pattern
 ```
 Vue3 → Spring Boot (7070)     : 인증, 대시보드, 자산, 거래내역, 설정, 시장 분석, 종목 상세
-Spring Boot → KIS API          : 주문 실행, 잔고/시세 조회
+Spring Boot → KIS API          : 주문 실행, 잔고/시세 조회 (주식 + **채권 보유/매도**)
+Spring Boot → Upbit API        : 원화 마켓 시세(무인증) + 코인 잔고·주문(사용자별 JWT 서명)
 Spring Boot → DART API         : 기업 재무·공시 조회
 Spring Boot ⇄ PostgreSQL       : 사용자/인증/설정/거래 이력 + AI 분석 결과 조회
 ai-agent → KIS / DART / News   : 분석용 원천 데이터 수집
@@ -157,7 +160,9 @@ ai-agent → Kafka → Spring Boot : Stage 6에서 `trade.order.requested` 토�
 상세 화면·라우팅은 [`web-app/_docs/README.md`](web-app/_docs/README.md) 참고.
 
 **Key Routes:**
-- `/` → Splash · `/home` → 대시보드 · `/assets` → 자산 · `/bot` → AI 봇 · `/search` → 검색 · `/news` → 뉴스 · `/profile`, `/settings` → 사용자 관리
+- `/` → Splash · `/home` → 대시보드 · `/assets` → 자산 · `/bot` → AI 봇 · `/search` → 검색 · `/news` → 뉴스 · `/favorites` → 관심종목 · `/transactions` → 거래내역 · `/market-analysis` → 시장 분석 · `/profile`, `/settings` → 사용자 관리
+- 상세/매매: `/company/:symbol`, `/trading/:symbol` (주식) · `/bonds/:code`, `/bonds/:code/sell` (채권) · `/coins`, `/coins/:market`, `/coins/:market/trade` (코인)
+> 전체 라우트 표는 [`web-app/_docs/ARCHITECTURE.md`](web-app/_docs/ARCHITECTURE.md) 참고.
 
 ### Backend Architecture (Spring Boot)
 - **Java**: 21 (LTS, toolchain)
@@ -172,12 +177,14 @@ ai-agent → Kafka → Spring Boot : Stage 6에서 `trade.order.requested` 토�
 ```
 controller/   AuthController, AssetController, TradingController, UserController,
               MarketAnalysisController, MarketDataController, CompanyController,
-              HealthController
-service/      AuthService, UserService, TradingService, KisAuthService 등
-domain/       User, RefreshToken, UserKisAccount, UserTradeConfig, UserSettings, TradeHistory
+              BondController, CoinController, HealthController
+service/      AuthService, UserService, TradingService, KisAuthService,
+              BondTradingService, CoinTradingService, CoinQuoteService, UpbitAuthService 등
+domain/       User, RefreshToken, UserKisAccount, UserUpbitAccount, UserTradeConfig,
+              UserSettings, TradeHistory, CoinTradeHistory
 repository/   Spring Data JPA repositories
-dto/          auth, trade, kis, user, common, market, company 하위 패키지
-client/       KIS / DART 외부 API 클라이언트
+dto/          auth, trade, kis, user, common, market, company, bond, coin 하위 패키지
+client/       KIS / KisBond / Upbit / DART 외부 API 클라이언트
 config/       SecurityConfig, CorsConfig 등
 security/     JwtAuthenticationFilter, CustomUserDetails, CustomUserDetailsService
 util/         JwtTokenProvider
@@ -198,7 +205,10 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 
 상세 6단계 플로우는 [`ai-agent/_docs/PIPELINE_DESIGN.md`](ai-agent/_docs/PIPELINE_DESIGN.md), 모듈 지침은 [`ai-agent/CLAUDE.md`](ai-agent/CLAUDE.md) 참고.
 
-**Chart Files (Static Serving):**
+**Chart Files (Static Serving) — 미구현, 설계안으로만 남아 있음:**
+
+아래 4종은 **생성되지 않는다.** matplotlib 차트 생성 단계 자체가 구현되지 않았고 `/static/charts/`도 없다. web-app이 DB 원시 데이터를 받아 클라이언트에서 직접 렌더하므로 서버 PNG를 `<img>`로 불러오는 코드도 없다. 이 목록은 "추후 서버 렌더링으로 전환할 경우의 산출물 이름" 이상의 의미가 없으니, **파일이 있으리라 가정하지 말 것.**
+
 - `heatmap_today.png` → 11 features × 30 stocks heatmap
 - `quant_features_today.png` → Foreign/institutional net buy + volume bars
 - `sentiment_today.png` → Sentiment scores by stock
@@ -206,18 +216,20 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 
 ## Database Schema
 
-**실제 테이블: 21개 + 뷰 4개** (Liquibase가 28개 changelog로 생성, v1.0~v1.27). **스키마 단일 출처는 Liquibase changelog**(`api-server/src/main/resources/db/changelog/`)이며, [`database/schema.sql`](database/schema.sql)은 라이브 DB에서 뽑은 참고용 스냅샷입니다(자동 생성 — `database/generate-schema.sh`, 직접 편집 금지). 전체 목록·관계는 [`database/README.md`](database/README.md).
+**실제 테이블: 23개 + 뷰 4개** (Liquibase가 31개 changelog로 생성, v1.0~v1.30). **스키마 단일 출처는 Liquibase changelog**(`api-server/src/main/resources/db/changelog/`)이며, [`database/schema.sql`](database/schema.sql)은 라이브 DB에서 뽑은 참고용 스냅샷입니다(자동 생성 — `database/generate-schema.sh`, 직접 편집 금지). 전체 목록·관계는 [`database/README.md`](database/README.md).
 
 | 그룹 | 테이블 |
 |------|--------|
-| 사용자 & 인증 | `users`, `refresh_tokens`, `user_kis_accounts`, `user_trade_config`, `user_settings`, `webauthn_credentials` |
+| 사용자 & 인증 | `users`, `refresh_tokens`, `user_kis_accounts`, `user_upbit_accounts`, `user_trade_config`, `user_settings`, `webauthn_credentials` |
 | 분석 데이터 | `stock_filter_score`, `stock_financial`, `news_analysis`, `stock_news`, `prophet_forecast`, `ai_trade_decision`, `safety_filter_result` |
 | 웹 표시용 | `market_daily_summary`, `stock_realtime_price`, `asset_daily_snapshot` |
-| 매매 실행 | `trade_execution_plan`, `feature_threshold_config`, `trade_history` |
+| 매매 실행 | `trade_execution_plan`, `feature_threshold_config`, `trade_history`, `coin_trade_history` |
 | 검색 & 관심종목 | `stock_master`, `user_favorites` |
 | 뷰 | `v_latest_trade_plan`, `v_decision_with_filter`, `v_market_overview`, `v_stock_analysis_summary` |
 
-> 테이블 수 변경 이력: v1.8에서 `stock_master`/`user_favorites` 추가(19개), v1.10 `stock_news`·v1.14 `webauthn_credentials`·v1.17 `asset_daily_snapshot` 추가로 22개, v1.18에서 `safety_filter_result.decision` 컬럼 추가(테이블 수 변화 없음), v1.19에서 아무도 읽거나 쓰지 않던 `user_holdings`를 제거해 현재 21개입니다.
+> 테이블 수 변경 이력: v1.8에서 `stock_master`/`user_favorites` 추가(19개), v1.10 `stock_news`·v1.14 `webauthn_credentials`·v1.17 `asset_daily_snapshot` 추가로 22개, v1.18에서 `safety_filter_result.decision` 컬럼 추가(테이블 수 변화 없음), v1.19에서 아무도 읽거나 쓰지 않던 `user_holdings`를 제거해 21개, v1.29에서 업비트 연동으로 `user_upbit_accounts`·`coin_trade_history`를 추가해 현재 23개입니다.
+>
+> **채권은 테이블을 추가하지 않았습니다.** 보유 현황·매도 모두 KIS API 실시간 조회로 처리하고 별도 저장을 하지 않기 때문입니다(사전 검토에서 채권 검색 API가 없다는 사실이 확인돼 범위를 보유/매도로 좁힌 결과 — `docs/superpowers/specs/2026-08-28-domestic-bond-trading-design.md`).
 
 ## Technology Stack Summary
 
@@ -227,10 +239,12 @@ exception/    GlobalExceptionHandler, BusinessException, ErrorCode 등
 | Backend API | Spring Boot 4.1, Java 21, Spring Data JPA, Spring Security + JWT(jjwt 0.12.3), Jasypt, Liquibase, PostgreSQL, Gradle |
 | AI Pipeline | Python 3.11+, FastAPI, APScheduler, pandas, NumPy, scikit-learn, Prophet, transformers (KR-FinBERT), matplotlib |
 | AI Model | Gemini API (free tier) |
-| Database | PostgreSQL 16 + TimescaleDB extension (21 tables + 4 views; 4 tables are hypertables — see `database/README.md`) |
-| Search | Elasticsearch 8.x (확장 예정) |
+| Database | PostgreSQL 16 + TimescaleDB extension (23 tables + 4 views; 4 tables are hypertables — see `database/README.md`) |
+| Message Queue | Apache Kafka 4.0 (KRaft 단일 노드) — `trade.order.*` 토픽 + DLQ |
+| Cache | Redis 7 — KIS·업비트 rate-limit 토큰버킷 + 응답 캐시 (stale-if-error) |
+| Search | Elasticsearch 8.x (확장 예정, 현재 미사용) |
 | Infra | Docker, Docker Compose |
-| External APIs | KIS Developers (mock trading), DART (financial data) |
+| External APIs | KIS Developers (**실전투자** — 주식·채권), Upbit Open API (원화 마켓 코인), DART (financial data) |
 
 ## Important Development Notes
 

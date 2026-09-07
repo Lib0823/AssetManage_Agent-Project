@@ -15,11 +15,14 @@ import com.inbeom.apiserver.dto.user.UserSettingsResponse;
 import com.inbeom.apiserver.exception.BusinessException;
 import com.inbeom.apiserver.exception.ErrorCode;
 import com.inbeom.apiserver.exception.UserNotFoundException;
+import com.inbeom.apiserver.client.UpbitApiClient;
+import com.inbeom.apiserver.repository.CoinTradeHistoryRepository;
 import com.inbeom.apiserver.repository.RefreshTokenRepository;
 import com.inbeom.apiserver.repository.UserKisAccountRepository;
 import com.inbeom.apiserver.repository.UserRepository;
 import com.inbeom.apiserver.repository.UserSettingsRepository;
 import com.inbeom.apiserver.repository.UserTradeConfigRepository;
+import com.inbeom.apiserver.repository.UserUpbitAccountRepository;
 import org.jasypt.encryption.StringEncryptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -66,6 +69,18 @@ class UserServiceTest {
     @Mock
     private StringEncryptor jasyptStringEncryptor;
 
+    @Mock
+    private UserUpbitAccountRepository upbitAccountRepository;
+
+    @Mock
+    private CoinTradeHistoryRepository coinTradeHistoryRepository;
+
+    @Mock
+    private UpbitAuthService upbitAuthService;
+
+    @Mock
+    private UpbitApiClient upbitApiClient;
+
     /** JSON 직렬화는 진짜 동작(파싱 실패 경로 포함)을 검증해야 하므로 실제 ObjectMapper 를 쓴다. */
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -81,6 +96,10 @@ class UserServiceTest {
                 kisAccountRepository,
                 refreshTokenRepository,
                 userSettingsRepository,
+                upbitAccountRepository,
+                coinTradeHistoryRepository,
+                upbitAuthService,
+                upbitApiClient,
                 objectMapper,
                 jasyptStringEncryptor);
 
