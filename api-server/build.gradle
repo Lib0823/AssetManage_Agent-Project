@@ -150,3 +150,24 @@ jacocoTestReport {
         html.required = true
     }
 }
+
+// bootRun 전에 서버 포트를 비운다.
+//
+// 이전 실행이 IDE 종료 후에도 살아남거나, 다른 프로세스가 7070 을 선점하면
+// "Port 7070 was already in use" 로 기동이 막힌다. 매번 손으로 lsof/kill 하는 대신
+// free-port.sh 가 무엇을 죽이는지 출력하면서 정리한다.
+//
+// Docker 가 포트를 쓰고 있으면 스크립트가 죽이지 않고 non-zero 로 끝난다 —
+// 그때는 컨테이너를 내려야 하므로 여기서 빌드를 멈추는 편이 맞다.
+tasks.register('freePort', Exec) {
+    description = 'Frees the server port before bootRun (kills leftover processes).'
+    group = 'application'
+    workingDir = projectDir
+    commandLine './free-port.sh', (project.findProperty('serverPort') ?: '7070')
+    // 스크립트가 없는 환경(예: 소스만 복사한 CI)에서 bootRun 자체가 깨지지 않게 한다.
+    onlyIf { file("$projectDir/free-port.sh").exists() }
+}
+
+tasks.named('bootRun') {
+    dependsOn 'freePort'
+}

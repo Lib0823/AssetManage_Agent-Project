@@ -21,4 +21,7 @@ if [ -n "$ENV_FILE" ]; then
 else
   echo "[run-local] WARNING: .env not found — KIS quote / DART will be disabled"
 fi
+# 이전 실행이 남아 있으면 "Port 7070 was already in use" 로 막힌다. 먼저 비운다.
+./free-port.sh "${SERVER_PORT:-7070}"
+
 exec ./gradlew bootRun "$@"
